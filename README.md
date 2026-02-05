@@ -1,7 +1,6 @@
 # 🤖 AI Assistants Army
 
 [![CI](https://github.com/developerz-ai/ai-army/actions/workflows/ci.yml/badge.svg)](https://github.com/developerz-ai/ai-army/actions/workflows/ci.yml)
-[![Monitor](https://github.com/developerz-ai/ai-army/actions/workflows/monitor.yml/badge.svg)](https://github.com/developerz-ai/ai-army/actions/workflows/monitor.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 > A framework for building multi-bot AI systems. Like **Ruby on Rails** for AI bots.
