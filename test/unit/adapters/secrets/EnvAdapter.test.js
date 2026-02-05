@@ -297,6 +297,9 @@ describe('EnvAdapter', () => {
     });
 
     it('should handle database URL with default', async () => {
+      // Clear DATABASE_URL to test default (CI may have it set)
+      delete process.env.DATABASE_URL;
+
       const dbDefault = 'DATABASE_URL:-postgresql://localhost:5432/ai-army';
       const url = await adapter.getSecret(dbDefault);
       assert.equal(url, 'postgresql://localhost:5432/ai-army');
