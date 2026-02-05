@@ -151,7 +151,7 @@ export class Orchestrator {
       this._createComponents();
 
       // Step 5: Discover and load bots
-      const botCount = await this._loadBots();
+      const { discovered: discoveredCount, loaded: loadedCount } = await this._loadBots();
 
       // Step 6: Start all loaded bots
       const startResults = await this._startBots();
@@ -165,10 +165,11 @@ export class Orchestrator {
       const failedCount = startResults.failed.length;
       const successCount = startResults.started.length;
 
-      if (failedCount > 0) {
+      if (failedCount > 0 || loadedCount < discoveredCount) {
+        const loadFailCount = discoveredCount - loadedCount;
         this._log(
-          `⚠️ AI Army started with ${successCount}/${botCount} bots ` +
-            `(${failedCount} failed to start)`
+          `⚠️ AI Army started with ${successCount}/${discoveredCount} bots ` +
+            `(${loadFailCount} failed to load, ${failedCount} failed to start)`
         );
       } else {
         this._log(`🚀 AI Army started with ${successCount} bots`);
@@ -274,15 +275,27 @@ export class Orchestrator {
       const results = { reloaded: [], failed: [] };
 
       if (this.botManager) {
-        const botConfigs = await this._discoverBotConfigs();
+        const newBotConfigs = await this._discoverBotConfigs();
 
-        for (const [botId, botConfig] of botConfigs) {
+        // Track which bots are still present in the new config
+        const activeBotIds = new Set();
+
+        for (const [botId, botConfig] of newBotConfigs) {
+          activeBotIds.add(botId);
           try {
             const mergedConfig = this.configLoader.deepMerge(this.config.defaults || {}, botConfig);
             await this.botManager.reloadBot(botId, mergedConfig);
+            this.botConfigs.set(botId, mergedConfig);
             results.reloaded.push(botId);
           } catch (err) {
             results.failed.push({ botId, error: err.message });
+          }
+        }
+
+        // Remove bots that are no longer in config
+        for (const botId of this.botConfigs.keys()) {
+          if (!activeBotIds.has(botId)) {
+            this.botConfigs.delete(botId);
           }
         }
       }
@@ -535,13 +548,14 @@ export class Orchestrator {
   async _loadBots() {
     if (!this.botManager) {
       this._log('⏭️ No BotManager configured, skipping bot loading');
-      return 0;
+      return { discovered: 0, loaded: 0 };
     }
 
     this._log('🤖 Loading bots...');
 
     try {
       const botConfigs = await this._discoverBotConfigs();
+      const discoveredCount = botConfigs.size;
       let loadedCount = 0;
 
       for (const [botId, botConfig] of botConfigs) {
@@ -558,8 +572,8 @@ export class Orchestrator {
         }
       }
 
-      this._log(`🤖 ${loadedCount} bot(s) loaded`);
-      return loadedCount;
+      this._log(`🤖 ${loadedCount}/${discoveredCount} bot(s) loaded`);
+      return { discovered: discoveredCount, loaded: loadedCount };
     } catch (err) {
       if (err instanceof OrchestratorError) {
         throw err;

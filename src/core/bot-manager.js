@@ -493,9 +493,16 @@ export class BotManager {
 
     // Compare key sandbox fields
     if (oldSandbox.image !== newSandbox.image) return true;
-    if (oldSandbox.memory !== newSandbox.memory) return true;
-    if (oldSandbox.cpus !== newSandbox.cpus) return true;
     if (oldSandbox.type !== newSandbox.type) return true;
+
+    // Treat 0/undefined/null as equivalent for numeric limits
+    const oldMemory = oldSandbox.memory ?? 0;
+    const newMemory = newSandbox.memory ?? 0;
+    if (oldMemory !== newMemory) return true;
+
+    const oldCpus = oldSandbox.cpus ?? 0;
+    const newCpus = newSandbox.cpus ?? 0;
+    if (oldCpus !== newCpus) return true;
 
     // Compare packages arrays
     const oldPkgs = JSON.stringify(oldSandbox.packages || []);
