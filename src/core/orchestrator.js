@@ -157,20 +157,40 @@ export class Orchestrator {
       const startResults = await this._startBots();
 
       // Step 7: Initialize channels
-      await this._initializeChannels();
+      const channelResults = await this._initializeChannels();
+
+      // Fail startup if channels are configured but ALL failed to initialize
+      const channelsConfigured = Object.keys(this.config.channels || {}).length;
+      if (channelsConfigured > 0 && channelResults.initialized.length === 0) {
+        throw new OrchestratorError(
+          `All ${channelsConfigured} configured channel(s) failed to initialize`,
+          { operation: 'start', component: 'channels' }
+        );
+      }
 
       this.state = ORCHESTRATOR_STATES.RUNNING;
       this.startedAt = new Date();
 
       const failedCount = startResults.failed.length;
       const successCount = startResults.started.length;
+      const channelFailCount = channelResults.failed.length;
 
-      if (failedCount > 0 || loadedCount < discoveredCount) {
+      if (failedCount > 0 || loadedCount < discoveredCount || channelFailCount > 0) {
         const loadFailCount = discoveredCount - loadedCount;
-        this._log(
-          `⚠️ AI Army started with ${successCount}/${discoveredCount} bots ` +
-            `(${loadFailCount} failed to load, ${failedCount} failed to start)`
-        );
+        const parts = [];
+        if (loadFailCount > 0 || failedCount > 0) {
+          parts.push(
+            `${successCount}/${discoveredCount} bots ` +
+              `(${loadFailCount} failed to load, ${failedCount} failed to start)`
+          );
+        }
+        if (channelFailCount > 0) {
+          parts.push(
+            `${channelResults.initialized.length}/${channelsConfigured} channels ` +
+              `(${channelFailCount} failed)`
+          );
+        }
+        this._log(`⚠️ AI Army started with ${parts.join(', ')}`);
       } else {
         this._log(`🚀 AI Army started with ${successCount} bots`);
       }
@@ -630,15 +650,16 @@ export class Orchestrator {
   /**
    * Step 7: Initialize channel adapters from config
    *
-   * @returns {Promise<void>}
+   * @returns {Promise<{initialized: string[], failed: string[]}>} Results with initialized/failed channel names
    * @private
    */
   async _initializeChannels() {
     const channelsConfig = this.config.channels || {};
     const channelNames = Object.keys(channelsConfig);
+    const results = { initialized: [], failed: [] };
 
     if (channelNames.length === 0) {
-      return;
+      return results;
     }
 
     this._log('📡 Initializing channels...');
@@ -648,17 +669,22 @@ export class Orchestrator {
         const AdapterClass = this.channelAdapters.get(channelConfig.type);
         if (!AdapterClass) {
           this._log(`  ⏭️ No adapter registered for channel type: ${channelConfig.type}`);
+          results.failed.push(name);
           continue;
         }
 
         const adapter = new AdapterClass();
         await adapter.initialize(channelConfig);
         this.channels.set(name, adapter);
+        results.initialized.push(name);
         this._log(`  📡 Initialized channel: ${name} (${channelConfig.type})`);
       } catch (err) {
+        results.failed.push(name);
         this._log(`  ❌ Failed to initialize channel '${name}': ${err.message}`);
       }
     }
+
+    return results;
   }
 
   // ==========================================================================

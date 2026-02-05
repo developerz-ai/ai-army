@@ -714,7 +714,7 @@ describe('Orchestrator', () => {
       assert.equal(adapter.initialized, true);
     });
 
-    test('skips channels without registered adapter', async () => {
+    test('skips channels without registered adapter and counts as failed', async () => {
       const mainConfig = createMainConfig({
         channels: {
           'slack-main': { type: 'slack', botToken: 'xoxb-test' },
@@ -723,12 +723,18 @@ describe('Orchestrator', () => {
 
       opts.configLoader.load = mock.fn(async () => mainConfig);
 
-      await orchestrator.start();
-
-      assert.equal(orchestrator.channels.size, 0);
+      // All configured channels fail (no adapter registered), so startup throws
+      await assert.rejects(
+        () => orchestrator.start(),
+        err => {
+          assert.equal(err.name, 'OrchestratorError');
+          assert.match(err.message, /channel.*failed/i);
+          return true;
+        }
+      );
     });
 
-    test('continues startup when channel initialization fails', async () => {
+    test('throws when ALL configured channels fail to initialize', async () => {
       const FailAdapter = createMockChannelAdapterClass({
         initializeError: 'Invalid token',
       });
@@ -747,10 +753,66 @@ describe('Orchestrator', () => {
       });
       orchestrator.registerChannelAdapter('slack', FailAdapter);
 
+      await assert.rejects(
+        () => orchestrator.start(),
+        err => {
+          assert.equal(err.name, 'OrchestratorError');
+          assert.match(err.message, /channel.*failed/i);
+          assert.equal(err.component, 'channels');
+          return true;
+        }
+      );
+
+      assert.equal(orchestrator.state, 'error');
+    });
+
+    test('throws when channels are configured but no adapters registered', async () => {
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+
+      await assert.rejects(
+        () => orchestrator.start(),
+        err => {
+          assert.equal(err.name, 'OrchestratorError');
+          assert.match(err.message, /channel.*failed/i);
+          return true;
+        }
+      );
+
+      assert.equal(orchestrator.state, 'error');
+    });
+
+    test('starts successfully when at least one channel initializes', async () => {
+      const GoodAdapter = createMockChannelAdapterClass();
+      const FailAdapter = createMockChannelAdapterClass({
+        initializeError: 'Invalid token',
+      });
+
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+          'discord-main': { type: 'discord', token: 'bad-token' },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+      orchestrator = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+      });
+      orchestrator.registerChannelAdapter('slack', GoodAdapter);
+      orchestrator.registerChannelAdapter('discord', FailAdapter);
+
       await orchestrator.start();
 
       assert.equal(orchestrator.state, 'running');
-      assert.equal(orchestrator.channels.size, 0);
+      assert.equal(orchestrator.channels.size, 1);
+      assert.ok(orchestrator.channels.has('slack-main'));
     });
   });
 
@@ -835,6 +897,40 @@ describe('Orchestrator', () => {
           return true;
         }
       );
+    });
+
+    test('preserves error state when stop() is called from error state', async () => {
+      await orchestrator.start();
+
+      // Simulate an error state (e.g., a runtime failure after start)
+      orchestrator.state = ORCHESTRATOR_STATES.ERROR;
+
+      await orchestrator.stop();
+
+      // stop() should preserve the ERROR state, not overwrite with STOPPED
+      assert.equal(orchestrator.state, 'error');
+    });
+
+    test('preserves error state even when shutdown components fail', async () => {
+      opts.storage.disconnect = mock.fn(async () => {
+        throw new Error('Pool already ended');
+      });
+
+      await orchestrator.start();
+
+      // Simulate an error state before calling stop()
+      orchestrator.state = ORCHESTRATOR_STATES.ERROR;
+
+      await assert.rejects(
+        () => orchestrator.stop(),
+        err => {
+          assert.equal(err.name, 'OrchestratorError');
+          return true;
+        }
+      );
+
+      // Should still be in error state, not stopped
+      assert.equal(orchestrator.state, 'error');
     });
 
     test('skips bot stopping when no BotManager', async () => {

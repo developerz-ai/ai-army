@@ -924,7 +924,7 @@ describe('Orchestrator Integration - Filesystem', () => {
       assert.equal(orchestrator.channels.size, 0);
     });
 
-    test('skips channels without registered adapters', async () => {
+    test('throws when all channels fail due to missing adapters', async () => {
       const config = createValidConfig({
         channels: {
           'rest-api': { type: 'rest', port: 3000 },
@@ -940,15 +940,20 @@ describe('Orchestrator Integration - Filesystem', () => {
         botManager: createMockBotManager(),
       });
 
-      await orchestrator.start();
+      await assert.rejects(
+        () => orchestrator.start(),
+        err => {
+          assert.equal(err.name, 'OrchestratorError');
+          assert.match(err.message, /channel.*failed/i);
+          assert.equal(err.component, 'channels');
+          return true;
+        }
+      );
 
-      assert.equal(orchestrator.channels.size, 0);
-      assert.equal(orchestrator.getState(), 'running');
-
-      await orchestrator.stop();
+      assert.equal(orchestrator.getState(), 'error');
     });
 
-    test('continues startup when adapter initialization fails', async () => {
+    test('throws when all channels fail to initialize', async () => {
       const config = createValidConfig({
         channels: {
           'bad-slack': { type: 'slack', botToken: 'invalid' },
@@ -968,12 +973,16 @@ describe('Orchestrator Integration - Filesystem', () => {
       });
       orchestrator.registerChannelAdapter('slack', FailAdapter);
 
-      await orchestrator.start();
+      await assert.rejects(
+        () => orchestrator.start(),
+        err => {
+          assert.equal(err.name, 'OrchestratorError');
+          assert.match(err.message, /channel.*failed/i);
+          return true;
+        }
+      );
 
-      assert.equal(orchestrator.getState(), 'running');
-      assert.equal(orchestrator.channels.size, 0);
-
-      await orchestrator.stop();
+      assert.equal(orchestrator.getState(), 'error');
     });
   });
 
