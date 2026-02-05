@@ -223,6 +223,64 @@ describe('ContainerPool Integration', { skip: !DOCKER_AVAILABLE }, () => {
       assert.ok(container1.id !== container2.id, 'Should be different container after reinit');
       assert.equal(pool.size, 1, 'Pool should have one container');
     });
+
+    it('replaces existing container on re-initialize', async () => {
+      const botId = `${TEST_PREFIX}-replace-${Date.now()}`;
+      const botConfig = {
+        id: botId,
+        sandbox: {
+          image: 'alpine:latest',
+          memory: '256m',
+          cpus: 1,
+        },
+      };
+
+      const container1 = await pool.initializeContainer(botId, botConfig, { root: tempDir });
+      const container2 = await pool.initializeContainer(botId, botConfig, { root: tempDir });
+
+      assert.ok(container1.id !== container2.id, 'Should create a new container');
+      assert.equal(pool.size, 1, 'Pool should still have one container');
+      assert.ok(pool.hasContainer(botId), 'Pool should have the bot');
+
+      // Verify new container works
+      const result = await dockerManager.exec(container2, 'echo "replaced"');
+      assert.equal(result.exitCode, 0);
+      assert.equal(result.stdout, 'replaced');
+    });
+
+    it('auto-recreates unhealthy container on getContainer()', async () => {
+      const botId = `${TEST_PREFIX}-autorecreate-${Date.now()}`;
+      const botConfig = {
+        id: botId,
+        sandbox: {
+          image: 'alpine:latest',
+          memory: '256m',
+          cpus: 1,
+        },
+      };
+
+      const originalContainer = await pool.initializeContainer(botId, botConfig, { root: tempDir });
+      const originalId = originalContainer.id;
+
+      // Kill the container externally to make it unhealthy
+      try {
+        await originalContainer.stop({ t: 1 });
+      } catch {
+        // Ignore if already stopped
+      }
+
+      // getContainer should detect unhealthy and auto-recreate
+      const recreatedContainer = await pool.getContainer(botId);
+
+      assert.ok(recreatedContainer, 'Should return a container');
+      assert.ok(recreatedContainer.id !== originalId, 'Should be a different container');
+      assert.equal(pool.size, 1, 'Pool should still have one container');
+
+      // Verify the recreated container works
+      const result = await dockerManager.exec(recreatedContainer, 'echo "auto-recreated"');
+      assert.equal(result.exitCode, 0);
+      assert.equal(result.stdout, 'auto-recreated');
+    });
   });
 
   describe('Container Execution', () => {
@@ -384,6 +442,40 @@ describe('ContainerPool Integration', { skip: !DOCKER_AVAILABLE }, () => {
         recycled: [],
       });
     });
+
+    it('detects mixed healthy and unhealthy containers', async () => {
+      const botId1 = `${TEST_PREFIX}-mix-healthy-${Date.now()}`;
+      const botId2 = `${TEST_PREFIX}-mix-unhealthy-${Date.now()}`;
+
+      const container1 = await pool.initializeContainer(
+        botId1,
+        { id: botId1, sandbox: { image: 'alpine:latest' } },
+        { root: tempDir }
+      );
+      const container2 = await pool.initializeContainer(
+        botId2,
+        { id: botId2, sandbox: { image: 'alpine:latest' } },
+        { root: tempDir }
+      );
+
+      // Stop one container externally
+      try {
+        await container2.stop({ t: 1 });
+      } catch {
+        // Ignore if already stopped
+      }
+
+      const results = await pool.healthCheckAll();
+
+      assert.ok(results.healthy.includes(botId1), 'Bot 1 should be healthy');
+      assert.ok(results.unhealthy.includes(botId2), 'Bot 2 should be unhealthy');
+      assert.ok(results.recycled.includes(botId2), 'Bot 2 should be recycled');
+      assert.ok(!results.unhealthy.includes(botId1), 'Bot 1 should not be unhealthy');
+
+      // Verify the healthy container still works
+      const result = await dockerManager.exec(container1, 'echo "still alive"');
+      assert.equal(result.stdout, 'still alive');
+    });
   });
 
   describe('Cleanup', () => {
@@ -542,6 +634,49 @@ describe('ContainerPool Integration', { skip: !DOCKER_AVAILABLE }, () => {
         const result = await dockerManager.exec(containers[i], `echo "Bot ${i}"`);
         assert.equal(result.stdout, `Bot ${i}`);
       }
+    });
+
+    it('maintains workspace isolation between containers', async () => {
+      const bots = [`${TEST_PREFIX}-iso1-${Date.now()}`, `${TEST_PREFIX}-iso2-${Date.now()}`];
+
+      // Create separate workspaces
+      const workspaces = await Promise.all(
+        bots.map(async botId => {
+          const dir = path.join(tempDir, botId);
+          await fs.mkdir(dir, { recursive: true });
+          return dir;
+        })
+      );
+
+      // Initialize containers with separate workspaces
+      for (let i = 0; i < bots.length; i++) {
+        await pool.initializeContainer(
+          bots[i],
+          { id: bots[i], sandbox: { image: 'alpine:latest' } },
+          { root: workspaces[i] }
+        );
+      }
+
+      // Write different files in each container
+      const container1 = await pool.getContainer(bots[0]);
+      const container2 = await pool.getContainer(bots[1]);
+
+      await dockerManager.exec(container1, 'echo "bot1-data" > /home/agent/data.txt');
+      await dockerManager.exec(container2, 'echo "bot2-data" > /home/agent/data.txt');
+
+      // Verify files are isolated
+      const result1 = await dockerManager.exec(container1, 'cat /home/agent/data.txt');
+      const result2 = await dockerManager.exec(container2, 'cat /home/agent/data.txt');
+
+      assert.equal(result1.stdout, 'bot1-data');
+      assert.equal(result2.stdout, 'bot2-data');
+
+      // Verify on host filesystem too
+      const hostContent1 = await fs.readFile(path.join(workspaces[0], 'data.txt'), 'utf8');
+      const hostContent2 = await fs.readFile(path.join(workspaces[1], 'data.txt'), 'utf8');
+
+      assert.equal(hostContent1.trim(), 'bot1-data');
+      assert.equal(hostContent2.trim(), 'bot2-data');
     });
 
     it('recycles one container without affecting others', async () => {
