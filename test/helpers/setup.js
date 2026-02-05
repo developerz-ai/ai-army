@@ -77,8 +77,9 @@ export async function createWorkerDatabase() {
       `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`,
       [dbName]
     );
-    await pool.query(`DROP DATABASE IF EXISTS "${dbName}"`);
-    await pool.query(`CREATE DATABASE "${dbName}"`);
+    const safeName = pg.escapeIdentifier(dbName);
+    await pool.query(`DROP DATABASE IF EXISTS ${safeName}`);
+    await pool.query(`CREATE DATABASE ${safeName}`);
   } finally {
     await pool.end();
   }
@@ -95,7 +96,7 @@ export async function dropWorkerDatabase() {
       `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`,
       [dbName]
     );
-    await pool.query(`DROP DATABASE IF EXISTS "${dbName}"`);
+    await pool.query(`DROP DATABASE IF EXISTS ${pg.escapeIdentifier(dbName)}`);
   } finally {
     await pool.end();
   }
