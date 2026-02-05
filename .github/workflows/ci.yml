@@ -7,13 +7,13 @@ on:
     branches: [main, develop]
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:
       - name: Checkout
@@ -33,7 +33,7 @@ jobs:
 
   unit:
     name: Unit Tests
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:
       - name: Checkout
@@ -49,11 +49,11 @@ jobs:
         run: npm ci
 
       - name: Run unit tests
-        run: node --test --test-concurrency=$(nproc) 'test/unit/**/*.test.js' 'test/helpers/**/*.test.js' 'src/**/*.test.js'
+        run: npm run test:unit
 
   integration-db:
     name: Integration Tests (Database)
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
 
     services:
       postgres:
@@ -84,13 +84,13 @@ jobs:
         run: npm ci
 
       - name: Run database integration tests
-        run: node --test --test-concurrency=$(nproc) 'test/integration/database/**/*.test.js' 'test/integration/adapters/**/*.test.js'
+        run: npm run test:integration:db
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/ai_army_test
 
   integration-docker:
     name: Integration Tests (Docker)
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:
       - name: Checkout
@@ -109,4 +109,4 @@ jobs:
         run: docker pull alpine:latest
 
       - name: Run Docker integration tests
-        run: node --test --test-concurrency=$(nproc) 'test/integration/execution/**/*.test.js'
+        run: npm run test:integration:docker
