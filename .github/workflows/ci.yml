@@ -8,27 +8,47 @@ on:
 
 jobs:
   lint:
-    name: 🔍 Lint
+    name: Lint
     runs-on: ubuntu-latest
 
     steps:
-      - name: 📥 Checkout
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 🟢 Setup Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22.x
           cache: 'npm'
 
-      - name: 📦 Install
+      - name: Install
         run: npm ci
 
-      - name: 🔍 Lint
+      - name: Lint
         run: npm run lint
 
-  test:
-    name: 🧪 Test
+  unit:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      - name: Run unit tests
+        run: node --test --test-concurrency=$(nproc) 'test/unit/**/*.test.js' 'test/helpers/**/*.test.js' 'src/**/*.test.js'
+
+  integration-db:
+    name: Integration Tests (Database)
     runs-on: ubuntu-latest
 
     services:
@@ -47,19 +67,42 @@ jobs:
           - 5432:5432
 
     steps:
-      - name: 📥 Checkout
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 🟢 Setup Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22.x
           cache: 'npm'
 
-      - name: 📦 Install
+      - name: Install
         run: npm ci
 
-      - name: 🧪 Run Tests
-        run: npm test
+      - name: Run database integration tests
+        run: npm run test:integration:db
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/ai_army_test
+
+  integration-docker:
+    name: Integration Tests (Docker)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      - name: Pre-pull Docker images
+        run: docker pull alpine:latest
+
+      - name: Run Docker integration tests
+        run: node --test --test-concurrency=$(nproc) 'test/integration/execution/**/*.test.js'
