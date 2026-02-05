@@ -10,29 +10,18 @@
 import { test, describe, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { PostgresStorage, StorageError } from '../../../src/adapters/storage/postgres.js';
-import { setupTestDatabase, cleanupTestDatabase, TEST_DATABASE_URL } from '../../helpers/setup.js';
+import {
+  setupTestDatabase,
+  cleanupTestDatabase,
+  TEST_DATABASE_URL,
+  isDatabaseAvailable,
+} from '../../helpers/setup.js';
 
-/**
- * Check if database is available at startup
- * Returns true if we can connect, false otherwise
- */
-async function checkDatabaseAvailable() {
-  const storage = new PostgresStorage(TEST_DATABASE_URL);
-  try {
-    await storage.connect();
-    await storage.disconnect();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-// Check database availability synchronously at module load
-// This allows us to use the skip option in test definitions
-const DB_AVAILABLE = await checkDatabaseAvailable();
+// Check base database availability at module load (worker DB gets created in setupTestDatabase)
+const DB_AVAILABLE = await isDatabaseAvailable();
 
 if (!DB_AVAILABLE) {
-  console.log('⚠️  Skipping PostgresStorage tests - database not available at:', TEST_DATABASE_URL);
+  console.log('Skipping PostgresStorage tests - database not available');
 }
 
 describe('PostgresStorage', { skip: !DB_AVAILABLE }, async () => {
