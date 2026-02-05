@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import { fileURLToPath } from 'url';
 import {
   TEST_DATABASE_URL,
   isDatabaseAvailable,
@@ -581,7 +582,7 @@ describe('MigrationRunner', { skip: !DB_AVAILABLE }, () => {
     test('runs the actual 001_initial_schema.sql migration', async () => {
       const runner = new MigrationRunner(storage);
       const migrationsPath = path.resolve(
-        path.dirname(new URL(import.meta.url).pathname),
+        path.dirname(fileURLToPath(import.meta.url)),
         '../../../migrations'
       );
 
@@ -608,7 +609,7 @@ describe('MigrationRunner', { skip: !DB_AVAILABLE }, () => {
     test('running real migrations twice is idempotent', async () => {
       const runner = new MigrationRunner(storage);
       const migrationsPath = path.resolve(
-        path.dirname(new URL(import.meta.url).pathname),
+        path.dirname(fileURLToPath(import.meta.url)),
         '../../../migrations'
       );
 

@@ -102,7 +102,7 @@ describe('SoulLoader', () => {
         err => {
           assert.equal(err.name, 'SoulLoaderError');
           assert.match(err.message, /Soul file not found/);
-          assert.equal(err.filePath, missingPath);
+          assert.equal(err.filePath, path.resolve(missingPath));
           assert.ok(err.cause);
           return true;
         }

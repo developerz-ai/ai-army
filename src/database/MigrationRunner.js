@@ -72,12 +72,15 @@ export class MigrationRunner {
   /**
    * Create a MigrationRunner
    * @param {import('../adapters/storage/postgres.js').PostgresStorage} storage - Connected storage
+   * @param {Object} [options] - Runner options
+   * @param {Function|null} [options.logger=null] - Logger function for migration output (e.g., console.log). Set to null to suppress logging.
    */
-  constructor(storage) {
+  constructor(storage, options = {}) {
     if (!storage) {
       throw new MigrationError('Storage instance is required');
     }
     this.storage = storage;
+    this.logger = options.logger ?? null;
   }
 
   /**
@@ -120,7 +123,10 @@ export class MigrationRunner {
       const { rows } = await this.storage.query(
         'SELECT version, name, executed_at FROM schema_migrations ORDER BY version ASC'
       );
-      return rows;
+      return rows.map(row => ({
+        ...row,
+        executed_at: row.executed_at instanceof Date ? row.executed_at : new Date(row.executed_at),
+      }));
     } catch (err) {
       if (err instanceof MigrationError) {
         throw err;
@@ -184,7 +190,9 @@ export class MigrationRunner {
     for (const migration of pending) {
       await this.runMigration(resolvedPath, migration.name);
       completed.push({ version: migration.version, name: migration.name });
-      console.log(`\u2705 Ran migration: ${migration.name}`);
+      if (this.logger) {
+        this.logger(`Ran migration: ${migration.name}`);
+      }
     }
 
     return completed;
