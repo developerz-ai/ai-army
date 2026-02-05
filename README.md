@@ -56,6 +56,10 @@ npx ai-army status
 
 ## 📖 Documentation
 
+### MVP Implementation
+- 🎯 **[MVP Overview](docs/mvp/OVERVIEW.md)** - Complete implementation plan
+- 📋 **[MVP Phases](docs/mvp/)** - 10 phases from foundation to production
+
 ### Core Concepts
 - 📋 **[Overview](docs/idea/00-overview.md)** - Project vision and quick start
 - 🏗️ **[Architecture](docs/idea/01-architecture.md)** - Master/worker distributed system
@@ -135,7 +139,9 @@ npx ai-army status
 
 ## 🎯 Project Status
 
-📋 **Planning Phase** - Comprehensive documentation complete, implementation in progress.
+📋 **MVP Phase** - Comprehensive documentation complete, ready for implementation.
+
+**Next**: Follow [MVP Implementation Plan](docs/mvp/OVERVIEW.md) - 10 phases, fully specified.
 
 This is the framework specification. Implementation follows this design.
 
