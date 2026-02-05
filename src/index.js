@@ -17,7 +17,6 @@ export { OnePasswordAdapter } from './adapters/secrets/onepassword.js';
 export { EnvAdapter } from './adapters/secrets/env.js';
 
 export { PostgresStorage } from './adapters/storage/postgres.js';
-export { SQLiteStorage } from './adapters/storage/sqlite.js';
 
 // Types (when we add TypeScript types)
 // export type { BotConfig, TemplateConfig, ChannelAdapter } from './types/index.js';

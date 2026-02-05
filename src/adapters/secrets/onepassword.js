@@ -3,7 +3,7 @@
  */
 
 export class OnePasswordAdapter {
-  async initialize(config) {
+  async initialize(_config) {
     console.log('🔐 Initializing 1Password adapter');
     // TODO: Implementation
   }

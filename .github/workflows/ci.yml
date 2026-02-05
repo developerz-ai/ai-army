@@ -7,86 +7,28 @@ on:
     branches: [main, develop]
 
 jobs:
-  test:
-    name: Test
+  test-and-lint:
+    name: Test & Lint
     runs-on: ubuntu-latest
 
-    strategy:
-      matrix:
-        node-version: [22.x]
-
     steps:
-      - name: 📥 Checkout code
+      - name: 📥 Checkout
         uses: actions/checkout@v4
 
-      - name: 🟢 Setup Node.js ${{ matrix.node-version }}
+      - name: 🟢 Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 22.x
           cache: 'npm'
 
-      - name: 📦 Install dependencies
+      - name: 📦 Install
         run: npm ci
 
-      - name: 🔍 Run linter
+      - name: 🔍 Lint
         run: npm run lint
 
-      - name: 🧪 Run tests
+      - name: 🧪 Test
         run: npm test
 
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-
-      - name: 🟢 Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.x
-          cache: 'npm'
-
-      - name: 📦 Install dependencies
-        run: npm ci
-
-      - name: 🔍 Run ESLint
-        run: npm run lint
-
-  validate:
-    name: Validate Configuration
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-
-      - name: 🟢 Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.x
-          cache: 'npm'
-
-      - name: 📦 Install dependencies
-        run: npm ci
-
-      - name: ✅ Validate package.json
-        run: npm run validate || echo "No config to validate yet"
-
-  status:
-    name: Status Check
-    runs-on: ubuntu-latest
-    needs: [test, lint, validate]
-    if: always()
-
-    steps:
-      - name: 🎉 All checks passed
-        if: ${{ needs.test.result == 'success' && needs.lint.result == 'success' && needs.validate.result == 'success' }}
-        run: echo "✅ All checks passed! Ready to merge 🚀"
-
-      - name: ❌ Some checks failed
-        if: ${{ needs.test.result != 'success' || needs.lint.result != 'success' || needs.validate.result != 'success' }}
-        run: |
-          echo "❌ Some checks failed"
-          exit 1
+      - name: ✅ Done
+        run: echo "✅ All checks passed 🚀"

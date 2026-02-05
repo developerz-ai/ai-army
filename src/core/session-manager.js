@@ -20,12 +20,12 @@ export class SessionManager {
     return null;
   }
 
-  async appendMessage(session, role, content) {
+  async appendMessage(_session, _role, _content) {
     console.log(`💬 Appending message to session`);
     // TODO: Implementation
   }
 
-  async compact(session) {
+  async compact(_session) {
     console.log(`🗜️  Compacting session`);
     // TODO: Implementation
   }

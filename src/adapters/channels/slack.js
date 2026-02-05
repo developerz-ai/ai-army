@@ -3,17 +3,17 @@
  */
 
 export class SlackAdapter {
-  async initialize(config) {
+  async initialize(_config) {
     console.log('💬 Initializing Slack adapter');
     // TODO: Implementation
   }
 
-  async sendMessage(channelId, text) {
+  async sendMessage(channelId, _text) {
     console.log(`📤 Sending message to Slack: ${channelId}`);
     // TODO: Implementation
   }
 
-  async onMessage(handler) {
+  async onMessage(_handler) {
     console.log('👂 Registering Slack message handler');
     // TODO: Implementation
   }

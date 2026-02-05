@@ -3,17 +3,17 @@
  */
 
 export class DiscordAdapter {
-  async initialize(config) {
+  async initialize(_config) {
     console.log('🎮 Initializing Discord adapter');
     // TODO: Implementation
   }
 
-  async sendMessage(channelId, text) {
+  async sendMessage(channelId, _text) {
     console.log(`📤 Sending message to Discord: ${channelId}`);
     // TODO: Implementation
   }
 
-  async onMessage(handler) {
+  async onMessage(_handler) {
     console.log('👂 Registering Discord message handler');
     // TODO: Implementation
   }

@@ -20,17 +20,17 @@ export class Orchestrator {
     // TODO: Implementation
   }
 
-  registerChannelAdapter(name, adapter) {
+  registerChannelAdapter(name, _adapter) {
     console.log(`📝 Registering channel adapter: ${name}`);
     // TODO: Implementation
   }
 
-  registerSecretAdapter(name, adapter) {
+  registerSecretAdapter(name, _adapter) {
     console.log(`🔐 Registering secret adapter: ${name}`);
     // TODO: Implementation
   }
 
-  use(middleware) {
+  use(_middleware) {
     console.log('🔌 Registering middleware');
     // TODO: Implementation
   }

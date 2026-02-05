@@ -3,7 +3,7 @@
  */
 
 export class EnvAdapter {
-  async initialize(config) {
+  async initialize(_config) {
     console.log('🔐 Initializing Environment adapter');
     // TODO: Implementation
   }

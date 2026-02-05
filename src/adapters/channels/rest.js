@@ -3,17 +3,17 @@
  */
 
 export class RESTAdapter {
-  async initialize(config) {
+  async initialize(_config) {
     console.log('🌐 Initializing REST adapter');
     // TODO: Implementation
   }
 
-  async sendMessage(sessionId, text) {
+  async sendMessage(sessionId, _text) {
     console.log(`📤 Sending message via REST: ${sessionId}`);
     // TODO: Implementation
   }
 
-  async handleRequest(req, res) {
+  async handleRequest(_req, _res) {
     console.log('📨 Handling REST request');
     // TODO: Implementation
   }

@@ -3,7 +3,7 @@
  */
 
 export class BitwardenAdapter {
-  async initialize(config) {
+  async initialize(_config) {
     console.log('🔐 Initializing Bitwarden adapter');
     // TODO: Implementation
   }

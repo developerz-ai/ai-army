@@ -18,7 +18,7 @@ export class PostgresStorage {
     // TODO: Implementation
   }
 
-  async query(sql, params) {
+  async query(_sql, _params) {
     console.log(`🔍 Executing query`);
     // TODO: Implementation
     return { rows: [] };

@@ -8,7 +8,7 @@ export class BotManager {
     this.bots = new Map();
   }
 
-  async loadBot(botId, config) {
+  async loadBot(botId, _config) {
     console.log(`🤖 Loading bot: ${botId}`);
     // TODO: Implementation
   }
