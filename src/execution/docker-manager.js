@@ -417,15 +417,17 @@ export class DockerManager {
       }
 
       // Install packages (validate package names to prevent command injection)
-      const packageList = packages.map(pkg => {
-        if (!/^[a-z0-9._+-]+$/i.test(pkg)) {
-          throw new DockerError(`Invalid package name: ${pkg}`, {
-            operation: 'installPackages',
-            containerId,
-          });
-        }
-        return pkg;
-      }).join(' ');
+      const packageList = packages
+        .map(pkg => {
+          if (!/^[a-z0-9._+-]+$/i.test(pkg)) {
+            throw new DockerError(`Invalid package name: ${pkg}`, {
+              operation: 'installPackages',
+              containerId,
+            });
+          }
+          return pkg;
+        })
+        .join(' ');
       const installResult = await this.exec(
         container,
         `apt-get install -y --no-install-recommends ${packageList}`,
