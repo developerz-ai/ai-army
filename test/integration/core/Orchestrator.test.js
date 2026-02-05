@@ -1199,6 +1199,11 @@ describe('Orchestrator Integration - Database', { skip: !DB_AVAILABLE }, () => {
   });
 
   beforeEach(async () => {
+    // Reconnect storage if a previous test disconnected it (e.g. orchestrator.stop())
+    if (!storage.isConnected()) {
+      await storage.connect();
+    }
+
     // Drop all tables for a clean slate
     await storage.query('DROP TABLE IF EXISTS tool_calls CASCADE');
     await storage.query('DROP TABLE IF EXISTS sessions CASCADE');
