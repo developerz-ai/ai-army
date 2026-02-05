@@ -6,30 +6,54 @@ on:
   pull_request:
     branches: [main, develop]
 
+concurrency:
+  group: ci-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   lint:
-    name: 🔍 Lint
-    runs-on: ubuntu-latest
+    name: Lint
+    runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:
-      - name: 📥 Checkout
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 🟢 Setup Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22.x
           cache: 'npm'
 
-      - name: 📦 Install
+      - name: Install
         run: npm ci
 
-      - name: 🔍 Lint
+      - name: Lint
         run: npm run lint
 
-  test:
-    name: 🧪 Test
-    runs-on: ubuntu-latest
+  unit:
+    name: Unit Tests
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm run test:unit
+
+  integration-db:
+    name: Integration Tests (Database)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
 
     services:
       postgres:
@@ -47,19 +71,42 @@ jobs:
           - 5432:5432
 
     steps:
-      - name: 📥 Checkout
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 🟢 Setup Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22.x
           cache: 'npm'
 
-      - name: 📦 Install
+      - name: Install
         run: npm ci
 
-      - name: 🧪 Run Tests
-        run: npm test
+      - name: Run database integration tests
+        run: npm run test:integration:db
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/ai_army_test
+
+  integration-docker:
+    name: Integration Tests (Docker)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      - name: Pre-pull Docker images
+        run: docker pull alpine:latest
+
+      - name: Run Docker integration tests
+        run: npm run test:integration:docker

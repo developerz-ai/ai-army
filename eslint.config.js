@@ -14,6 +14,8 @@ export default [
         console: 'readonly',
         process: 'readonly',
         Buffer: 'readonly',
+        URL: 'readonly',
+        globalThis: 'readonly',
         __dirname: 'readonly',
         __filename: 'readonly',
       },

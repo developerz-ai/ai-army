@@ -4,13 +4,7 @@
  * Tests the 001_initial_schema.sql migration for proper table creation,
  * constraints, indexes, and triggers.
  *
- * Requires PostgreSQL running:
- *   docker run -d --name ai-army-test-db \
- *     -e POSTGRES_DB=ai_army_test \
- *     -e POSTGRES_USER=test \
- *     -e POSTGRES_PASSWORD=test \
- *     -p 5432:5432 \
- *     postgres:18-alpine
+ * Uses a per-worker database for parallel test execution.
  */
 
 import { describe, it, before, after } from 'node:test';
@@ -19,20 +13,22 @@ import pg from 'pg';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  TEST_DATABASE_URL,
+  isDatabaseAvailable,
+  createWorkerDatabase,
+  dropWorkerDatabase,
+} from '../../helpers/setup.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION_PATH = path.resolve(__dirname, '../../../migrations/001_initial_schema.sql');
 
-// Skip tests if DATABASE_URL not set or PostgreSQL not available
-const DATABASE_URL =
-  process.env.DATABASE_URL || 'postgresql://test:test@localhost:5432/ai_army_test';
-
 /**
- * Create a test database connection pool
+ * Create a test database connection pool (uses per-worker database)
  */
 function createPool() {
   return new pg.Pool({
-    connectionString: DATABASE_URL,
+    connectionString: TEST_DATABASE_URL,
     max: 5,
   });
 }
@@ -51,32 +47,30 @@ async function dropAllTables(pool) {
   `);
 }
 
-describe('001_initial_schema.sql migration', async () => {
+const DB_AVAILABLE = await isDatabaseAvailable();
+
+if (!DB_AVAILABLE) {
+  console.log('Skipping database tests - PostgreSQL not available');
+  console.log(
+    'Run: docker run -d --name ai-army-test-db ' +
+      '-e POSTGRES_DB=ai_army_test -e POSTGRES_USER=test ' +
+      '-e POSTGRES_PASSWORD=test -p 5432:5432 postgres:16-alpine'
+  );
+}
+
+describe('001_initial_schema.sql migration', { skip: !DB_AVAILABLE }, () => {
   let pool;
   let migrationSql;
 
   before(async () => {
-    // Check if migration file exists
     if (!fs.existsSync(MIGRATION_PATH)) {
       throw new Error(`Migration file not found: ${MIGRATION_PATH}`);
     }
 
     migrationSql = fs.readFileSync(MIGRATION_PATH, 'utf8');
-    pool = createPool();
 
-    try {
-      // Test connection
-      await pool.query('SELECT 1');
-    } catch {
-      console.log('Skipping database tests - PostgreSQL not available');
-      console.log(
-        'Run: docker run -d --name ai-army-test-db ' +
-          '-e POSTGRES_DB=ai_army_test -e POSTGRES_USER=test ' +
-          '-e POSTGRES_PASSWORD=test -p 5432:5432 postgres:18-alpine'
-      );
-      pool = null;
-      return;
-    }
+    await createWorkerDatabase();
+    pool = createPool();
 
     // Clean slate
     await dropAllTables(pool);
@@ -84,26 +78,16 @@ describe('001_initial_schema.sql migration', async () => {
 
   after(async () => {
     if (pool) {
-      await dropAllTables(pool);
       await pool.end();
     }
+    await dropWorkerDatabase();
   });
 
-  it('should run migration without errors', async t => {
-    if (!pool) {
-      t.skip('PostgreSQL not available');
-      return;
-    }
-
+  it('should run migration without errors', async () => {
     await assert.doesNotReject(pool.query(migrationSql), 'Migration should execute without errors');
   });
 
-  it('should create schema_migrations table', async t => {
-    if (!pool) {
-      t.skip('PostgreSQL not available');
-      return;
-    }
-
+  it('should create schema_migrations table', async () => {
     const result = await pool.query(`
       SELECT column_name, data_type
       FROM information_schema.columns
@@ -119,12 +103,7 @@ describe('001_initial_schema.sql migration', async () => {
     assert.ok(columns.includes('executed_at'), 'Should have executed_at column');
   });
 
-  it('should record migration version 1', async t => {
-    if (!pool) {
-      t.skip('PostgreSQL not available');
-      return;
-    }
-
+  it('should record migration version 1', async () => {
     const result = await pool.query(
       'SELECT version, name FROM schema_migrations WHERE version = $1',
       [1]
@@ -135,12 +114,7 @@ describe('001_initial_schema.sql migration', async () => {
     assert.equal(result.rows[0].name, '001_initial_schema.sql', 'Name should match file');
   });
 
-  it('should create bots table with correct columns', async t => {
-    if (!pool) {
-      t.skip('PostgreSQL not available');
-      return;
-    }
-
+  it('should create bots table with correct columns', async () => {
     const result = await pool.query(`
       SELECT column_name, data_type, is_nullable
       FROM information_schema.columns
@@ -156,12 +130,7 @@ describe('001_initial_schema.sql migration', async () => {
     }
   });
 
-  it('should enforce bots status constraint', async t => {
-    if (!pool) {
-      t.skip('PostgreSQL not available');
-      return;
-    }
-
+  it('should enforce bots status constraint', async () => {
     // Valid status should work
     await pool.query(`
       INSERT INTO bots (id, name, config, status)
@@ -179,12 +148,7 @@ describe('001_initial_schema.sql migration', async () => {
     );
   });
 
-  it('should create sessions table with foreign key to bots', async t => {
-    if (!pool) {
-      t.skip('PostgreSQL not available');
-      return;
-    }
-
+  it('should create sessions table with foreign key to bots', async () => {
     // Create valid session
     await pool.query(`
       INSERT INTO sessions (id, bot_id, user_id, channel_id, channel_type)
@@ -202,12 +166,7 @@ describe('001_initial_schema.sql migration', async () => {
     );
   });
 
-  it('should enforce sessions channel_type constraint', async t => {
-    if (!pool) {
-      t.skip('PostgreSQL not available');
-      return;
-    }
-
+  it('should enforce sessions channel_type constraint', async () => {
     await assert.rejects(
       pool.query(`
         INSERT INTO sessions (id, bot_id, user_id, channel_id, channel_type)
@@ -218,12 +177,7 @@ describe('001_initial_schema.sql migration', async () => {
     );
   });
 
-  it('should cascade delete sessions when bot is deleted', async t => {
-    if (!pool) {
-      t.skip('PostgreSQL not available');
-      return;
-    }
-
+  it('should cascade delete sessions when bot is deleted', async () => {
     // Count sessions before delete
     const before = await pool.query('SELECT COUNT(*) FROM sessions WHERE bot_id = $1', [
       'test-bot-1',
@@ -240,12 +194,7 @@ describe('001_initial_schema.sql migration', async () => {
     assert.equal(parseInt(after.rows[0].count), 0, 'Sessions should be deleted');
   });
 
-  it('should create tool_calls table', async t => {
-    if (!pool) {
-      t.skip('PostgreSQL not available');
-      return;
-    }
-
+  it('should create tool_calls table', async () => {
     const result = await pool.query(`
       SELECT column_name, data_type
       FROM information_schema.columns
@@ -269,12 +218,7 @@ describe('001_initial_schema.sql migration', async () => {
     }
   });
 
-  it('should auto-generate tool_calls id as BIGSERIAL', async t => {
-    if (!pool) {
-      t.skip('PostgreSQL not available');
-      return;
-    }
-
+  it('should auto-generate tool_calls id as BIGSERIAL', async () => {
     // Insert without id
     await pool.query(`
       INSERT INTO tool_calls (bot_id, tool_name, parameters, success)
@@ -293,12 +237,7 @@ describe('001_initial_schema.sql migration', async () => {
     assert.equal(parseInt(result.rows[1].id), 2, 'Second id should be 2');
   });
 
-  it('should create all required indexes', async t => {
-    if (!pool) {
-      t.skip('PostgreSQL not available');
-      return;
-    }
-
+  it('should create all required indexes', async () => {
     const result = await pool.query(`
       SELECT indexname, tablename
       FROM pg_indexes
@@ -326,12 +265,7 @@ describe('001_initial_schema.sql migration', async () => {
     }
   });
 
-  it('should update updated_at trigger on bots', async t => {
-    if (!pool) {
-      t.skip('PostgreSQL not available');
-      return;
-    }
-
+  it('should update updated_at trigger on bots', async () => {
     // Insert a bot
     await pool.query(`
       INSERT INTO bots (id, name, config, status)
@@ -354,12 +288,7 @@ describe('001_initial_schema.sql migration', async () => {
     );
   });
 
-  it('should have JSONB[] for sessions messages', async t => {
-    if (!pool) {
-      t.skip('PostgreSQL not available');
-      return;
-    }
-
+  it('should have JSONB[] for sessions messages', async () => {
     // Insert session with messages
     await pool.query(`
       INSERT INTO bots (id, name, config, status)
@@ -391,12 +320,7 @@ describe('001_initial_schema.sql migration', async () => {
     );
   });
 
-  it('should be idempotent (re-running should not error)', async t => {
-    if (!pool) {
-      t.skip('PostgreSQL not available');
-      return;
-    }
-
+  it('should be idempotent (re-running should not error)', async () => {
     // Running migration again should not fail
     await assert.doesNotReject(
       pool.query(migrationSql),
