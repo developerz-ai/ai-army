@@ -7,8 +7,8 @@ on:
     branches: [main, develop]
 
 jobs:
-  test-and-lint:
-    name: Test & Lint
+  lint:
+    name: 🔍 Lint
     runs-on: ubuntu-latest
 
     steps:
@@ -27,8 +27,39 @@ jobs:
       - name: 🔍 Lint
         run: npm run lint
 
-      - name: 🧪 Test
-        run: npm test
+  test:
+    name: 🧪 Test
+    runs-on: ubuntu-latest
 
-      - name: ✅ Done
-        run: echo "✅ All checks passed 🚀"
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: ai_army_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'npm'
+
+      - name: 📦 Install
+        run: npm ci
+
+      - name: 🧪 Run Tests
+        run: npm test
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/ai_army_test
