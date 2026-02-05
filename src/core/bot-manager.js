@@ -457,7 +457,13 @@ export class BotManager {
     const results = { stopped: [], failed: [] };
 
     for (const [botId, bot] of this.bots.entries()) {
-      if (bot.status === BOT_STATUSES.RUNNING || bot.status === BOT_STATUSES.STARTING) {
+      // Stop bots in RUNNING, STARTING, or ERROR states.
+      // ERROR bots may have partially-initialized containers that need cleanup.
+      if (
+        bot.status === BOT_STATUSES.RUNNING ||
+        bot.status === BOT_STATUSES.STARTING ||
+        bot.status === BOT_STATUSES.ERROR
+      ) {
         try {
           await this.stopBot(botId);
           results.stopped.push(botId);

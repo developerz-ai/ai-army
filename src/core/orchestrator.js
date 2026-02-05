@@ -202,6 +202,7 @@ export class Orchestrator {
       return;
     }
 
+    const wasError = this.state === ORCHESTRATOR_STATES.ERROR;
     this.state = ORCHESTRATOR_STATES.STOPPING;
     this._log('🛑 Stopping orchestrator...');
 
@@ -228,8 +229,12 @@ export class Orchestrator {
       errors.push({ component: 'database', error: err });
     }
 
-    this.state = ORCHESTRATOR_STATES.STOPPED;
-    this._log('✅ Orchestrator stopped');
+    // Preserve ERROR state so callers can distinguish a failed start
+    // from a clean shutdown
+    this.state = wasError ? ORCHESTRATOR_STATES.ERROR : ORCHESTRATOR_STATES.STOPPED;
+    this._log(
+      wasError ? '🛑 Orchestrator stopped (was in error state)' : '✅ Orchestrator stopped'
+    );
 
     if (errors.length > 0) {
       const components = errors.map(e => e.component).join(', ');
@@ -771,7 +776,10 @@ export class Orchestrator {
     const inlineBots = this.config.bots || {};
     for (const [botId, botConfig] of Object.entries(inlineBots)) {
       if (!configs.has(botId)) {
-        configs.set(botId, { id: botId, ...botConfig });
+        // Spread botConfig first, then force id to match the map key
+        // This prevents an inline config's own `id` field from disagreeing
+        // with the key used to store it
+        configs.set(botId, { ...botConfig, id: botId });
       }
     }
 
