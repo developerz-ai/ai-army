@@ -9,8 +9,9 @@
  */
 
 import Docker from 'dockerode';
-import stream from 'stream';
-import { setTimeout, clearTimeout } from 'timers';
+import path from 'node:path';
+import stream from 'node:stream';
+import { setTimeout, clearTimeout } from 'node:timers';
 
 /**
  * Custom error class for Docker-related errors
@@ -132,7 +133,7 @@ export class DockerManager {
     // Resolve to absolute path
     const hostPath = workspaceRoot.startsWith('/')
       ? workspaceRoot
-      : `${process.cwd()}/${workspaceRoot}`;
+      : path.resolve(process.cwd(), workspaceRoot);
 
     return [`${hostPath}:/home/agent:rw`];
   }
