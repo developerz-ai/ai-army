@@ -49,6 +49,7 @@ Thumbs.db
 tmp/
 temp/
 *.tmp
+.claude-task-master/
 
 # Docker
 .dockerignore
