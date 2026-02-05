@@ -87,6 +87,9 @@ npx ai-army status
 
 ## 🏗️ Architecture
 
+**Masters**: Pure orchestration (routing, sessions, queuing) - no AI processing
+**Workers**: AI execution in Docker containers - where bots actually run
+
 ```
                     Users
                       ↓
@@ -99,6 +102,7 @@ npx ai-army status
    ┌────────┐   ┌────────┐   ┌────────┐
    │Master 1│   │Master 2│   │Master N│
    │(Slack) │   │(Discord)   │ (REST) │
+   │Routing │   │Routing │   │Routing │
    └────────┘   └────────┘   └────────┘
         │             │             │
         └─────────────┼─────────────┘
@@ -112,9 +116,9 @@ npx ai-army status
         ▼             ▼             ▼          ▼
    ┌────────┐   ┌────────┐   ┌────────┐   ┌────────┐
    │Worker 1│   │Worker 2│   │Worker 3│   │Worker N│
-   │(local) │   │(remote)│   │(remote)│   │(remote)│
+   │🤖 AI   │   │🤖 AI   │   │🤖 AI   │   │🤖 AI   │
+   │Bots    │   │Bots    │   │Bots    │   │Bots    │
    └────────┘   └────────┘   └────────┘   └────────┘
-      Bots          Bots        Bots         Bots
 ```
 
 ## 📦 Technology Stack
