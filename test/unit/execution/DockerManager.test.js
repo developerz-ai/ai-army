@@ -651,6 +651,71 @@ describe('DockerManager', () => {
         }
       );
     });
+
+    test('throws DockerError for invalid package names with shell metacharacters', async () => {
+      const { manager, mockContainer } = createMockedManager();
+
+      // Test command injection attempts
+      const maliciousNames = [
+        'git; rm -rf /',
+        'curl | cat /etc/passwd',
+        '$(whoami)',
+        '`id`',
+        'package && malicious',
+        'package || malicious',
+        'pkg > /etc/passwd',
+        'pkg < /etc/passwd',
+        'pkg\nnewline',
+      ];
+
+      for (const maliciousName of maliciousNames) {
+        await assert.rejects(
+          () => manager.installPackages(mockContainer, [maliciousName]),
+          err => {
+            assert.equal(err.name, 'DockerError');
+            assert.match(err.message, /Invalid package name/);
+            assert.equal(err.operation, 'installPackages');
+            return true;
+          },
+          `Should reject malicious package name: ${maliciousName}`
+        );
+      }
+    });
+
+    test('accepts valid package names', async () => {
+      const { manager, mockContainer, mockExec } = createMockedManager();
+
+      const execCalls = [];
+      mockContainer.exec = mock.fn(async config => {
+        execCalls.push(config.Cmd);
+        return mockExec;
+      });
+
+      // Valid package name patterns
+      const validNames = [
+        'git',
+        'curl',
+        'python3',
+        'libssl-dev',
+        'gcc-10',
+        'build-essential',
+        'libc++abi-14-dev',
+        'node_modules', // underscore allowed
+        'ca-certificates',
+        'apt-transport-https',
+      ];
+
+      await manager.installPackages(mockContainer, validNames);
+
+      // Should have called exec (update + install)
+      assert.equal(mockContainer.exec.mock.calls.length, 2);
+
+      // Verify all package names are in the install command
+      const installCmd = execCalls[1][2];
+      for (const name of validNames) {
+        assert.ok(installCmd.includes(name), `Should include valid package: ${name}`);
+      }
+    });
   });
 
   describe('getInfo()', () => {
