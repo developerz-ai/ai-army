@@ -148,6 +148,61 @@ describe('SoulLoader', () => {
       );
     });
 
+    test('throws SoulLoaderError for undefined path', async () => {
+      const loader = new SoulLoader();
+
+      await assert.rejects(
+        () => loader.loadSoulFile(undefined),
+        err => {
+          assert.equal(err.name, 'SoulLoaderError');
+          assert.match(err.message, /path must be a non-empty string/);
+          return true;
+        }
+      );
+    });
+
+    test('throws SoulLoaderError for permission denied (EACCES)', async () => {
+      const loader = new SoulLoader();
+      const content = '# Restricted Bot\n';
+      const filePath = await createTempSoul(content);
+
+      // Remove read permissions
+      await fs.chmod(filePath, 0o000);
+
+      await assert.rejects(
+        () => loader.loadSoulFile(filePath),
+        err => {
+          assert.equal(err.name, 'SoulLoaderError');
+          assert.match(err.message, /Permission denied reading soul file/);
+          assert.equal(err.filePath, filePath);
+          assert.ok(err.cause);
+          return true;
+        }
+      );
+
+      // Restore permissions for cleanup
+      await fs.chmod(filePath, 0o644);
+    });
+
+    test('throws SoulLoaderError with cause for generic fs errors', async () => {
+      const loader = new SoulLoader();
+
+      // Attempt to read a directory as a file triggers EISDIR
+      const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'soul-test-'));
+      tempDirs.push(tmpDir);
+
+      await assert.rejects(
+        () => loader.loadSoulFile(tmpDir),
+        err => {
+          assert.equal(err.name, 'SoulLoaderError');
+          assert.match(err.message, /Failed to read soul file/);
+          assert.equal(err.filePath, tmpDir);
+          assert.ok(err.cause);
+          return true;
+        }
+      );
+    });
+
     test('resolves relative paths', async () => {
       const loader = new SoulLoader();
       const content = '# Relative Path Bot\n';
@@ -351,6 +406,102 @@ describe('SoulLoader', () => {
 
       assert.equal(result, 'Hello !');
     });
+
+    test('throws SoulLoaderError for undefined content', () => {
+      const loader = new SoulLoader();
+
+      assert.throws(
+        () => loader.interpolateVariables(undefined, { botName: 'Aria' }),
+        err => {
+          assert.equal(err.name, 'SoulLoaderError');
+          assert.match(err.message, /Soul content must be a string/);
+          return true;
+        }
+      );
+    });
+
+    test('throws SoulLoaderError for number content', () => {
+      const loader = new SoulLoader();
+
+      assert.throws(
+        () => loader.interpolateVariables(42, { botName: 'Aria' }),
+        err => {
+          assert.equal(err.name, 'SoulLoaderError');
+          assert.match(err.message, /Soul content must be a string/);
+          return true;
+        }
+      );
+    });
+
+    test('throws SoulLoaderError for null variables', () => {
+      const loader = new SoulLoader();
+
+      assert.throws(
+        () => loader.interpolateVariables('Hello {botName}', null),
+        err => {
+          assert.equal(err.name, 'SoulLoaderError');
+          assert.match(err.message, /Variables must be a plain object/);
+          return true;
+        }
+      );
+    });
+
+    test('handles variable value containing special regex characters', () => {
+      const loader = new SoulLoader();
+      const content = 'Pattern: {pattern}';
+
+      const result = loader.interpolateVariables(content, {
+        pattern: '$1.00 (USD) [test]',
+      });
+
+      assert.equal(result, 'Pattern: $1.00 (USD) [test]');
+    });
+
+    test('handles variable value containing braces', () => {
+      const loader = new SoulLoader();
+      const content = 'Config: {config}';
+
+      const result = loader.interpolateVariables(content, {
+        config: '{"key": "value"}',
+      });
+
+      assert.equal(result, 'Config: {"key": "value"}');
+    });
+
+    test('handles multiline content with variables', () => {
+      const loader = new SoulLoader();
+      const content = ['Line 1: {botName}', 'Line 2: {teamName}', 'Line 3: {botName} again'].join(
+        '\n'
+      );
+
+      const result = loader.interpolateVariables(content, {
+        botName: 'Aria',
+        teamName: 'Engineering',
+      });
+
+      assert.equal(result, 'Line 1: Aria\nLine 2: Engineering\nLine 3: Aria again');
+    });
+
+    test('handles variable name with numbers', () => {
+      const loader = new SoulLoader();
+      const content = 'Bot version: {version2}';
+
+      const result = loader.interpolateVariables(content, { version2: '3.0' });
+
+      assert.equal(result, 'Bot version: 3.0');
+    });
+
+    test('handles variable name with underscores and hyphens', () => {
+      const loader = new SoulLoader();
+      const content = 'Name: {bot_name}, ID: {bot-id}';
+
+      const result = loader.interpolateVariables(content, {
+        bot_name: 'Aria',
+        'bot-id': 'aria-01',
+      });
+
+      assert.equal(result, 'Name: Aria, ID: aria-01');
+    });
   });
 
   describe('load()', () => {
@@ -389,6 +540,61 @@ describe('SoulLoader', () => {
         }
       );
     });
+
+    test('throws for invalid variables type in load()', async () => {
+      const loader = new SoulLoader();
+      const content = '# {botName}\n';
+      const filePath = await createTempSoul(content);
+
+      await assert.rejects(
+        () => loader.load(filePath, 'not-an-object'),
+        err => {
+          assert.equal(err.name, 'SoulLoaderError');
+          assert.match(err.message, /Variables must be a plain object/);
+          return true;
+        }
+      );
+    });
+
+    test('preserves ${envVar} syntax when loading and interpolating', async () => {
+      const loader = new SoulLoader();
+      const content = '# {botName}\n\nAPI: ${ANTHROPIC_API_KEY}\n';
+      const filePath = await createTempSoul(content);
+
+      const result = await loader.load(filePath, { botName: 'Aria' });
+
+      assert.equal(result, '# Aria\n\nAPI: ${ANTHROPIC_API_KEY}\n');
+    });
+
+    test('loads file with all variables unknown', async () => {
+      const loader = new SoulLoader();
+      const content = 'Hello {unknown1} and {unknown2}.\n';
+      const filePath = await createTempSoul(content);
+
+      const result = await loader.load(filePath, { botName: 'Aria' });
+
+      assert.equal(result, 'Hello {unknown1} and {unknown2}.\n');
+    });
+
+    test('loads large soul file with many variables', async () => {
+      const loader = new SoulLoader();
+      const lines = [];
+      for (let i = 0; i < 100; i++) {
+        lines.push(`Line ${i}: {botName} on team {teamName}`);
+      }
+      const content = lines.join('\n');
+      const filePath = await createTempSoul(content);
+
+      const result = await loader.load(filePath, {
+        botName: 'Aria',
+        teamName: 'Engineering',
+      });
+
+      assert.ok(result.includes('Line 0: Aria on team Engineering'));
+      assert.ok(result.includes('Line 99: Aria on team Engineering'));
+      assert.ok(!result.includes('{botName}'));
+      assert.ok(!result.includes('{teamName}'));
+    });
   });
 });
 
@@ -422,5 +628,25 @@ describe('SoulLoaderError', () => {
   test('has correct message', () => {
     const error = new SoulLoaderError('Soul file not found');
     assert.equal(error.message, 'Soul file not found');
+  });
+
+  test('defaults to undefined for optional properties', () => {
+    const error = new SoulLoaderError('Test error');
+    assert.equal(error.filePath, undefined);
+    assert.equal(error.variableName, undefined);
+    assert.equal(error.cause, undefined);
+  });
+
+  test('stores all options together', () => {
+    const cause = new Error('Original');
+    const error = new SoulLoaderError('Multi-option error', {
+      cause,
+      filePath: '/path/to/soul.md',
+      variableName: 'botName',
+    });
+
+    assert.equal(error.cause, cause);
+    assert.equal(error.filePath, '/path/to/soul.md');
+    assert.equal(error.variableName, 'botName');
   });
 });
