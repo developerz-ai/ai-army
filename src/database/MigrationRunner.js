@@ -18,6 +18,7 @@
 
 import fs from 'fs/promises';
 import path from 'path';
+import { StorageError } from '../adapters/storage/postgres.js';
 
 /**
  * Custom error for migration-related failures
@@ -243,8 +244,11 @@ export class MigrationRunner {
         );
       });
     } catch (err) {
+      // Unwrap StorageError to preserve the original driver error (e.g., pg error
+      // with code, position, etc.) as the direct cause of MigrationError.
+      const rootCause = err instanceof StorageError && err.cause ? err.cause : err;
       throw new MigrationError(`Migration ${version} (${filename}) failed: ${err.message}`, {
-        cause: err,
+        cause: rootCause,
         version,
         filename,
       });
