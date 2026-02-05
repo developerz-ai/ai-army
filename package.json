@@ -10,10 +10,12 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "node --test src/**/*.test.js",
-    "test:watch": "node --test --watch src/**/*.test.js",
-    "lint": "eslint src/ bin/",
-    "lint:fix": "eslint src/ bin/ --fix",
+    "test": "node --test 'src/**/*.test.js' 'test/**/*.test.js'",
+    "test:unit": "node --test 'test/unit/**/*.test.js'",
+    "test:integration": "node --test 'test/integration/**/*.test.js'",
+    "test:watch": "node --test --watch 'src/**/*.test.js' 'test/**/*.test.js'",
+    "lint": "eslint src/ bin/ test/",
+    "lint:fix": "eslint src/ bin/ test/ --fix",
     "validate": "node bin/cli.js validate",
     "migrate": "node bin/cli.js migrate"
   },
