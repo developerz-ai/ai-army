@@ -70,18 +70,28 @@ export async function cleanupTestDatabase(storage) {
 
 /**
  * Run all pending migrations
+ * Uses CREATE TABLE IF NOT EXISTS and ON CONFLICT to be idempotent
+ * and safe for concurrent test execution.
  *
  * @param {PostgresStorage} storage - Connected storage instance
  */
 async function runMigrations(storage) {
-  // Ensure schema_migrations table exists
-  await storage.query(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
-      version INTEGER PRIMARY KEY,
-      name TEXT NOT NULL,
-      executed_at TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
+  // Ensure schema_migrations table exists (idempotent)
+  // Wrapped in try-catch for concurrent test execution safety
+  try {
+    await storage.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        version INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        executed_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+  } catch (err) {
+    // Ignore "type already exists" error from concurrent table creation
+    if (err.cause?.code !== '23505') {
+      throw err;
+    }
+  }
 
   // Get executed migrations
   const { rows } = await storage.query('SELECT version FROM schema_migrations');
@@ -107,16 +117,19 @@ async function runMigrations(storage) {
 
     const sql = await fs.readFile(path.join(MIGRATIONS_PATH, file), 'utf8');
 
-    // Run migration in transaction
-    await storage.transaction(async client => {
-      await client.query(sql);
-      await client.query('INSERT INTO schema_migrations (version, name) VALUES ($1, $2)', [
-        version,
-        file,
-      ]);
-    });
-
-    console.log(`✅ Ran migration: ${file}`);
+    // Run migration - the migration file uses IF NOT EXISTS and ON CONFLICT
+    // for idempotency, so we don't need to wrap in transaction
+    try {
+      await storage.query(sql);
+      console.log(`✅ Ran migration: ${file}`);
+    } catch (err) {
+      // If migration already ran (table already exists), that's OK
+      if (err.cause?.code === '42P07' || err.cause?.code === '23505') {
+        console.log(`⏭️  Migration already applied: ${file}`);
+      } else {
+        throw err;
+      }
+    }
   }
 }
 

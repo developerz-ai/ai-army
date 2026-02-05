@@ -13,9 +13,10 @@ import { PostgresStorage, StorageError } from '../../../src/adapters/storage/pos
 import { setupTestDatabase, cleanupTestDatabase, TEST_DATABASE_URL } from '../../helpers/setup.js';
 
 /**
- * Skip tests if database is not available
+ * Check if database is available at startup
+ * Returns true if we can connect, false otherwise
  */
-async function isDatabaseAvailable() {
+async function checkDatabaseAvailable() {
   const storage = new PostgresStorage(TEST_DATABASE_URL);
   try {
     await storage.connect();
@@ -26,20 +27,18 @@ async function isDatabaseAvailable() {
   }
 }
 
-describe('PostgresStorage', async () => {
+// Check database availability synchronously at module load
+// This allows us to use the skip option in test definitions
+const DB_AVAILABLE = await checkDatabaseAvailable();
+
+if (!DB_AVAILABLE) {
+  console.log('⚠️  Skipping PostgresStorage tests - database not available at:', TEST_DATABASE_URL);
+}
+
+describe('PostgresStorage', { skip: !DB_AVAILABLE }, async () => {
   let storage;
-  let dbAvailable;
 
   before(async () => {
-    dbAvailable = await isDatabaseAvailable();
-    if (!dbAvailable) {
-      console.log(
-        '⚠️  Skipping PostgresStorage tests - database not available at:',
-        TEST_DATABASE_URL
-      );
-      return;
-    }
-
     storage = await setupTestDatabase();
   });
 
@@ -50,15 +49,13 @@ describe('PostgresStorage', async () => {
   });
 
   beforeEach(async () => {
-    if (!dbAvailable) return;
-
     // Clean tables between tests
     await storage.query('TRUNCATE bots CASCADE');
     await storage.query('DELETE FROM tool_calls');
   });
 
   describe('Connection Management', () => {
-    test('connects to database successfully', { skip: !dbAvailable }, async () => {
+    test('connects to database successfully', async () => {
       const testStorage = new PostgresStorage(TEST_DATABASE_URL);
 
       await testStorage.connect();
@@ -69,7 +66,7 @@ describe('PostgresStorage', async () => {
       assert.ok(!testStorage.isConnected(), 'Should be disconnected');
     });
 
-    test('handles double connect gracefully', { skip: !dbAvailable }, async () => {
+    test('handles double connect gracefully', async () => {
       const testStorage = new PostgresStorage(TEST_DATABASE_URL);
 
       await testStorage.connect();
@@ -80,7 +77,7 @@ describe('PostgresStorage', async () => {
       await testStorage.disconnect();
     });
 
-    test('handles disconnect without connect', { skip: !dbAvailable }, async () => {
+    test('handles disconnect without connect', async () => {
       const testStorage = new PostgresStorage(TEST_DATABASE_URL);
 
       // Should not throw
@@ -88,7 +85,7 @@ describe('PostgresStorage', async () => {
       assert.ok(!testStorage.isConnected());
     });
 
-    test('throws StorageError for invalid connection string', { skip: !dbAvailable }, async () => {
+    test('throws StorageError for invalid connection string', async () => {
       const invalidStorage = new PostgresStorage(
         'postgresql://invalid:invalid@localhost:54321/nonexistent'
       );
@@ -104,7 +101,7 @@ describe('PostgresStorage', async () => {
       );
     });
 
-    test('provides pool statistics', { skip: !dbAvailable }, async () => {
+    test('provides pool statistics', async () => {
       const stats = storage.getPoolStats();
 
       assert.ok(typeof stats.totalCount === 'number');
@@ -112,12 +109,12 @@ describe('PostgresStorage', async () => {
       assert.ok(typeof stats.waitingCount === 'number');
     });
 
-    test('health check returns true when connected', { skip: !dbAvailable }, async () => {
+    test('health check returns true when connected', async () => {
       const isHealthy = await storage.healthCheck();
       assert.ok(isHealthy);
     });
 
-    test('accepts config object', { skip: !dbAvailable }, async () => {
+    test('accepts config object', async () => {
       const testStorage = new PostgresStorage({
         connectionString: TEST_DATABASE_URL,
         max: 5,
@@ -144,14 +141,14 @@ describe('PostgresStorage', async () => {
       );
     });
 
-    test('executes parameterized queries', { skip: !dbAvailable }, async () => {
+    test('executes parameterized queries', async () => {
       const { rows } = await storage.query('SELECT $1::text as value', ['test-value']);
 
       assert.equal(rows.length, 1);
       assert.equal(rows[0].value, 'test-value');
     });
 
-    test('executes queries without parameters', { skip: !dbAvailable }, async () => {
+    test('executes queries without parameters', async () => {
       const { rows } = await storage.query('SELECT NOW() as now');
 
       assert.equal(rows.length, 1);
@@ -160,7 +157,7 @@ describe('PostgresStorage', async () => {
   });
 
   describe('Transaction Support', () => {
-    test('commits transaction on success', { skip: !dbAvailable }, async () => {
+    test('commits transaction on success', async () => {
       await storage.transaction(async client => {
         await client.query(`INSERT INTO bots (id, name, config, status) VALUES ($1, $2, $3, $4)`, [
           'tx-bot',
@@ -174,7 +171,7 @@ describe('PostgresStorage', async () => {
       assert.ok(bot, 'Bot should exist after transaction commit');
     });
 
-    test('rolls back transaction on error', { skip: !dbAvailable }, async () => {
+    test('rolls back transaction on error', async () => {
       try {
         await storage.transaction(async client => {
           await client.query(
@@ -193,7 +190,7 @@ describe('PostgresStorage', async () => {
   });
 
   describe('Bot Management', () => {
-    test('saves and retrieves bot config', { skip: !dbAvailable }, async () => {
+    test('saves and retrieves bot config', async () => {
       const config = {
         id: 'test-bot',
         model: 'claude-sonnet-4-5',
@@ -218,7 +215,7 @@ describe('PostgresStorage', async () => {
       assert.deepEqual(retrieved.config, config);
     });
 
-    test('updates existing bot config (UPSERT)', { skip: !dbAvailable }, async () => {
+    test('updates existing bot config (UPSERT)', async () => {
       // Initial save
       await storage.saveBotConfig('upsert-bot', { version: 1 });
 
@@ -237,12 +234,12 @@ describe('PostgresStorage', async () => {
       assert.equal(bot.name, 'Updated Bot');
     });
 
-    test('returns null for non-existent bot', { skip: !dbAvailable }, async () => {
+    test('returns null for non-existent bot', async () => {
       const bot = await storage.getBotConfig('non-existent-bot');
       assert.equal(bot, null);
     });
 
-    test('updates bot status', { skip: !dbAvailable }, async () => {
+    test('updates bot status', async () => {
       await storage.saveBotConfig('status-bot', { id: 'status-bot' });
 
       const updated = await storage.updateBotStatus('status-bot', 'running', {
@@ -258,12 +255,12 @@ describe('PostgresStorage', async () => {
       assert.equal(bot.container_id, 'container-abc123');
     });
 
-    test('updateBotStatus returns false for non-existent bot', { skip: !dbAvailable }, async () => {
+    test('updateBotStatus returns false for non-existent bot', async () => {
       const updated = await storage.updateBotStatus('non-existent', 'running');
       assert.ok(!updated);
     });
 
-    test('lists bots', { skip: !dbAvailable }, async () => {
+    test('lists bots', async () => {
       await storage.saveBotConfig('list-bot-1', { name: 'Bot 1' });
       await storage.saveBotConfig('list-bot-2', { name: 'Bot 2' });
 
@@ -274,7 +271,7 @@ describe('PostgresStorage', async () => {
       assert.ok(bots.some(b => b.id === 'list-bot-2'));
     });
 
-    test('lists bots with status filter', { skip: !dbAvailable }, async () => {
+    test('lists bots with status filter', async () => {
       await storage.saveBotConfig('running-bot', {}, { status: 'running' });
       await storage.saveBotConfig('stopped-bot', {}, { status: 'stopped' });
 
@@ -287,7 +284,7 @@ describe('PostgresStorage', async () => {
       assert.ok(runningBots.some(b => b.id === 'running-bot'));
     });
 
-    test('deletes bot', { skip: !dbAvailable }, async () => {
+    test('deletes bot', async () => {
       await storage.saveBotConfig('delete-me', { temp: true });
 
       const deleted = await storage.deleteBot('delete-me');
@@ -297,14 +294,14 @@ describe('PostgresStorage', async () => {
       assert.equal(bot, null, 'Bot should not exist after delete');
     });
 
-    test('deleteBot returns false for non-existent bot', { skip: !dbAvailable }, async () => {
+    test('deleteBot returns false for non-existent bot', async () => {
       const deleted = await storage.deleteBot('never-existed');
       assert.ok(!deleted);
     });
   });
 
   describe('Session Management', () => {
-    test('saves and retrieves session', { skip: !dbAvailable }, async () => {
+    test('saves and retrieves session', async () => {
       // Create a bot first (required for FK)
       await storage.saveBotConfig('session-bot', { id: 'session-bot' });
 
@@ -337,12 +334,12 @@ describe('PostgresStorage', async () => {
       assert.deepEqual(retrieved.messages[0], { role: 'user', content: 'Hello' });
     });
 
-    test('returns null for non-existent session', { skip: !dbAvailable }, async () => {
+    test('returns null for non-existent session', async () => {
       const session = await storage.getSession('non-existent:session:id');
       assert.equal(session, null);
     });
 
-    test('updates existing session (UPSERT)', { skip: !dbAvailable }, async () => {
+    test('updates existing session (UPSERT)', async () => {
       await storage.saveBotConfig('upsert-session-bot', {});
 
       // Initial save
@@ -375,7 +372,7 @@ describe('PostgresStorage', async () => {
       assert.equal(session.tokenCount, 30);
     });
 
-    test('appends message to session', { skip: !dbAvailable }, async () => {
+    test('appends message to session', async () => {
       await storage.saveBotConfig('append-bot', {});
 
       await storage.saveSession({
@@ -405,19 +402,15 @@ describe('PostgresStorage', async () => {
       assert.deepEqual(session.messages[1], { role: 'assistant', content: 'Hi there!' });
     });
 
-    test(
-      'appendMessage returns false for non-existent session',
-      { skip: !dbAvailable },
-      async () => {
-        const appended = await storage.appendMessage('non-existent:session', {
-          role: 'user',
-          content: 'hi',
-        });
-        assert.ok(!appended);
-      }
-    );
+    test('appendMessage returns false for non-existent session', async () => {
+      const appended = await storage.appendMessage('non-existent:session', {
+        role: 'user',
+        content: 'hi',
+      });
+      assert.ok(!appended);
+    });
 
-    test('updates session token count', { skip: !dbAvailable }, async () => {
+    test('updates session token count', async () => {
       await storage.saveBotConfig('token-bot', {});
 
       await storage.saveSession({
@@ -436,7 +429,7 @@ describe('PostgresStorage', async () => {
       assert.equal(session.tokenCount, 5000);
     });
 
-    test('lists sessions for bot', { skip: !dbAvailable }, async () => {
+    test('lists sessions for bot', async () => {
       await storage.saveBotConfig('list-sessions-bot', {});
 
       await storage.saveSession({
@@ -461,7 +454,7 @@ describe('PostgresStorage', async () => {
       assert.ok(sessions.every(s => s.botId === 'list-sessions-bot'));
     });
 
-    test('lists sessions with limit', { skip: !dbAvailable }, async () => {
+    test('lists sessions with limit', async () => {
       await storage.saveBotConfig('limit-sessions-bot', {});
 
       for (let i = 0; i < 5; i++) {
@@ -479,7 +472,7 @@ describe('PostgresStorage', async () => {
       assert.equal(sessions.length, 3);
     });
 
-    test('deletes session', { skip: !dbAvailable }, async () => {
+    test('deletes session', async () => {
       await storage.saveBotConfig('delete-session-bot', {});
 
       await storage.saveSession({
@@ -497,7 +490,7 @@ describe('PostgresStorage', async () => {
       assert.equal(session, null);
     });
 
-    test('cascade deletes sessions when bot deleted', { skip: !dbAvailable }, async () => {
+    test('cascade deletes sessions when bot deleted', async () => {
       await storage.saveBotConfig('cascade-bot', {});
 
       await storage.saveSession({
@@ -516,7 +509,7 @@ describe('PostgresStorage', async () => {
   });
 
   describe('Tool Calls (Audit Log)', () => {
-    test('logs tool call', { skip: !dbAvailable }, async () => {
+    test('logs tool call', async () => {
       await storage.saveBotConfig('tool-log-bot', {});
 
       const id = await storage.logToolCall({
@@ -529,11 +522,13 @@ describe('PostgresStorage', async () => {
         durationMs: 150,
       });
 
-      assert.ok(typeof id === 'number', 'Should return numeric ID');
-      assert.ok(id > 0);
+      // BIGSERIAL returns as string in pg library, so we convert to number
+      const numId = Number(id);
+      assert.ok(!isNaN(numId), 'Should return numeric ID (as string)');
+      assert.ok(numId > 0, 'ID should be positive');
     });
 
-    test('logs failed tool call with error', { skip: !dbAvailable }, async () => {
+    test('logs failed tool call with error', async () => {
       await storage.saveBotConfig('failed-tool-bot', {});
 
       const id = await storage.logToolCall({
@@ -545,10 +540,10 @@ describe('PostgresStorage', async () => {
         durationMs: 5,
       });
 
-      assert.ok(id > 0);
+      assert.ok(Number(id) > 0, 'ID should be positive');
     });
 
-    test('retrieves tool calls with filters', { skip: !dbAvailable }, async () => {
+    test('retrieves tool calls with filters', async () => {
       await storage.saveBotConfig('filter-tool-bot', {});
 
       await storage.logToolCall({
@@ -584,7 +579,7 @@ describe('PostgresStorage', async () => {
       assert.equal(failedCalls[0].tool_name, 'readFile');
     });
 
-    test('respects limit in getToolCalls', { skip: !dbAvailable }, async () => {
+    test('respects limit in getToolCalls', async () => {
       await storage.saveBotConfig('limit-tool-bot', {});
 
       for (let i = 0; i < 10; i++) {
