@@ -10,10 +10,12 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "node --test src/**/*.test.js",
-    "test:watch": "node --test --watch src/**/*.test.js",
-    "lint": "eslint src/ bin/",
-    "lint:fix": "eslint src/ bin/ --fix",
+    "test": "node --test 'src/**/*.test.js' 'test/**/*.test.js'",
+    "test:unit": "node --test 'test/unit/**/*.test.js'",
+    "test:integration": "node --test 'test/integration/**/*.test.js'",
+    "test:watch": "node --test --watch 'src/**/*.test.js' 'test/**/*.test.js'",
+    "lint": "eslint src/ bin/ test/",
+    "lint:fix": "eslint src/ bin/ test/ --fix",
     "validate": "node bin/cli.js validate",
     "migrate": "node bin/cli.js migrate"
   },
@@ -49,7 +51,10 @@
     "@modelcontextprotocol/sdk": "^1.0.4",
     "ssh2": "^1.16.0",
     "chokidar": "^3.5.3",
-    "zod": "^3.22.4"
+    "zod": "^3.22.4",
+    "deepmerge": "^4.3.1",
+    "dotenv": "^16.4.7",
+    "dotenv-expand": "^12.0.1"
   },
   "devDependencies": {
     "eslint": "^9.17.0",
