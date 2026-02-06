@@ -1,0 +1,11 @@
+{
+  "id": "assistant",
+  "soul": "./soul.md",
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-5",
+  "tools": [
+    "bash",
+    "readFile",
+    "writeFile"
+  ]
+}
