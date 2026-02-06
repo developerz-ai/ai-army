@@ -46,7 +46,7 @@ mkdir bots/my-bot
   "id": "my-bot",
   "soul": "./soul.md",
   "provider": "anthropic",
-  "model": "claude-3-5-sonnet",
+  "model": "claude-sonnet-4-5",
   "tools": ["bash", "readFile", "writeFile"],
   "sandbox": {
     "cpuLimit": "2",
