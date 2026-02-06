@@ -804,6 +804,28 @@ describe('DiscordAdapter', () => {
       assert.equal(handler.mock.calls.length, 0);
     });
 
+    it('should catch handler errors to prevent unhandled rejections', async () => {
+      const handler = mock.fn(async () => {
+        throw new Error('Downstream LLM failure');
+      });
+      adapter.onMessage(handler);
+
+      const mockMessage = {
+        author: { id: 'user-123', bot: false },
+        channel: { id: 'channel-456', type: 0 },
+        content: '<@987654321098765432> hello world',
+        guild: { id: 'guild-789' },
+        mentions: {
+          has: user => user.id === '987654321098765432',
+        },
+      };
+
+      // Should NOT throw - the adapter catches handler errors internally
+      await eventHandlers.messageCreate(mockMessage);
+
+      assert.equal(handler.mock.calls.length, 1);
+    });
+
     it('should not call handler if no messageHandler registered', async () => {
       const mockMessage = {
         author: { id: 'user-123', bot: false },

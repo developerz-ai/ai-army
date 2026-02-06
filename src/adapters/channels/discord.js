@@ -19,9 +19,7 @@
  * @module DiscordAdapter
  */
 
-import discord from 'discord.js';
-
-const { Client, GatewayIntentBits, Partials, ChannelType } = discord;
+import { Client, GatewayIntentBits, Partials, ChannelType } from 'discord.js';
 
 /**
  * Custom error for Discord adapter failures
@@ -176,7 +174,13 @@ export class DiscordAdapter {
       // Store reference for reply capabilities
       message._discordMessage = discordMessage;
 
-      await this.messageHandler(message);
+      try {
+        await this.messageHandler(message);
+      } catch (_err) {
+        // Handler errors are caught to prevent unhandled rejections from
+        // crashing the bot process. Consumers should handle their own errors
+        // or monitor via external logging.
+      }
     });
 
     this.client.on('error', _error => {

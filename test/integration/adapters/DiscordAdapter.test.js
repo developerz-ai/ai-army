@@ -124,15 +124,8 @@ const MockChannelType = {
 };
 
 // Register the mock before importing DiscordAdapter.
-// The source does `import discord from 'discord.js'` then destructures
-// `{ Client, GatewayIntentBits, Partials, ChannelType }` from the default.
+// The source uses named imports: `import { Client, ... } from 'discord.js'`.
 mock.module('discord.js', {
-  defaultExport: {
-    Client: MockDiscordClient,
-    GatewayIntentBits: MockGatewayIntentBits,
-    Partials: MockPartials,
-    ChannelType: MockChannelType,
-  },
   namedExports: {
     Client: MockDiscordClient,
     GatewayIntentBits: MockGatewayIntentBits,
@@ -584,6 +577,19 @@ describe('DiscordAdapter', () => {
       await createInitializedAdapter();
       // No handler registered - should not throw
       await simulateMessageCreate(createGuildMessage());
+    });
+
+    test('catches handler errors to prevent unhandled rejections', async () => {
+      const adapter = await createInitializedAdapter();
+      const handler = mock.fn(async () => {
+        throw new Error('Downstream LLM failure');
+      });
+      adapter.onMessage(handler);
+
+      // Should NOT throw - the adapter catches handler errors internally
+      await simulateMessageCreate(createGuildMessage());
+
+      assert.equal(handler.mock.callCount(), 1, 'Handler should have been called');
     });
 
     test('cleans multiple mention tags from text', async () => {
