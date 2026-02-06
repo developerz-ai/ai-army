@@ -1443,6 +1443,18 @@ describe('sanitizePath', () => {
     assert.equal(result.safe, false);
   });
 
+  test('rejects paths with double quotes (prevents quote escaping)', () => {
+    const result = sanitizePath('test" && rm -rf / && echo "');
+    assert.equal(result.safe, false);
+    assert.match(result.error, /dangerous characters/);
+  });
+
+  test('rejects paths with backslashes (prevents quote escaping)', () => {
+    const result = sanitizePath('/home/agent/file\\name');
+    assert.equal(result.safe, false);
+    assert.match(result.error, /dangerous characters/);
+  });
+
   test('rejects null path', () => {
     const result = sanitizePath(null);
     assert.equal(result.safe, false);

@@ -83,8 +83,9 @@ export function sanitizePath(filePath) {
   }
 
   // Block shell metacharacters that could escape quoted strings
+  // Includes " and \ which can break out of double-quoted shell commands
   // Note: Inside a regex character class [...], parentheses are literal (no escaping needed)
-  const dangerousChars = /[`$(){}|;&<>!]/;
+  const dangerousChars = /[`$(){}|;&<>!"\\]/;
   if (dangerousChars.test(filePath)) {
     return {
       safe: false,
