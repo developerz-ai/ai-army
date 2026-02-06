@@ -14,6 +14,7 @@ jobs:
   lint:
     name: "\U0001F50D Lint"
     runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
@@ -34,6 +35,7 @@ jobs:
   unit-tests:
     name: "\U0001F9EA Unit Tests"
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
@@ -54,6 +56,7 @@ jobs:
   integration-tests:
     name: "\U0001F517 Integration Tests"
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
 
     services:
       postgres:
@@ -94,6 +97,7 @@ jobs:
   e2e-tests:
     name: "\U0001F3AD E2E Tests"
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
 
     services:
       postgres:
@@ -135,6 +139,7 @@ jobs:
   validate-demo:
     name: "\u2705 Validate Demo"
     runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
@@ -158,6 +163,7 @@ jobs:
   all-checks:
     name: "\u2705 All Checks Passed"
     runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
     needs: [lint, unit-tests, integration-tests, e2e-tests, validate-demo]
     steps:
       - run: echo "All checks passed"
