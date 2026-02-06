@@ -197,6 +197,52 @@ describe('ProjectInitializer', () => {
       assert.ok(await fileExists(path.join(projectPath, 'package.json')));
       assert.ok(await fileExists(path.join(projectPath, 'CLAUDE.md')));
     });
+
+    test('re-throws ProjectInitializerError from sub-methods without wrapping', async () => {
+      const tmpDir = await createTempDir();
+      const projectPath = path.join(tmpDir, 'test-project');
+      await fs.mkdir(projectPath, { recursive: true });
+      // Make projectPath read-only so createDirectoryStructure fails
+      // with a ProjectInitializerError (from mkdir catch block)
+      await fs.chmod(projectPath, 0o444);
+
+      await assert.rejects(
+        () => ProjectInitializer.initialize(projectPath),
+        err => {
+          assert.equal(err.name, 'ProjectInitializerError');
+          // Should be the original ProjectInitializerError, not double-wrapped
+          assert.match(err.message, /Failed to create directory/);
+          // Should NOT contain "Failed to initialize project" wrapper
+          assert.ok(!err.message.includes('Failed to initialize project'));
+          return true;
+        }
+      );
+
+      await fs.chmod(projectPath, 0o755);
+    });
+
+    test('wraps non-ProjectInitializerError in ProjectInitializerError', async () => {
+      const tmpDir = await createTempDir();
+      // Create a file where a directory is expected to trigger a non-EPIE error
+      const filePath = path.join(tmpDir, 'blocked');
+      await fs.writeFile(filePath, 'not a directory');
+      // chmod to prevent any write operations to this "directory"
+      await fs.chmod(filePath, 0o444);
+
+      // Try to initialize in a path inside the file, which should cause
+      // a generic Error (not ProjectInitializerError) from mkdir
+      await assert.rejects(
+        () => ProjectInitializer.initialize(path.join(filePath, 'sub', 'project')),
+        err => {
+          assert.equal(err.name, 'ProjectInitializerError');
+          assert.match(err.message, /Failed to initialize project/);
+          assert.ok(err.cause);
+          return true;
+        }
+      );
+
+      await fs.chmod(filePath, 0o644);
+    });
   });
 
   describe('createDirectoryStructure()', () => {
@@ -266,6 +312,27 @@ describe('ProjectInitializer', () => {
           return true;
         }
       );
+    });
+
+    test('throws ProjectInitializerError when mkdir fails on read-only parent', async () => {
+      const basePath = await createTempDir();
+      const readOnlyDir = path.join(basePath, 'readonly');
+      await fs.mkdir(readOnlyDir);
+      await fs.chmod(readOnlyDir, 0o444);
+
+      await assert.rejects(
+        () => ProjectInitializer.createDirectoryStructure(readOnlyDir),
+        err => {
+          assert.equal(err.name, 'ProjectInitializerError');
+          assert.match(err.message, /Failed to create directory/);
+          assert.ok(err.cause);
+          assert.equal(err.targetPath, readOnlyDir);
+          return true;
+        }
+      );
+
+      // Restore permissions for cleanup
+      await fs.chmod(readOnlyDir, 0o755);
     });
   });
 
@@ -374,6 +441,25 @@ describe('ProjectInitializer', () => {
         }
       );
     });
+
+    test('throws ProjectInitializerError when writeFile fails on read-only directory', async () => {
+      const basePath = await createTempDir();
+      await fs.chmod(basePath, 0o444);
+
+      await assert.rejects(
+        () => ProjectInitializer.writeTemplateFiles(basePath),
+        err => {
+          assert.equal(err.name, 'ProjectInitializerError');
+          assert.match(err.message, /Failed to write template file/);
+          assert.ok(err.cause);
+          assert.equal(err.targetPath, basePath);
+          return true;
+        }
+      );
+
+      // Restore permissions for cleanup
+      await fs.chmod(basePath, 0o755);
+    });
   });
 
   describe('generateEnvExample()', () => {
@@ -446,6 +532,25 @@ describe('ProjectInitializer', () => {
           return true;
         }
       );
+    });
+
+    test('throws ProjectInitializerError when writeFile fails on read-only directory', async () => {
+      const basePath = await createTempDir();
+      await fs.chmod(basePath, 0o444);
+
+      await assert.rejects(
+        () => ProjectInitializer.generateEnvExample(basePath),
+        err => {
+          assert.equal(err.name, 'ProjectInitializerError');
+          assert.match(err.message, /Failed to write .env.example/);
+          assert.ok(err.cause);
+          assert.equal(err.targetPath, basePath);
+          return true;
+        }
+      );
+
+      // Restore permissions for cleanup
+      await fs.chmod(basePath, 0o755);
     });
   });
 
@@ -569,6 +674,102 @@ describe('ProjectInitializer', () => {
           return true;
         }
       );
+    });
+
+    test('throws ProjectInitializerError when writeFile fails on read-only directory', async () => {
+      const basePath = await createTempDir();
+      await fs.chmod(basePath, 0o444);
+
+      await assert.rejects(
+        () => ProjectInitializer.writeHelperFiles(basePath),
+        err => {
+          assert.equal(err.name, 'ProjectInitializerError');
+          assert.match(err.message, /Failed to write helper files/);
+          assert.ok(err.cause);
+          assert.equal(err.targetPath, basePath);
+          return true;
+        }
+      );
+
+      // Restore permissions for cleanup
+      await fs.chmod(basePath, 0o755);
+    });
+  });
+
+  describe('_getTemplateFiles()', () => {
+    test('returns an object with all expected file paths', () => {
+      const files = ProjectInitializer._getTemplateFiles('my-project', 'basic');
+
+      assert.ok(files['package.json']);
+      assert.ok(files['config.json']);
+      assert.ok(files['docker-compose.yml']);
+      assert.ok(files['.gitignore']);
+      assert.ok(files['README.md']);
+      assert.ok(files['bots/assistant/config.json']);
+      assert.ok(files['bots/assistant/soul.md']);
+    });
+
+    test('uses projectName in package.json content', () => {
+      const files = ProjectInitializer._getTemplateFiles('custom-army', 'basic');
+      const pkg = JSON.parse(files['package.json']);
+
+      assert.equal(pkg.name, 'custom-army');
+    });
+
+    test('uses projectName in README.md heading', () => {
+      const files = ProjectInitializer._getTemplateFiles('my-bots', 'basic');
+
+      assert.ok(files['README.md'].includes('# my-bots'));
+    });
+
+    test('ignores template parameter (reserved for future use)', () => {
+      const basicFiles = ProjectInitializer._getTemplateFiles('proj', 'basic');
+      const otherFiles = ProjectInitializer._getTemplateFiles('proj', 'advanced');
+
+      assert.deepEqual(Object.keys(basicFiles), Object.keys(otherFiles));
+    });
+  });
+
+  describe('_getClaudeMdContent()', () => {
+    test('returns a non-empty string', () => {
+      const content = ProjectInitializer._getClaudeMdContent();
+
+      assert.equal(typeof content, 'string');
+      assert.ok(content.length > 0);
+    });
+
+    test('contains AI Army Project heading', () => {
+      const content = ProjectInitializer._getClaudeMdContent();
+
+      assert.ok(content.includes('# AI Army Project'));
+    });
+
+    test('contains quick start section', () => {
+      const content = ProjectInitializer._getClaudeMdContent();
+
+      assert.ok(content.includes('## Quick Start'));
+    });
+  });
+
+  describe('_getAgentMdContent()', () => {
+    test('returns a non-empty string', () => {
+      const content = ProjectInitializer._getAgentMdContent();
+
+      assert.equal(typeof content, 'string');
+      assert.ok(content.length > 0);
+    });
+
+    test('contains Building Your AI Army heading', () => {
+      const content = ProjectInitializer._getAgentMdContent();
+
+      assert.ok(content.includes('# Building Your AI Army'));
+    });
+
+    test('contains architecture and conventions sections', () => {
+      const content = ProjectInitializer._getAgentMdContent();
+
+      assert.ok(content.includes('## Architecture'));
+      assert.ok(content.includes('## Conventions'));
     });
   });
 });
