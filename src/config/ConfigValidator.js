@@ -216,11 +216,35 @@ const DefaultsConfigSchema = z
 // =============================================================================
 
 /**
+ * Schema for a single secret adapter configuration
+ */
+const SecretAdapterConfigSchema = z
+  .object({
+    type: z.enum(['bitwarden', '1password', 'env']),
+  })
+  .passthrough(); // Allow adapter-specific fields (sessionToken, account, token, etc.)
+
+/**
+ * Schema for secret cache configuration
+ */
+const SecretCacheConfigSchema = z.object({
+  enabled: z.boolean().optional().default(true),
+  ttl: z.number().int().positive().optional().default(300000),
+});
+
+/**
  * Schema for secrets provider configuration
+ *
+ * Supports two levels:
+ * - Simple: just `provider` and optional `config` (backward-compatible)
+ * - Extended: `default` adapter, `adapters` map, and `cache` settings
  */
 const SecretsConfigSchema = z.object({
   provider: z.enum(['bitwarden', '1password', 'env']).optional().default('env'),
   config: z.record(z.string()).optional(),
+  default: z.enum(['bitwarden', '1password', 'env']).optional(),
+  adapters: z.record(SecretAdapterConfigSchema).optional(),
+  cache: SecretCacheConfigSchema.optional(),
 });
 
 // =============================================================================
@@ -602,6 +626,9 @@ export {
   SandboxConfigSchema,
   RestrictionsConfigSchema,
   DefaultsConfigSchema,
+  SecretsConfigSchema,
+  SecretAdapterConfigSchema,
+  SecretCacheConfigSchema,
   WorkspaceConfigSchema,
   MemoryConfigSchema,
 };
