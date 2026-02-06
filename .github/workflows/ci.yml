@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   lint:
-    name: Lint
+    name: "\U0001F50D Lint"
     runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:
@@ -31,8 +31,8 @@ jobs:
       - name: Lint
         run: npm run lint
 
-  unit:
-    name: Unit Tests
+  unit-tests:
+    name: "\U0001F9EA Unit Tests"
     runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:
@@ -51,46 +51,24 @@ jobs:
       - name: Run unit tests
         run: npm run test:unit
 
-  integration-db:
-    name: Integration Tests (Database)
+  integration-tests:
+    name: "\U0001F517 Integration Tests"
     runs-on: blacksmith-4vcpu-ubuntu-2404
 
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:18-alpine
         env:
+          POSTGRES_DB: ai_army_test
           POSTGRES_USER: test
           POSTGRES_PASSWORD: test
-          POSTGRES_DB: ai_army_test
+        ports:
+          - 5432:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-        ports:
-          - 5432:5432
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.x
-          cache: 'npm'
-
-      - name: Install
-        run: npm ci
-
-      - name: Run database integration tests
-        run: npm run test:integration:db
-        env:
-          DATABASE_URL: postgresql://test:test@localhost:5432/ai_army_test
-
-  integration-docker:
-    name: Integration Tests (Docker)
-    runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:
       - name: Checkout
@@ -106,7 +84,80 @@ jobs:
         run: npm ci
 
       - name: Pre-pull Docker images
-        run: docker pull alpine:latest
+        run: docker pull node:22-slim
 
-      - name: Run Docker integration tests
-        run: npm run test:integration:docker
+      - name: Run integration tests
+        run: npm run test:integration
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/ai_army_test
+
+  e2e-tests:
+    name: "\U0001F3AD E2E Tests"
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: ai_army_test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      - name: Pre-pull Docker images
+        run: docker pull node:22-slim
+
+      - name: Run E2E tests
+        run: npm run test:e2e
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/ai_army_test
+          TEST_MODE: 'true'
+
+  validate-demo:
+    name: "\u2705 Validate Demo"
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'npm'
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install demo dependencies
+        run: cd demo && npm ci
+
+      - name: Validate demo config
+        run: cd demo && npx ai-army validate
+
+  all-checks:
+    name: "\u2705 All Checks Passed"
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: [lint, unit-tests, integration-tests, e2e-tests, validate-demo]
+    steps:
+      - run: echo "All checks passed"

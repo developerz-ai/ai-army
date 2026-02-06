@@ -1,0 +1,20 @@
+{
+  "defaults": {
+    "model": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-5"
+    },
+    "sandbox": {
+      "type": "docker",
+      "image": "node:22-slim"
+    }
+  },
+  "providers": {
+    "anthropic": {
+      "type": "anthropic",
+      "apiKey": "${ANTHROPIC_API_KEY}"
+    }
+  },
+  "channels": {},
+  "mcpServers": {}
+}
