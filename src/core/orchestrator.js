@@ -8,6 +8,7 @@
  * - Create and manage component dependencies (BotManager, SessionManager)
  * - Load and start all configured bots
  * - Initialize channel adapters
+ * - Wire channel handlers to MessageProcessor pipeline
  * - Provide graceful shutdown
  * - Support hot reload of configuration
  *
@@ -68,6 +69,8 @@ export class Orchestrator {
    * @param {Object} [options.storage] - Pre-configured storage instance (for DI/testing)
    * @param {Object} [options.botManager] - Pre-configured BotManager instance (for DI/testing)
    * @param {Object} [options.sessionManager] - Pre-configured SessionManager (for DI/testing)
+   * @param {Object} [options.messageProcessor] - Pre-configured MessageProcessor (for DI/testing)
+   * @param {Object} [options.messageRouter] - Pre-configured MessageRouter (for DI/testing)
    * @param {Object} [options.configLoader] - Pre-configured ConfigLoader (for DI/testing)
    * @param {Object} [options.configValidator] - Pre-configured ConfigValidator (for DI/testing)
    * @param {Object} [options.migrationRunner] - Pre-configured MigrationRunner (for DI/testing)
@@ -75,6 +78,8 @@ export class Orchestrator {
    * @param {Function} [options.botManagerFactory] - Factory to create BotManager (for DI/testing)
    * @param {Function} [options.sessionManagerFactory] - Factory to create SessionManager (for DI)
    * @param {Function} [options.migrationRunnerFactory] - Factory to create MigrationRunner (for DI)
+   * @param {Function} [options.messageProcessorFactory] - Factory to create MessageProcessor
+   * @param {Function} [options.messageRouterFactory] - Factory to create MessageRouter
    */
   constructor(options = {}) {
     this.configPath = options.configPath || './config.json';
@@ -87,6 +92,8 @@ export class Orchestrator {
     this.storage = options.storage || null;
     this.botManager = options.botManager || null;
     this.sessionManager = options.sessionManager || null;
+    this.messageProcessor = options.messageProcessor || null;
+    this.messageRouter = options.messageRouter || null;
     this.configLoader = options.configLoader || new ConfigLoader();
     this.configValidator = options.configValidator || new ConfigValidator();
     this.migrationRunner = options.migrationRunner || null;
@@ -96,6 +103,8 @@ export class Orchestrator {
     this.botManagerFactory = options.botManagerFactory || null;
     this.sessionManagerFactory = options.sessionManagerFactory || null;
     this.migrationRunnerFactory = options.migrationRunnerFactory || null;
+    this.messageProcessorFactory = options.messageProcessorFactory || null;
+    this.messageRouterFactory = options.messageRouterFactory || null;
 
     // Adapter registries
     this.channelAdapters = new Map();
@@ -124,7 +133,8 @@ export class Orchestrator {
    * 4. Discover and load bot configurations
    * 5. Start all enabled bots
    * 6. Initialize channel adapters
-   * 7. Log startup complete
+   * 7. Wire channel handlers to MessageProcessor
+   * 8. Log startup complete
    *
    * @returns {Promise<void>}
    * @throws {OrchestratorError} If any startup step fails
@@ -167,6 +177,9 @@ export class Orchestrator {
           { operation: 'start', component: 'channels' }
         );
       }
+
+      // Step 8: Wire channel handlers to MessageProcessor
+      this._setupChannelHandlers();
 
       this.state = ORCHESTRATOR_STATES.RUNNING;
       this.startedAt = new Date();
@@ -427,6 +440,8 @@ export class Orchestrator {
       channelCount: this.channels.size,
       middlewareCount: this.middlewares.length,
       databaseConnected: this.storage ? this.storage.isConnected() : false,
+      messageProcessorReady: !!this.messageProcessor,
+      messageRouterReady: !!this.messageRouter,
     };
   }
 
@@ -555,6 +570,18 @@ export class Orchestrator {
 
     if (!this.sessionManager && this.sessionManagerFactory) {
       this.sessionManager = this.sessionManagerFactory(this.storage, this.config);
+    }
+
+    if (!this.messageRouter && this.messageRouterFactory && this.botManager) {
+      this.messageRouter = this.messageRouterFactory(this.botManager);
+    }
+
+    if (!this.messageProcessor && this.messageProcessorFactory) {
+      this.messageProcessor = this.messageProcessorFactory(
+        this.sessionManager,
+        this.storage,
+        this.config
+      );
     }
   }
 
@@ -685,6 +712,104 @@ export class Orchestrator {
     }
 
     return results;
+  }
+
+  // ==========================================================================
+  // Private: Channel Handler Wiring
+  // ==========================================================================
+
+  /**
+   * Step 8: Wire channel handlers to MessageProcessor
+   *
+   * Registers an onMessage handler on each initialized channel adapter.
+   * When a message arrives:
+   * 1. MessageRouter finds the bot bound to the channel and checks restrictions
+   * 2. MessageProcessor processes the message through the AI pipeline
+   * 3. Response is sent back via the channel adapter's sendMessage
+   *
+   * Requires both messageRouter and messageProcessor to be available.
+   * If either is missing, channel handlers are skipped (channels will
+   * be initialized but not connected to the processing pipeline).
+   *
+   * @private
+   */
+  _setupChannelHandlers() {
+    if (!this.messageRouter || !this.messageProcessor) {
+      if (this.channels.size > 0) {
+        this._log(
+          '⏭️ MessageRouter or MessageProcessor not available, ' + 'skipping channel handler wiring'
+        );
+      }
+      return;
+    }
+
+    let wiredCount = 0;
+
+    for (const [channelName, adapter] of this.channels) {
+      if (typeof adapter.onMessage !== 'function') {
+        this._log(`  ⏭️ Channel '${channelName}' does not support onMessage`);
+        continue;
+      }
+
+      adapter.onMessage(async message => {
+        await this._handleChannelMessage(channelName, adapter, message);
+      });
+
+      wiredCount++;
+    }
+
+    if (wiredCount > 0) {
+      this._log(`🔗 Wired ${wiredCount} channel(s) to MessageProcessor`);
+    }
+  }
+
+  /**
+   * Handle an incoming message from a channel adapter
+   *
+   * Routes the message to the correct bot via MessageRouter, processes it
+   * through the MessageProcessor pipeline, and sends the response back
+   * to the channel.
+   *
+   * @param {string} channelName - Name of the channel (e.g., 'slack-main')
+   * @param {Object} adapter - Channel adapter instance for sending responses
+   * @param {Object} message - Incoming message from the adapter
+   * @param {string} message.type - Channel type ('slack' | 'discord' | 'rest')
+   * @param {string} message.userId - User identifier
+   * @param {string} message.channelId - Channel/conversation identifier
+   * @param {string} message.text - Message text content
+   * @param {boolean} [message.isDM=false] - Whether this is a direct message
+   * @param {string} [message.threadTs] - Thread timestamp (Slack-specific)
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _handleChannelMessage(channelName, adapter, message) {
+    try {
+      // Step 1: Route message to a bot via MessageRouter
+      const routeResult = await this.messageRouter.route({
+        ...message,
+        channelName,
+      });
+
+      if (!routeResult.allowed || !routeResult.bot) {
+        this._log(
+          `🚫 Message blocked for channel '${channelName}': ` +
+            `${routeResult.reason || 'no matching bot'}`
+        );
+        return;
+      }
+
+      const { bot } = routeResult;
+
+      // Step 2: Process message through MessageProcessor
+      const result = await this.messageProcessor.processMessage(bot.config, message);
+
+      // Step 3: Send response back via channel adapter
+      if (result.text && typeof adapter.sendMessage === 'function') {
+        await adapter.sendMessage(message.channelId, result.text, message.threadTs);
+      }
+    } catch (err) {
+      this._log(`❌ Error handling message on channel '${channelName}': ${err.message}`);
+    }
   }
 
   // ==========================================================================
