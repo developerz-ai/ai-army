@@ -25,6 +25,7 @@ import { runValidate } from '../src/cli/ValidateCommand.js';
 import { runMigrate } from '../src/cli/MigrateCommand.js';
 import { runStart } from '../src/cli/StartCommand.js';
 import { runDev } from '../src/cli/DevCommand.js';
+import { runReload } from '../src/cli/ReloadCommand.js';
 
 /**
  * Create and configure the CLI program
@@ -122,14 +123,20 @@ export function createProgram() {
       console.log('⚠️  status command not yet implemented');
     });
 
-  // === reload command (stub for Phase 7b) ===
+  // === reload command ===
   program
     .command('reload')
     .description('Validate and reload configuration (nginx-style)')
     .option('-c, --config <path>', 'Config file path', './config.json')
-    .action(async _options => {
-      console.log('🔄 Reloading configuration...');
-      console.log('⚠️  reload command not yet implemented');
+    .option('-b, --bots <path>', 'Bots directory path', './bots')
+    .action(async options => {
+      const result = await runReload({
+        configPath: options.config,
+        botsPath: options.bots,
+      });
+      if (!result.success) {
+        process.exitCode = 1;
+      }
     });
 
   return program;
