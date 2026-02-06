@@ -219,6 +219,7 @@ function createMockChannelAdapterClass(overrides = {}) {
 function createOrchestratorOptions(overrides = {}) {
   return {
     logger: null, // suppress logging in tests
+    botsPath: '/tmp/nonexistent-bots-path', // prevent filesystem discovery
     configLoader: createMockConfigLoader(),
     configValidator: createMockConfigValidator(),
     storage: createMockStorage(),
