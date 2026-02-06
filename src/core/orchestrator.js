@@ -80,6 +80,9 @@ export class Orchestrator {
    * @param {Function} [options.migrationRunnerFactory] - Factory to create MigrationRunner (for DI)
    * @param {Function} [options.messageProcessorFactory] - Factory to create MessageProcessor
    * @param {Function} [options.messageRouterFactory] - Factory to create MessageRouter
+   * @param {Object} [options.botReloader] - Pre-configured BotReloader instance (for DI/testing)
+   * @param {Function} [options.botReloaderFactory] - Factory (botManager, config) => BotReloader.
+   *   The factory must close over containerPool + soulLoader or supply them internally.
    */
   constructor(options = {}) {
     this.configPath = options.configPath || './config.json';
@@ -98,6 +101,9 @@ export class Orchestrator {
     this.configValidator = options.configValidator || new ConfigValidator();
     this.migrationRunner = options.migrationRunner || null;
 
+    // BotReloader for granular hot-reload
+    this.botReloader = options.botReloader || null;
+
     // Factories for creating components when not injected
     this.storageFactory = options.storageFactory || null;
     this.botManagerFactory = options.botManagerFactory || null;
@@ -105,6 +111,7 @@ export class Orchestrator {
     this.migrationRunnerFactory = options.migrationRunnerFactory || null;
     this.messageProcessorFactory = options.messageProcessorFactory || null;
     this.messageRouterFactory = options.messageRouterFactory || null;
+    this.botReloaderFactory = options.botReloaderFactory || null;
 
     // Adapter registries
     this.channelAdapters = new Map();
@@ -322,7 +329,7 @@ export class Orchestrator {
           activeBotIds.add(botId);
           try {
             const mergedConfig = this.configLoader.deepMerge(this.config.defaults || {}, botConfig);
-            await this.botManager.reloadBot(botId, mergedConfig);
+            await this._reloadBot(botId, mergedConfig);
             this.botConfigs.set(botId, mergedConfig);
             results.reloaded.push(botId);
           } catch (err) {
@@ -582,6 +589,20 @@ export class Orchestrator {
         this.storage,
         this.config
       );
+    }
+
+    // Create BotReloader if dependencies are available.
+    // The factory receives (botManager, config) and must internally supply
+    // containerPool + soulLoader (e.g. closed over at factory creation time).
+    if (!this.botReloader && this.botReloaderFactory && this.botManager) {
+      const reloader = this.botReloaderFactory(this.botManager, this.config);
+      if (!reloader || typeof reloader !== 'object') {
+        throw new OrchestratorError('botReloaderFactory must return a BotReloader instance', {
+          operation: 'start',
+          component: 'botReloader',
+        });
+      }
+      this.botReloader = reloader;
     }
   }
 
@@ -879,6 +900,70 @@ export class Orchestrator {
         operation: 'stop',
         component: 'database',
       });
+    }
+  }
+
+  // ==========================================================================
+  // Private: Bot Reload
+  // ==========================================================================
+
+  /**
+   * Reload a single bot using BotReloader (granular) or BotManager (fallback)
+   *
+   * If the bot is not yet loaded (newly added to config), loads and starts it
+   * via BotManager.loadBot() + startBot().
+   *
+   * When BotReloader is available, uses granular reload:
+   * - Config-only changes: update in-memory, no container restart
+   * - Soul-only changes: update personality, no container restart
+   * - Sandbox changes: graceful container restart
+   *
+   * Falls back to BotManager.reloadBot() when BotReloader is not configured.
+   *
+   * @param {string} botId - Bot identifier
+   * @param {Object} mergedConfig - Merged bot configuration (defaults + bot config)
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _reloadBot(botId, mergedConfig) {
+    const bot = this.botManager.getBot(botId);
+
+    // New bot not yet loaded — load and start it
+    if (!bot) {
+      this._log(`🆕 New bot detected: '${botId}', loading...`);
+      await this.botManager.loadBot(botId, mergedConfig);
+      await this.botManager.startBot(botId);
+      return;
+    }
+
+    if (this.botReloader) {
+      const needsRestart = this.botReloader.needsContainerRestart(bot.config, mergedConfig);
+      await this.botReloader.reloadBotConfig(botId, mergedConfig);
+
+      // Reload soul if soul path is configured
+      if (mergedConfig.soul) {
+        try {
+          const newSoulContent = await this.botReloader.soulLoader.load(mergedConfig.soul, {
+            botName: mergedConfig.name || botId,
+            botId,
+          });
+          await this.botReloader.reloadSoul(botId, newSoulContent);
+        } catch (err) {
+          this._log(`⚠️  Failed to reload soul for '${botId}': ${err.message}`);
+        }
+      }
+
+      if (needsRestart) {
+        if (mergedConfig.sandbox && typeof mergedConfig.sandbox === 'object') {
+          await this.botReloader.reloadContainer(botId, mergedConfig.sandbox);
+        } else {
+          this._log(
+            `⚠️  Sandbox removed for '${botId}'; skipping container reload (no sandbox config)`
+          );
+        }
+      }
+    } else {
+      await this.botManager.reloadBot(botId, mergedConfig);
     }
   }
 

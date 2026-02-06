@@ -5,6 +5,7 @@
 
 export { Orchestrator } from './core/orchestrator.js';
 export { BotManager } from './core/bot-manager.js';
+export { BotReloader } from './core/BotReloader.js';
 export { SessionManager } from './core/session-manager.js';
 
 // Adapters
@@ -20,5 +21,3 @@ export { PostgresStorage } from './adapters/storage/postgres.js';
 
 // Types (when we add TypeScript types)
 // export type { BotConfig, TemplateConfig, ChannelAdapter } from './types/index.js';
-
-console.log('✅ AI Assistants Army loaded');
