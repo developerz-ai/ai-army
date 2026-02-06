@@ -18,10 +18,10 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 
-import { runValidate } from '../../../src/cli/ValidateCommand.js';
+import { runValidate, ValidateCommandError } from '../../../src/cli/ValidateCommand.js';
 import { runMigrate, MigrateCommandError } from '../../../src/cli/MigrateCommand.js';
-import { runStart } from '../../../src/cli/StartCommand.js';
-import { runDev } from '../../../src/cli/DevCommand.js';
+import { runStart, StartCommandError } from '../../../src/cli/StartCommand.js';
+import { runDev, DevCommandError } from '../../../src/cli/DevCommand.js';
 import { OrchestratorError } from '../../../src/core/orchestrator.js';
 
 // ============================================================================
@@ -407,6 +407,260 @@ describe('validate command - integration with real ConfigLoader/Validator', () =
 
     assert.equal(result.valid, true);
   });
+
+  test('validates bot config with sandbox configuration', async () => {
+    const mainConfig = {
+      providers: {
+        anthropic: { type: 'anthropic', apiKey: 'key' },
+      },
+      channels: {},
+    };
+    const botConfig = {
+      id: 'sandbox-bot',
+      soul: './soul.md',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      tools: ['bash', 'readFile', 'writeFile'],
+      sandbox: {
+        type: 'docker',
+        image: 'node:22-slim',
+        memory: '2g',
+        cpus: 1,
+      },
+    };
+
+    const configPath = path.join(tempDir, 'config.json');
+    await writeConfig(configPath, mainConfig);
+    await writeConfig(path.join(tempDir, 'bots', 'sandbox-bot', 'config.json'), botConfig);
+
+    const result = await runValidate({
+      configPath,
+      botsPath: path.join(tempDir, 'bots'),
+      output: out,
+    });
+
+    assert.equal(result.valid, true);
+    assert.ok(out.output().includes('1 bot config'));
+  });
+
+  test('validates config with multiple providers', async () => {
+    const mainConfig = {
+      providers: {
+        anthropic: { type: 'anthropic', apiKey: 'key-1' },
+        openai: { type: 'openai', apiKey: 'key-2' },
+      },
+      channels: {},
+    };
+
+    const configPath = path.join(tempDir, 'config.json');
+    await writeConfig(configPath, mainConfig);
+
+    const result = await runValidate({
+      configPath,
+      botsPath: path.join(tempDir, 'bots'),
+      output: out,
+    });
+
+    assert.equal(result.valid, true);
+    assert.equal(result.errors.length, 0);
+  });
+
+  test('reports error for invalid channel type in main config', async () => {
+    const mainConfig = {
+      providers: {
+        anthropic: { type: 'anthropic', apiKey: 'key' },
+      },
+      channels: {
+        invalid: { type: 'invalid-channel-type' },
+      },
+    };
+
+    const configPath = path.join(tempDir, 'config.json');
+    await writeConfig(configPath, mainConfig);
+
+    const result = await runValidate({
+      configPath,
+      botsPath: path.join(tempDir, 'bots'),
+      output: out,
+    });
+
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.length > 0);
+  });
+
+  test('reports error for invalid provider type', async () => {
+    const mainConfig = {
+      providers: {
+        bad: { type: 'invalid-provider-type', apiKey: 'key' },
+      },
+      channels: {},
+    };
+
+    const configPath = path.join(tempDir, 'config.json');
+    await writeConfig(configPath, mainConfig);
+
+    const result = await runValidate({
+      configPath,
+      botsPath: path.join(tempDir, 'bots'),
+      output: out,
+    });
+
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.length > 0);
+  });
+
+  test('reports error for bot config missing id field', async () => {
+    const mainConfig = {
+      providers: {
+        anthropic: { type: 'anthropic', apiKey: 'key' },
+      },
+      channels: {},
+    };
+    // Bot config without id (id is required by schema)
+    const botConfig = {
+      soul: './soul.md',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    };
+
+    const configPath = path.join(tempDir, 'config.json');
+    await writeConfig(configPath, mainConfig);
+    await writeConfig(path.join(tempDir, 'bots', 'my-dir-bot', 'config.json'), botConfig);
+
+    const result = await runValidate({
+      configPath,
+      botsPath: path.join(tempDir, 'bots'),
+      output: out,
+    });
+
+    // id is a required field, so validation should fail
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.length > 0);
+  });
+
+  test('skips bot directories without config.json', async () => {
+    const mainConfig = {
+      providers: {},
+      channels: {},
+    };
+
+    const configPath = path.join(tempDir, 'config.json');
+    await writeConfig(configPath, mainConfig);
+
+    // Create bot directory without config.json
+    const botDir = path.join(tempDir, 'bots', 'incomplete-bot');
+    await fs.mkdir(botDir, { recursive: true });
+    await fs.writeFile(path.join(botDir, 'soul.md'), '# Bot');
+
+    const result = await runValidate({
+      configPath,
+      botsPath: path.join(tempDir, 'bots'),
+      output: out,
+    });
+
+    // Should still be valid since the bot dir is simply skipped
+    assert.equal(result.valid, true);
+  });
+
+  test('validates channel config with slack-specific fields', async () => {
+    const mainConfig = {
+      providers: {
+        anthropic: { type: 'anthropic', apiKey: 'key' },
+      },
+      channels: {
+        'slack-team': {
+          type: 'slack',
+          botToken: 'xoxb-test-token',
+          appToken: 'xapp-test-token',
+        },
+      },
+    };
+
+    const configPath = path.join(tempDir, 'config.json');
+    await writeConfig(configPath, mainConfig);
+
+    const result = await runValidate({
+      configPath,
+      botsPath: path.join(tempDir, 'bots'),
+      output: out,
+    });
+
+    assert.equal(result.valid, true);
+  });
+
+  test('outputs validating message before loading config', async () => {
+    const configPath = path.join(tempDir, 'config.json');
+    await writeConfig(configPath, { providers: {}, channels: {} });
+
+    await runValidate({
+      configPath,
+      botsPath: path.join(tempDir, 'bots'),
+      output: out,
+    });
+
+    assert.ok(out.output().includes('Validating configuration'));
+  });
+
+  test('detects multiple validation errors across bots', async () => {
+    const mainConfig = {
+      providers: {
+        anthropic: { type: 'anthropic', apiKey: 'key' },
+      },
+      channels: {},
+    };
+
+    // Bot 1: missing soul and provider
+    const bot1 = { id: 'bot-a' };
+    // Bot 2: references nonexistent provider
+    const bot2 = {
+      id: 'bot-b',
+      soul: './soul.md',
+      provider: 'missing-provider',
+      model: 'some-model',
+    };
+
+    const configPath = path.join(tempDir, 'config.json');
+    await writeConfig(configPath, mainConfig);
+    await writeConfig(path.join(tempDir, 'bots', 'bot-a', 'config.json'), bot1);
+    await writeConfig(path.join(tempDir, 'bots', 'bot-b', 'config.json'), bot2);
+
+    const result = await runValidate({
+      configPath,
+      botsPath: path.join(tempDir, 'bots'),
+      output: out,
+    });
+
+    assert.equal(result.valid, false);
+    // Should have errors from both bots
+    assert.ok(result.errors.length >= 2);
+    const output = out.output();
+    assert.ok(output.includes('Configuration errors found'));
+  });
+
+  test('throws ValidateCommandError for unexpected loader error', async () => {
+    // Inject a loader that throws a non-ConfigError exception
+    const brokenLoader = {
+      async load() {
+        throw new TypeError('Unexpected null reference');
+      },
+    };
+
+    await assert.rejects(
+      () =>
+        runValidate({
+          configPath: path.join(tempDir, 'config.json'),
+          botsPath: path.join(tempDir, 'bots'),
+          output: out,
+          configLoader: brokenLoader,
+        }),
+      err => {
+        assert.ok(err instanceof ValidateCommandError);
+        assert.ok(err.message.includes('Unexpected null reference'));
+        assert.ok(err.cause instanceof TypeError);
+        return true;
+      }
+    );
+  });
 });
 
 // ============================================================================
@@ -502,6 +756,79 @@ describe('migrate command - integration with mock storage', () => {
         return true;
       }
     );
+  });
+
+  test('uses custom migrations path when specified', async () => {
+    const storage = createMockStorage();
+    const runner = createMockMigrationRunner({ completed: [] });
+
+    await runMigrate({
+      storage,
+      migrationRunner: runner,
+      migrationsPath: './custom/migrations',
+      output: out,
+    });
+
+    assert.equal(runner.runMigrations.mock.calls.length, 1);
+    assert.equal(runner.runMigrations.mock.calls[0].arguments[0], './custom/migrations');
+  });
+
+  test('throws MigrateCommandError for non-MigrationError exceptions', async () => {
+    const storage = createMockStorage();
+    const runner = createMockMigrationRunner({
+      error: new TypeError('Connection lost unexpectedly'),
+    });
+
+    await assert.rejects(
+      () =>
+        runMigrate({
+          storage,
+          migrationRunner: runner,
+          output: out,
+        }),
+      err => {
+        assert.ok(err instanceof MigrateCommandError);
+        assert.ok(err.message.includes('Connection lost unexpectedly'));
+        assert.ok(err.cause instanceof TypeError);
+        return true;
+      }
+    );
+  });
+
+  test('outputs running migrations message on start', async () => {
+    const storage = createMockStorage();
+    const runner = createMockMigrationRunner({ completed: [] });
+
+    await runMigrate({
+      storage,
+      migrationRunner: runner,
+      output: out,
+    });
+
+    assert.ok(out.output().includes('Running database migrations'));
+  });
+
+  test('migration failure output includes filename when available', async () => {
+    const { MigrationError } = await import('../../../src/database/MigrationRunner.js');
+    const storage = createMockStorage();
+    const runner = createMockMigrationRunner({
+      error: new MigrationError('Syntax error at line 5', {
+        version: 3,
+        filename: '003_add_columns.sql',
+      }),
+    });
+
+    const result = await runMigrate({
+      storage,
+      migrationRunner: runner,
+      output: out,
+    });
+
+    assert.equal(result.success, false);
+    assert.equal(result.migrations.length, 0);
+    const output = out.output();
+    assert.ok(output.includes('003_add_columns.sql'));
+    assert.ok(output.includes('Migration failed'));
   });
 });
 
@@ -619,6 +946,78 @@ describe('start command - integration with mock orchestrator', () => {
 
     await proc.emit('SIGINT');
     assert.ok(called);
+  });
+
+  test('shows database not connected status', async () => {
+    const orch = createMockOrchestrator({
+      status: { botCount: 0, channelCount: 0, databaseConnected: false },
+    });
+
+    await runStart({
+      orchestrator: orch,
+      output: out,
+      processRef: proc,
+    });
+
+    const output = out.output();
+    assert.ok(output.includes('Database: not connected'));
+    assert.ok(output.includes('Bots: 0'));
+    assert.ok(output.includes('Channels: 0'));
+  });
+
+  test('shows component name in startup failure output', async () => {
+    const orch = createMockOrchestrator({
+      startError: new OrchestratorError('Database connection refused', {
+        component: 'database',
+      }),
+    });
+
+    await runStart({
+      orchestrator: orch,
+      output: out,
+      processRef: proc,
+    });
+
+    const output = out.output();
+    assert.ok(output.includes('Startup failed'));
+    assert.ok(output.includes('Database connection refused'));
+    assert.ok(output.includes('Component: database'));
+  });
+
+  test('throws StartCommandError for non-OrchestratorError', async () => {
+    const orch = createMockOrchestrator({
+      startError: new TypeError('Cannot read properties of undefined'),
+    });
+
+    await assert.rejects(
+      () =>
+        runStart({
+          orchestrator: orch,
+          output: out,
+          processRef: proc,
+        }),
+      err => {
+        assert.ok(err instanceof StartCommandError);
+        assert.ok(err.message.includes('Cannot read properties'));
+        assert.ok(err.cause instanceof TypeError);
+        return true;
+      }
+    );
+  });
+
+  test('attempts cleanup on OrchestratorError startup failure', async () => {
+    const orch = createMockOrchestrator({
+      startError: new OrchestratorError('Bot loading failed'),
+    });
+
+    await runStart({
+      orchestrator: orch,
+      output: out,
+      processRef: proc,
+    });
+
+    // stop() should be called for cleanup even on startup failure
+    assert.equal(orch.stop.mock.calls.length, 1);
   });
 });
 
@@ -749,6 +1148,110 @@ describe('dev command - integration with mock orchestrator and watcher', () => {
     const output = out.output();
     assert.ok(output.includes('1 reloaded, 1 failed'));
   });
+
+  test('reloads on file add event', async () => {
+    const orch = createMockOrchestrator({
+      reloadResult: { reloaded: ['new-bot'], failed: [] },
+    });
+    const { factory, watcher } = createMockWatcherFactory();
+
+    await runDev({
+      orchestrator: orch,
+      watcherFactory: factory,
+      output: out,
+      processRef: proc,
+    });
+
+    // Simulate file add (new bot config)
+    await watcher.handlers.add('./bots/new-bot/config.json');
+
+    assert.equal(orch.reload.mock.calls.length, 1);
+    const output = out.output();
+    assert.ok(output.includes('File changed'));
+    assert.ok(output.includes('Reload complete'));
+  });
+
+  test('shows component name on dev startup failure', async () => {
+    const orch = createMockOrchestrator({
+      startError: new OrchestratorError('Channel init failed', {
+        component: 'channels',
+      }),
+    });
+    const { factory } = createMockWatcherFactory();
+
+    await runDev({
+      orchestrator: orch,
+      watcherFactory: factory,
+      output: out,
+      processRef: proc,
+    });
+
+    const output = out.output();
+    assert.ok(output.includes('Startup failed'));
+    assert.ok(output.includes('Component: channels'));
+  });
+
+  test('throws DevCommandError for non-OrchestratorError', async () => {
+    const orch = createMockOrchestrator({
+      startError: new RangeError('Port already in use'),
+    });
+    const { factory } = createMockWatcherFactory();
+
+    await assert.rejects(
+      () =>
+        runDev({
+          orchestrator: orch,
+          watcherFactory: factory,
+          output: out,
+          processRef: proc,
+        }),
+      err => {
+        assert.ok(err instanceof DevCommandError);
+        assert.ok(err.message.includes('Port already in use'));
+        assert.ok(err.cause instanceof RangeError);
+        return true;
+      }
+    );
+  });
+
+  test('handles shutdown errors in dev mode', async () => {
+    const orch = createMockOrchestrator({
+      stopError: new Error('Channel disconnect timeout'),
+    });
+    const { factory, watcher } = createMockWatcherFactory();
+
+    await runDev({
+      orchestrator: orch,
+      watcherFactory: factory,
+      output: out,
+      processRef: proc,
+    });
+
+    await proc.emit('SIGINT');
+
+    const output = out.output();
+    assert.ok(output.includes('errors'));
+    assert.equal(watcher.close.mock.calls.length, 1);
+  });
+
+  test('calls onShutdown callback in dev mode', async () => {
+    const orch = createMockOrchestrator();
+    const { factory } = createMockWatcherFactory();
+    let shutdownCalled = false;
+
+    await runDev({
+      orchestrator: orch,
+      watcherFactory: factory,
+      output: out,
+      processRef: proc,
+      onShutdown: () => {
+        shutdownCalled = true;
+      },
+    });
+
+    await proc.emit('SIGTERM');
+    assert.ok(shutdownCalled);
+  });
 });
 
 // ============================================================================
@@ -815,5 +1318,141 @@ describe('CLI commands - cross-command integration', () => {
 
     assert.equal(validateResult.valid, false);
     // In real CLI, exitCode would be set to 1 and start wouldn't run
+  });
+
+  test('validate then migrate then start full lifecycle', async () => {
+    // Step 1: Validate config
+    const config = {
+      providers: {
+        anthropic: { type: 'anthropic', apiKey: 'key' },
+      },
+      channels: {
+        'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+      },
+    };
+    const botConfig = {
+      id: 'lifecycle-bot',
+      soul: './soul.md',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    };
+
+    const configPath = path.join(tempDir, 'config.json');
+    await writeConfig(configPath, config);
+    await writeConfig(path.join(tempDir, 'bots', 'lifecycle-bot', 'config.json'), botConfig);
+
+    const validateResult = await runValidate({
+      configPath,
+      botsPath: path.join(tempDir, 'bots'),
+      output: out,
+    });
+
+    assert.equal(validateResult.valid, true);
+
+    // Step 2: Run migrations
+    const out2 = createOutputStream();
+    const storage = createMockStorage();
+    const runner = createMockMigrationRunner({
+      completed: [{ version: 1, name: '001_initial_schema.sql' }],
+    });
+
+    const migrateResult = await runMigrate({
+      storage,
+      migrationRunner: runner,
+      output: out2,
+    });
+
+    assert.equal(migrateResult.success, true);
+
+    // Step 3: Start orchestrator
+    const out3 = createOutputStream();
+    const proc = createMockProcess();
+    const orch = createMockOrchestrator({
+      status: { botCount: 1, channelCount: 1, databaseConnected: true },
+    });
+
+    const startResult = await runStart({
+      orchestrator: orch,
+      output: out3,
+      processRef: proc,
+    });
+
+    assert.ok(startResult.orchestrator);
+    assert.ok(out3.output().includes('AI Army is running'));
+  });
+
+  test('validate with invalid bots still reports all errors', async () => {
+    const mainConfig = {
+      providers: {
+        anthropic: { type: 'anthropic', apiKey: 'key' },
+      },
+      channels: {},
+    };
+    // Valid bot
+    const validBot = {
+      id: 'good-bot',
+      soul: './soul.md',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    };
+    // Invalid bot
+    const invalidBot = {
+      id: 'bad-bot',
+      // Missing required fields
+    };
+
+    const configPath = path.join(tempDir, 'config.json');
+    await writeConfig(configPath, mainConfig);
+    await writeConfig(path.join(tempDir, 'bots', 'good-bot', 'config.json'), validBot);
+    await writeConfig(path.join(tempDir, 'bots', 'bad-bot', 'config.json'), invalidBot);
+
+    const result = await runValidate({
+      configPath,
+      botsPath: path.join(tempDir, 'bots'),
+      output: out,
+    });
+
+    // One bad bot makes entire validation fail
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.length > 0);
+  });
+
+  test('migrate failure does not affect subsequent validate', async () => {
+    // Simulate migration failure
+    const out1 = createOutputStream();
+    const { MigrationError } = await import('../../../src/database/MigrationRunner.js');
+    const storage = createMockStorage();
+    const runner = createMockMigrationRunner({
+      error: new MigrationError('Table already exists', {
+        version: 1,
+        filename: '001_initial_schema.sql',
+      }),
+    });
+
+    const migrateResult = await runMigrate({
+      storage,
+      migrationRunner: runner,
+      output: out1,
+    });
+
+    assert.equal(migrateResult.success, false);
+
+    // Validate should still work independently
+    const config = {
+      providers: {
+        anthropic: { type: 'anthropic', apiKey: 'key' },
+      },
+      channels: {},
+    };
+    const configPath = path.join(tempDir, 'config.json');
+    await writeConfig(configPath, config);
+
+    const validateResult = await runValidate({
+      configPath,
+      botsPath: path.join(tempDir, 'bots'),
+      output: out,
+    });
+
+    assert.equal(validateResult.valid, true);
   });
 });
