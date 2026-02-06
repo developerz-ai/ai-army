@@ -87,7 +87,7 @@ jobs:
         run: npm ci
 
       - name: Pre-pull Docker images
-        run: docker pull node:22-slim
+        run: docker pull node:22-slim && docker pull alpine:latest
 
       - name: Run integration tests
         run: npm run test:integration
