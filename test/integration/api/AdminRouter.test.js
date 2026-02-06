@@ -112,6 +112,13 @@ function createMockOrchestrator(overrides = {}) {
       ...overrides.status,
     })),
     reload: mock.fn(async () => overrides.reloadResult || { reloaded: [], failed: [] }),
+    _discoverBotConfigs: mock.fn(async () => {
+      const configs = new Map();
+      for (const bot of botManager.listBots()) {
+        configs.set(bot.id, bot.config);
+      }
+      return configs;
+    }),
     ...overrides,
   };
 }

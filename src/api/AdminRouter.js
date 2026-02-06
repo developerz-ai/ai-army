@@ -113,7 +113,8 @@ export class AdminRouter {
   async handleRequest(req, res) {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const { pathname } = url;
-    const method = req.method.toUpperCase();
+    const method = (typeof req.method === 'string' ? req.method : '').toUpperCase();
+    if (!method) return false;
 
     // Find matching route
     for (const route of this.routes) {
@@ -337,17 +338,39 @@ export class AdminRouter {
     }
 
     try {
+      // Load fresh config from disk to compare against current
+      const newConfigs = await this.orchestrator._discoverBotConfigs();
+      const newConfig = newConfigs.get(botId);
+      if (!newConfig) {
+        return {
+          statusCode: 404,
+          body: {
+            success: false,
+            botId,
+            message: `Config for bot '${botId}' not found on disk`,
+          },
+        };
+      }
+
       let needsContainerRestart = false;
 
       if (this.orchestrator.botReloader) {
-        // Use granular reload
         needsContainerRestart = this.orchestrator.botReloader.needsContainerRestart(
           bot.config,
-          bot.config
+          newConfig
         );
-        await this.orchestrator.botReloader.reloadBotConfig(botId, bot.config);
+        await this.orchestrator.botReloader.reloadBotConfig(botId, newConfig);
       } else if (typeof this.orchestrator.botManager.reloadBot === 'function') {
-        await this.orchestrator.botManager.reloadBot(botId, bot.config);
+        await this.orchestrator.botManager.reloadBot(botId, newConfig);
+      } else {
+        return {
+          statusCode: 501,
+          body: {
+            success: false,
+            botId,
+            message: 'No reload mechanism available (neither BotReloader nor BotManager.reloadBot)',
+          },
+        };
       }
 
       return {
