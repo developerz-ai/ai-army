@@ -1,0 +1,30 @@
+{
+  "name": "ai-army-demo",
+  "version": "0.1.0",
+  "description": "Working demo of ai-army framework with 3 example bots",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "npx ai-army start",
+    "dev": "npx ai-army dev",
+    "validate": "npx ai-army validate",
+    "migrate": "npx ai-army migrate",
+    "setup": "./scripts/setup.sh",
+    "test:bots": "./scripts/test.sh",
+    "cleanup": "./scripts/cleanup.sh"
+  },
+  "keywords": [
+    "ai-army",
+    "demo",
+    "chatbots",
+    "multi-bot"
+  ],
+  "author": "Developerz AI",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "ai-army": "file:.."
+  }
+}
