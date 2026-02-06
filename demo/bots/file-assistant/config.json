@@ -1,0 +1,12 @@
+{
+  "id": "file-assistant",
+  "name": "File Assistant",
+  "description": "Demonstrates file operations tools",
+  "soul": "./soul.md",
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-5",
+  "tools": ["bash", "readFile", "writeFile", "glob"],
+  "workspace": {
+    "root": "./data/file-assistant"
+  }
+}
