@@ -13,7 +13,7 @@
     "test": "npm run test:unit && npm run test:integration",
     "test:unit": "node --test 'test/unit/**/*.test.js' 'test/helpers/**/*.test.js' 'src/**/*.test.js'",
     "test:integration": "npm run test:integration:db && npm run test:integration:docker",
-    "test:integration:db": "node --test 'test/integration/database/**/*.test.js' 'test/integration/adapters/**/*.test.js' 'test/integration/core/**/*.test.js'",
+    "test:integration:db": "node --experimental-test-module-mocks --test 'test/integration/database/**/*.test.js' 'test/integration/adapters/**/*.test.js' 'test/integration/core/**/*.test.js'",
     "test:integration:docker": "node --test 'test/integration/execution/**/*.test.js'",
     "test:watch": "node --test --watch 'src/**/*.test.js' 'test/**/*.test.js'",
     "lint": "eslint src/ bin/ test/",
