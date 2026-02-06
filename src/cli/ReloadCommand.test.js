@@ -241,26 +241,26 @@ describe('ReloadCommand - runReload()', () => {
     );
   });
 
-  test('throws ReloadCommandError when orchestrator is missing', async () => {
+  test('returns validate-only result when orchestrator is missing', async () => {
     const loader = createMockConfigLoader({ mainConfig: {} });
     const validator = createMockConfigValidator();
 
-    await assert.rejects(
-      () =>
-        runReload({
-          configPath: './config.json',
-          output: out,
-          configLoader: loader,
-          configValidator: validator,
-          // No orchestrator provided
-        }),
-      err => {
-        assert.ok(err instanceof ReloadCommandError);
-        assert.ok(err.message.includes('Orchestrator is required'));
-        assert.equal(err.phase, 'reload');
-        return true;
-      }
-    );
+    const result = await runReload({
+      configPath: './config.json',
+      output: out,
+      configLoader: loader,
+      configValidator: validator,
+      // No orchestrator provided
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.validateOnly, true);
+    assert.deepEqual(result.reloaded, []);
+    assert.deepEqual(result.failed, []);
+
+    const output = out.output();
+    assert.ok(output.includes('validate-only mode'));
+    assert.ok(output.includes('ai-army dev'));
   });
 
   test('handles orchestrator reload failure gracefully', async () => {

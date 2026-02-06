@@ -47,7 +47,7 @@ export class ReloadCommandError extends Error {
  * @param {Object} [options.output=process.stdout] - Writable stream for output
  * @param {ConfigLoader} [options.configLoader] - ConfigLoader instance (for DI/testing)
  * @param {ConfigValidator} [options.configValidator] - ConfigValidator instance (for DI/testing)
- * @returns {Promise<{ success: boolean, reloaded: string[], failed: Array }>} Reload result
+ * @returns {Promise<{ success: boolean, reloaded: string[], failed: Array, validateOnly?: boolean }>} Reload result
  */
 export async function runReload({
   configPath = './config.json',
@@ -95,9 +95,9 @@ export async function runReload({
 
   // === Phase 2: Reload ===
   if (!orchestrator) {
-    throw new ReloadCommandError('Orchestrator is required for reload', {
-      phase: 'reload',
-    });
+    write('\n⚠️  No running orchestrator — validate-only mode\n');
+    write('   Use "ai-army dev" for automatic reload on config changes\n');
+    return { success: true, reloaded: [], failed: [], validateOnly: true };
   }
 
   write('🔄 Reloading...\n');
