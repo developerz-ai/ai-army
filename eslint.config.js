@@ -16,6 +16,8 @@ export default [
         Buffer: 'readonly',
         URL: 'readonly',
         globalThis: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
         __dirname: 'readonly',
         __filename: 'readonly',
       },
