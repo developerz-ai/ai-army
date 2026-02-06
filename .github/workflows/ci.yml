@@ -13,7 +13,7 @@ concurrency:
 jobs:
   lint:
     name: "\U0001F50D Lint"
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404
 
     steps:
       - name: Checkout
@@ -134,7 +134,7 @@ jobs:
 
   validate-demo:
     name: "\u2705 Validate Demo"
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404
 
     steps:
       - name: Checkout
@@ -157,7 +157,7 @@ jobs:
 
   all-checks:
     name: "\u2705 All Checks Passed"
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     needs: [lint, unit-tests, integration-tests, e2e-tests, validate-demo]
     steps:
       - run: echo "All checks passed"
