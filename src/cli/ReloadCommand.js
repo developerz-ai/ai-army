@@ -43,7 +43,6 @@ export class ReloadCommandError extends Error {
  *
  * @param {Object} options - Command options
  * @param {string} [options.configPath='./config.json'] - Path to main config file
- * @param {string} [options.botsPath='./bots'] - Path to bots directory
  * @param {Object} options.orchestrator - Orchestrator instance for reload
  * @param {Object} [options.output=process.stdout] - Writable stream for output
  * @param {ConfigLoader} [options.configLoader] - ConfigLoader instance (for DI/testing)
@@ -52,7 +51,6 @@ export class ReloadCommandError extends Error {
  */
 export async function runReload({
   configPath = './config.json',
-  botsPath: _botsPath = './bots',
   orchestrator,
   output = process.stdout,
   configLoader,

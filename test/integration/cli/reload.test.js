@@ -573,7 +573,6 @@ describe('ReloadCommand integration - full scenario', () => {
 
     const result = await runReload({
       configPath: './config.json',
-      botsPath: './bots',
       output: out,
       configLoader: loader,
       configValidator: validator,

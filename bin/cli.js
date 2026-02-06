@@ -128,11 +128,9 @@ export function createProgram() {
     .command('reload')
     .description('Validate and reload configuration (nginx-style)')
     .option('-c, --config <path>', 'Config file path', './config.json')
-    .option('-b, --bots <path>', 'Bots directory path', './bots')
     .action(async options => {
       const result = await runReload({
         configPath: options.config,
-        botsPath: options.bots,
       });
       if (!result.success) {
         process.exitCode = 1;
