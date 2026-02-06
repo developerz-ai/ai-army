@@ -698,7 +698,7 @@ describe('SlackAdapter', () => {
       );
     });
 
-    test('throws when text is missing', async () => {
+    test('throws when text is null', async () => {
       const adapter = await createInitializedAdapter();
 
       await assert.rejects(
@@ -712,17 +712,43 @@ describe('SlackAdapter', () => {
       );
     });
 
-    test('throws when text is empty string', async () => {
+    test('throws when text is undefined', async () => {
       const adapter = await createInitializedAdapter();
 
       await assert.rejects(
-        () => adapter.sendMessage('C456DEF', ''),
+        () => adapter.sendMessage('C456DEF', undefined),
         err => {
           assert.ok(err instanceof SlackAdapterError);
           assert.match(err.message, /text.*required/i);
+          assert.equal(err.operation, 'sendMessage');
           return true;
         }
       );
+    });
+
+    test('throws when text is a number (non-string)', async () => {
+      const adapter = await createInitializedAdapter();
+
+      await assert.rejects(
+        () => adapter.sendMessage('C456DEF', 42),
+        err => {
+          assert.ok(err instanceof SlackAdapterError);
+          assert.match(err.message, /text.*required/i);
+          assert.equal(err.operation, 'sendMessage');
+          return true;
+        }
+      );
+    });
+
+    test('allows empty string text', async () => {
+      const adapter = await createInitializedAdapter();
+
+      await adapter.sendMessage('C456DEF', '');
+
+      assert.equal(postMessageSpy.mock.callCount(), 1);
+      const payload = postMessageSpy.mock.calls[0].arguments[0];
+      assert.equal(payload.channel, 'C456DEF');
+      assert.equal(payload.text, '');
     });
 
     test('wraps Slack API errors in SlackAdapterError', async () => {

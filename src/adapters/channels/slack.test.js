@@ -446,7 +446,7 @@ describe('SlackAdapter', () => {
       );
     });
 
-    it('should throw on missing text', async () => {
+    it('should throw on missing text (null)', async () => {
       await assert.rejects(
         () => adapter.sendMessage('C123', null),
         err => {
@@ -458,15 +458,25 @@ describe('SlackAdapter', () => {
       );
     });
 
-    it('should throw on empty text', async () => {
+    it('should throw on non-string text (number)', async () => {
       await assert.rejects(
-        () => adapter.sendMessage('C123', ''),
+        () => adapter.sendMessage('C123', 42),
         err => {
           assert.equal(err.name, 'SlackAdapterError');
           assert.match(err.message, /text is required/);
+          assert.equal(err.operation, 'sendMessage');
           return true;
         }
       );
+    });
+
+    it('should allow empty string text', async () => {
+      await adapter.sendMessage('C123', '');
+
+      assert.equal(mockPostMessage.mock.calls.length, 1);
+      const [payload] = mockPostMessage.mock.calls[0].arguments;
+      assert.equal(payload.channel, 'C123');
+      assert.equal(payload.text, '');
     });
 
     it('should send message to channel', async () => {

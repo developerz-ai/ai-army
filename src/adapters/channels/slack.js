@@ -294,10 +294,10 @@ export class SlackAdapter {
       });
     }
 
-    if (!text) {
-      throw new SlackAdapterError('text is required', {
+    if (typeof text !== 'string') {
+      throw new SlackAdapterError('text is required and must be a string', {
         operation: 'sendMessage',
-        reason: 'Missing text parameter',
+        reason: 'Missing or non-string text parameter',
       });
     }
 
