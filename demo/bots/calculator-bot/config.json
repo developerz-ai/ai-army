@@ -1,7 +1,7 @@
 {
   "id": "calculator-bot",
   "name": "Calculator Bot",
-  "description": "Demonstrates bash tool usage in sandbox",
+  "description": "Demonstrates bash tool usage with bc for arithmetic",
   "soul": "./soul.md",
   "provider": "anthropic",
   "model": "claude-sonnet-4-5",
