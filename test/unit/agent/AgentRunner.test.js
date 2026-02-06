@@ -860,6 +860,150 @@ describe('AgentRunner', () => {
           }
         );
       });
+
+      test('passes abortSignal to streamText for timeout handling', async t => {
+        let capturedArgs;
+
+        async function* mockTextStream() {
+          yield 'Hello';
+        }
+
+        const mockStreamResult = {
+          textStream: mockTextStream(),
+          then(resolve) {
+            resolve({
+              toolCalls: [],
+              usage: { promptTokens: 5, completionTokens: 3, totalTokens: 8 },
+              finishReason: 'stop',
+            });
+          },
+        };
+
+        const streamTextMock = t.mock.module('ai', {
+          namedExports: {
+            generateText: mock.fn(),
+            streamText: mock.fn(args => {
+              capturedArgs = args;
+              return mockStreamResult;
+            }),
+          },
+        });
+
+        const { AgentRunner: MockedRunner } = await import(
+          `../../../src/agent/agent-runner.js?s3=${Date.now()}`
+        );
+
+        const mockRunner = new MockedRunner(modelFactory, toolRegistry);
+        await mockRunner.stream(createBotConfig({ timeout: 30000 }), createMessages(), () => {});
+
+        assert.ok(capturedArgs.abortSignal, 'Should pass abortSignal to streamText');
+        assert.ok(
+          capturedArgs.abortSignal instanceof AbortSignal,
+          'abortSignal should be an AbortSignal instance'
+        );
+
+        streamTextMock.restore();
+      });
+
+      test('times out on long-running stream', async t => {
+        async function* slowTextStream() {
+          yield 'start';
+          // Simulate a long-running stream that never finishes
+          await new Promise((_resolve, reject) => {
+            // This will be rejected when the abort signal fires
+            const check = setInterval(() => {
+              // Check is just to keep the promise alive
+            }, 100);
+            setTimeout(() => {
+              clearInterval(check);
+              reject(new DOMException('The operation was aborted', 'AbortError'));
+            }, 200);
+          });
+        }
+
+        const mockStreamResult = {
+          textStream: slowTextStream(),
+          then(resolve) {
+            resolve({
+              toolCalls: [],
+              usage: {},
+              finishReason: 'stop',
+            });
+          },
+        };
+
+        const streamTextMock = t.mock.module('ai', {
+          namedExports: {
+            generateText: mock.fn(),
+            streamText: mock.fn(() => mockStreamResult),
+          },
+        });
+
+        const { AgentRunner: MockedRunner } = await import(
+          `../../../src/agent/agent-runner.js?s4=${Date.now()}`
+        );
+
+        const mockRunner = new MockedRunner(modelFactory, toolRegistry);
+
+        await assert.rejects(
+          () => mockRunner.stream(createBotConfig({ timeout: 50 }), createMessages(), () => {}),
+          err => {
+            assert.equal(err.name, 'AgentRunnerError');
+            assert.match(err.message, /Stream timed out after 50ms/);
+            assert.equal(err.operation, 'stream');
+            assert.equal(err.botId, 'test-bot');
+            return true;
+          }
+        );
+
+        streamTextMock.restore();
+      });
+
+      test('cleans up timeout timer on successful completion', async t => {
+        const chunks = ['done'];
+
+        async function* mockTextStream() {
+          for (const chunk of chunks) {
+            yield chunk;
+          }
+        }
+
+        const mockStreamResult = {
+          textStream: mockTextStream(),
+          then(resolve) {
+            resolve({
+              toolCalls: [],
+              usage: { promptTokens: 5, completionTokens: 3, totalTokens: 8 },
+              finishReason: 'stop',
+            });
+          },
+        };
+
+        const streamTextMock = t.mock.module('ai', {
+          namedExports: {
+            generateText: mock.fn(),
+            streamText: mock.fn(() => mockStreamResult),
+          },
+        });
+
+        const { AgentRunner: MockedRunner } = await import(
+          `../../../src/agent/agent-runner.js?s5=${Date.now()}`
+        );
+
+        const mockRunner = new MockedRunner(modelFactory, toolRegistry);
+
+        // Should complete without timeout (timeout is long)
+        const result = await mockRunner.stream(
+          createBotConfig({ timeout: 60000 }),
+          createMessages(),
+          () => {}
+        );
+
+        assert.equal(result.text, 'done');
+        assert.equal(result.finishReason, 'stop');
+
+        streamTextMock.restore();
+      });
     });
   });
 

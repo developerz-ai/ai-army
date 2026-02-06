@@ -1003,6 +1003,93 @@ describe('AgentRunner Integration', () => {
 
       aiMock.restore();
     });
+
+    test('stream times out when streaming takes too long', async t => {
+      async function* slowStream(signal) {
+        yield 'start';
+        await new Promise((_resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error('never')), 5000);
+          signal.addEventListener('abort', () => {
+            clearTimeout(timer);
+            reject(new DOMException('The operation was aborted', 'AbortError'));
+          });
+        });
+      }
+
+      const aiMock = t.mock.module('ai', {
+        namedExports: {
+          generateText: mock.fn(),
+          streamText: mock.fn(args => {
+            const stream = slowStream(args.abortSignal);
+            return {
+              textStream: stream,
+              then(resolve) {
+                resolve({
+                  toolCalls: [],
+                  usage: {},
+                  finishReason: 'stop',
+                });
+              },
+            };
+          }),
+        },
+      });
+
+      const { AgentRunner } = await import(`../../../src/agent/agent-runner.js?${nextImportId()}`);
+
+      const runner = new AgentRunner(ModelFactory, toolRegistry);
+
+      await assert.rejects(
+        () => runner.stream(createBotConfig({ timeout: 100 }), createMessages(), () => {}),
+        err => {
+          assert.equal(err.name, 'AgentRunnerError');
+          assert.match(err.message, /Stream timed out/i);
+          assert.equal(err.operation, 'stream');
+          return true;
+        }
+      );
+
+      aiMock.restore();
+    });
+
+    test('stream completes within timeout for fast responses', async t => {
+      async function* fastStream() {
+        yield 'quick';
+        yield ' response';
+      }
+
+      const aiMock = t.mock.module('ai', {
+        namedExports: {
+          generateText: mock.fn(),
+          streamText: mock.fn(() => ({
+            textStream: fastStream(),
+            then(resolve) {
+              resolve({
+                toolCalls: [],
+                usage: { promptTokens: 5, completionTokens: 3, totalTokens: 8 },
+                finishReason: 'stop',
+              });
+            },
+          })),
+        },
+      });
+
+      const { AgentRunner } = await import(`../../../src/agent/agent-runner.js?${nextImportId()}`);
+
+      const runner = new AgentRunner(ModelFactory, toolRegistry);
+      const receivedChunks = [];
+      const result = await runner.stream(
+        createBotConfig({ timeout: 5000 }),
+        createMessages(),
+        chunk => receivedChunks.push(chunk)
+      );
+
+      assert.equal(result.text, 'quick response');
+      assert.deepEqual(receivedChunks, ['quick', ' response']);
+      assert.equal(result.finishReason, 'stop');
+
+      aiMock.restore();
+    });
   });
 
   // =========================================================================

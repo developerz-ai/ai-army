@@ -184,6 +184,7 @@ export class AgentRunner {
     }
 
     const { model, tools, generateOptions } = await this._resolveConfig(botConfig);
+    const { controller, cleanup } = createStreamTimeout(generateOptions.timeout, botConfig.id);
 
     try {
       const result = streamText({
@@ -194,6 +195,7 @@ export class AgentRunner {
         ...(generateOptions.temperature !== undefined && {
           temperature: generateOptions.temperature,
         }),
+        abortSignal: controller.signal,
       });
 
       let fullText = '';
@@ -216,11 +218,20 @@ export class AgentRunner {
       if (err instanceof AgentRunnerError) {
         throw err;
       }
+      // Convert AbortError to a timeout-specific error
+      if (err.name === 'AbortError' || controller.signal.aborted) {
+        throw new AgentRunnerError(
+          `Stream timed out after ${generateOptions.timeout}ms for bot "${botConfig.id}"`,
+          { operation: 'stream', botId: botConfig.id, cause: err }
+        );
+      }
       throw new AgentRunnerError(`Agent stream failed for bot "${botConfig.id}": ${err.message}`, {
         operation: 'stream',
         botId: botConfig.id,
         cause: err,
       });
+    } finally {
+      cleanup();
     }
   }
 
@@ -349,4 +360,36 @@ function withTimeout(promise, timeoutMs, botId) {
       );
     }),
   ]);
+}
+
+/**
+ * Create an AbortController with a timeout for streaming operations
+ *
+ * Returns a controller whose signal can be passed to streamText, and a
+ * cleanup function to clear the timer when streaming completes.
+ *
+ * @param {number} timeoutMs - Timeout in milliseconds
+ * @param {string} botId - Bot ID for error context
+ * @returns {{ controller: AbortController, cleanup: Function }}
+ * @private
+ */
+function createStreamTimeout(timeoutMs, botId) {
+  const controller = new AbortController();
+
+  if (!timeoutMs || timeoutMs <= 0) {
+    return { controller, cleanup: () => {} };
+  }
+
+  const timer = setTimeout(() => {
+    controller.abort(
+      new AgentRunnerError(`Stream timed out after ${timeoutMs}ms for bot "${botId}"`, {
+        operation: 'stream',
+        botId,
+      })
+    );
+  }, timeoutMs);
+
+  const cleanup = () => clearTimeout(timer);
+
+  return { controller, cleanup };
 }
