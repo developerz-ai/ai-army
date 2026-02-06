@@ -286,11 +286,15 @@ send_test_message() {
   # Send message via REST API
   local response
   local http_code
+  # Build JSON payload safely via node to prevent injection
+  local payload
+  payload=$(node -e 'console.log(JSON.stringify({message:process.argv[1],sessionId:process.argv[2]}))' "$message" "$session_id")
+
   response=$(curl -s -w "\n%{http_code}" \
     --max-time "$TIMEOUT" \
     -X POST "$endpoint" \
     -H "Content-Type: application/json" \
-    -d "{\"message\": \"${message}\", \"sessionId\": \"${session_id}\"}" \
+    -d "$payload" \
     2>&1) || true
 
   # Extract HTTP status code (last line)

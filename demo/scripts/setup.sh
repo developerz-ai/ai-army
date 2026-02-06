@@ -56,9 +56,11 @@ echo ""
 if [ ! -f "$DEMO_DIR/.env" ]; then
   echo "--- Creating .env from .env.example ---"
   cp "$DEMO_DIR/.env.example" "$DEMO_DIR/.env"
-  # Update DATABASE_URL in .env to match container settings
+  # Update DATABASE_URL in .env to match container settings (portable across GNU/BSD sed)
   if command -v sed &> /dev/null; then
-    sed -i "s|^DATABASE_URL=.*|DATABASE_URL=${DATABASE_URL}|" "$DEMO_DIR/.env"
+    tmpfile=$(mktemp)
+    sed "s|^DATABASE_URL=.*|DATABASE_URL=${DATABASE_URL}|" "$DEMO_DIR/.env" > "$tmpfile" \
+      && mv "$tmpfile" "$DEMO_DIR/.env"
   fi
   echo "  Created .env (edit it to set ANTHROPIC_API_KEY)"
   echo ""

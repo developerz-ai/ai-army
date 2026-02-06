@@ -23,7 +23,13 @@ for arg in "$@"; do
     --keep-db) KEEP_DB=true ;;
     --all) REMOVE_ALL=true ;;
     --help|-h)
-      head -9 "$0" | tail -7
+      cat <<'HELPEOF'
+Usage: ./scripts/cleanup.sh
+Options:
+  --keep-db   Keep the PostgreSQL container and its volume
+  --all       Also remove .env file (full reset)
+  --help      Show this help message
+HELPEOF
       exit 0
       ;;
     *)
