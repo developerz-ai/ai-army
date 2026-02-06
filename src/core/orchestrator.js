@@ -597,10 +597,10 @@ export class Orchestrator {
     if (!this.botReloader && this.botReloaderFactory && this.botManager) {
       const reloader = this.botReloaderFactory(this.botManager, this.config);
       if (!reloader || typeof reloader !== 'object') {
-        throw new OrchestratorError(
-          'botReloaderFactory must return a BotReloader instance',
-          { operation: 'start', component: 'botReloader' }
-        );
+        throw new OrchestratorError('botReloaderFactory must return a BotReloader instance', {
+          operation: 'start',
+          component: 'botReloader',
+        });
       }
       this.botReloader = reloader;
     }
