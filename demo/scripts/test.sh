@@ -69,7 +69,23 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --help|-h)
-      head -17 "$0" | tail -15
+      cat <<'HELPEOF'
+Usage:
+  ./scripts/test.sh                  # Full test (validate + send messages)
+  ./scripts/test.sh --validate-only  # Validate config/structure only (offline)
+  ./scripts/test.sh --bot echo-bot   # Test a single bot
+  ./scripts/test.sh --port 4000      # Use custom API port
+  ./scripts/test.sh --timeout 30     # Set response timeout (seconds)
+  ./scripts/test.sh --verbose        # Show full response bodies
+
+Prerequisites:
+  - ./scripts/setup.sh has been run
+  - npm start (server running) for message tests
+
+Exit codes:
+  0 - All tests passed
+  1 - One or more tests failed
+HELPEOF
       exit 0
       ;;
     *)

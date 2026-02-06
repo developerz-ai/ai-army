@@ -77,27 +77,27 @@ if command -v docker &> /dev/null; then
   fi
 
   # Remove any other demo-labeled containers
-  CONTAINERS=$(docker ps -a --filter "label=ai-army-demo" -q 2>/dev/null || true)
-  if [ -n "$CONTAINERS" ]; then
+  mapfile -t CONTAINERS < <(docker ps -a --filter "label=ai-army-demo" -q 2>/dev/null || true)
+  if [ ${#CONTAINERS[@]} -gt 0 ] && [ -n "${CONTAINERS[0]}" ]; then
     echo "  Removing demo-labeled containers..."
-    docker rm -f $CONTAINERS > /dev/null 2>&1 || true
+    docker rm -f "${CONTAINERS[@]}" > /dev/null 2>&1 || true
     echo "  Removed demo containers"
   fi
 
   # Remove demo Docker volumes
   if [ "$KEEP_DB" != true ]; then
-    VOLUMES=$(docker volume ls --filter "label=ai-army-demo" -q 2>/dev/null || true)
-    if [ -n "$VOLUMES" ]; then
+    mapfile -t VOLUMES < <(docker volume ls --filter "label=ai-army-demo" -q 2>/dev/null || true)
+    if [ ${#VOLUMES[@]} -gt 0 ] && [ -n "${VOLUMES[0]}" ]; then
       echo "  Removing demo-labeled volumes..."
-      docker volume rm $VOLUMES > /dev/null 2>&1 || true
+      docker volume rm "${VOLUMES[@]}" > /dev/null 2>&1 || true
       echo "  Removed demo volumes"
     fi
 
     # Remove compose-created volumes (project name prefix)
-    COMPOSE_VOLUMES=$(docker volume ls -q --filter "name=${COMPOSE_PROJECT}_" 2>/dev/null || true)
-    if [ -n "$COMPOSE_VOLUMES" ]; then
+    mapfile -t COMPOSE_VOLUMES < <(docker volume ls -q --filter "name=${COMPOSE_PROJECT}_" 2>/dev/null || true)
+    if [ ${#COMPOSE_VOLUMES[@]} -gt 0 ] && [ -n "${COMPOSE_VOLUMES[0]}" ]; then
       echo "  Removing compose volumes..."
-      docker volume rm $COMPOSE_VOLUMES > /dev/null 2>&1 || true
+      docker volume rm "${COMPOSE_VOLUMES[@]}" > /dev/null 2>&1 || true
       echo "  Removed compose volumes"
     fi
   fi

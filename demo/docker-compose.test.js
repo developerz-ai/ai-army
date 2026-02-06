@@ -14,85 +14,11 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const COMPOSE_PATH = join(__dirname, 'docker-compose.yml');
 
-/**
- * Minimal YAML parser for docker-compose files.
- * Handles the subset of YAML needed for compose validation.
- * Does NOT handle anchors, aliases, or complex types.
- *
- * @param {string} text - Raw YAML text
- * @returns {Object} Parsed key-value structure
- */
-function parseSimpleYaml(text) {
-  const lines = text.split('\n');
-  const result = {};
-  const stack = [{ indent: -1, obj: result }];
-
-  for (const line of lines) {
-    // Skip empty lines and comments
-    if (/^\s*(#|$)/.test(line)) continue;
-
-    const indent = line.search(/\S/);
-    const content = line.trim();
-
-    // Pop stack to correct nesting level
-    while (stack.length > 1 && stack[stack.length - 1].indent >= indent) {
-      stack.pop();
-    }
-
-    const parent = stack[stack.length - 1].obj;
-
-    // Handle array items: "- value"
-    if (content.startsWith('- ')) {
-      const arrContent = content.slice(2).trim();
-      // Find the key in parent that this array belongs to
-      const parentKeys = Object.keys(parent);
-      const lastKey = parentKeys[parentKeys.length - 1];
-      if (lastKey && !Array.isArray(parent[lastKey])) {
-        parent[lastKey] = [];
-      }
-      if (lastKey) {
-        // Handle "- KEY: VALUE" items in arrays
-        if (arrContent.includes(':')) {
-          const colonIdx = arrContent.indexOf(':');
-          const arrKey = arrContent.slice(0, colonIdx).trim();
-          const arrVal = arrContent.slice(colonIdx + 1).trim();
-          parent[lastKey].push(arrVal || arrKey);
-        } else {
-          parent[lastKey].push(arrContent.replace(/^["']|["']$/g, ''));
-        }
-      }
-      continue;
-    }
-
-    // Handle "key: value" pairs
-    const colonIdx = content.indexOf(':');
-    if (colonIdx === -1) continue;
-
-    const key = content.slice(0, colonIdx).trim();
-    let value = content.slice(colonIdx + 1).trim();
-
-    if (value === '' || value === '|' || value === '>') {
-      // Nested object or block scalar
-      const child = {};
-      parent[key] = child;
-      stack.push({ indent, obj: child });
-    } else {
-      // Strip quotes
-      value = value.replace(/^["']|["']$/g, '');
-      parent[key] = value;
-    }
-  }
-
-  return result;
-}
-
 describe('demo/docker-compose.yml', () => {
   let raw;
-  let compose;
 
   before(async () => {
     raw = await readFile(COMPOSE_PATH, 'utf-8');
-    compose = parseSimpleYaml(raw);
   });
 
   test('file exists and is non-empty', () => {
@@ -100,15 +26,16 @@ describe('demo/docker-compose.yml', () => {
   });
 
   test('uses compose version 3.8', () => {
-    assert.equal(compose.version, '3.8');
+    assert.ok(raw.includes("version: '3.8'") || raw.includes('version: "3.8"'),
+      'Should declare version 3.8');
   });
 
   test('defines services section', () => {
-    assert.ok(compose.services, 'Should have services section');
+    assert.ok(/^services:/m.test(raw), 'Should have top-level services section');
   });
 
   test('defines volumes section', () => {
-    assert.ok(compose.volumes, 'Should have volumes section');
+    assert.ok(/^volumes:/m.test(raw), 'Should have top-level volumes section');
   });
 });
 
