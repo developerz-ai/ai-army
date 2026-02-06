@@ -3,16 +3,17 @@
  *
  * Same as start command but with file watching for hot reload.
  * Watches config.json and bots directory for changes, validates
- * and reloads configuration without full restart.
+ * and reloads configuration without full restart using ConfigWatcher.
  *
- * Full hot reload implementation is Phase 10; this provides the
- * basic structure with file watching and reload triggering.
+ * Full hot reload implementation is Phase 10; ConfigWatcher handles
+ * file watching, validation, and reloading.
  *
  * @module cli/DevCommand
  */
 
 import path from 'path';
 import { Orchestrator, OrchestratorError } from '../core/orchestrator.js';
+import { ConfigWatcher, ConfigWatcherError } from '../config/ConfigWatcher.js';
 
 /**
  * Custom error for dev command failures
@@ -33,8 +34,9 @@ export class DevCommandError extends Error {
 /**
  * Run the dev command
  *
- * Creates an Orchestrator, starts it, then watches config files for changes.
- * On change, validates the new config and reloads bots without full restart.
+ * Creates an Orchestrator, starts it, then uses ConfigWatcher to watch
+ * config files for changes. On change, validates the new config and
+ * reloads bots without full restart.
  *
  * @param {Object} options - Command options
  * @param {string} [options.configPath='./config.json'] - Path to main config file
@@ -42,7 +44,7 @@ export class DevCommandError extends Error {
  * @param {string} [options.migrationsPath='./migrations'] - Path to migrations directory
  * @param {Object} [options.output=process.stdout] - Writable stream for output
  * @param {Object} [options.orchestrator] - Pre-configured Orchestrator (for DI/testing)
- * @param {Function} [options.watcherFactory] - Factory to create file watcher (for DI/testing)
+ * @param {Function} [options.configWatcherFactory] - Factory to create ConfigWatcher (for DI/testing)
  * @param {Function} [options.onShutdown] - Callback after graceful shutdown
  * @param {Object} [options.processRef=process] - Process reference for signal handling
  * @returns {Promise<{ orchestrator: Object, watcher: Object|null }>} Started orchestrator and watcher
@@ -53,7 +55,7 @@ export async function runDev({
   migrationsPath = './migrations',
   output = process.stdout,
   orchestrator,
-  watcherFactory,
+  configWatcherFactory,
   onShutdown,
   processRef = process,
 } = {}) {
@@ -80,56 +82,31 @@ export async function runDev({
     write(`   Channels: ${status.channelCount}\n`);
     write(`   Database: ${status.databaseConnected ? 'connected' : 'not connected'}\n`);
 
-    // Setup file watching
-    let watcher = null;
+    // Setup file watching using ConfigWatcher
+    let configWatcher = null;
 
     const watchPaths = [path.resolve(configPath), path.resolve(botsPath)];
 
-    if (watcherFactory) {
-      // Use injected watcher factory (for testing)
-      watcher = watcherFactory(watchPaths);
-    } else {
-      // Try to use chokidar for file watching
-      try {
-        const chokidar = await import('chokidar');
-        watcher = chokidar.watch(watchPaths, {
-          ignoreInitial: true,
-          awaitWriteFinish: { stabilityThreshold: 300, pollInterval: 100 },
-        });
-      } catch {
-        write('\n⚠️ chokidar not available, file watching disabled\n');
+    try {
+      const watcherOpts = { logger: msg => write(`${msg}\n`) };
+      if (configWatcherFactory) {
+        // Use injected watcher factory (for testing)
+        configWatcher = configWatcherFactory(orch, watcherOpts);
+      } else {
+        // Create ConfigWatcher with logger
+        configWatcher = new ConfigWatcher(orch, watcherOpts);
       }
-    }
 
-    if (watcher) {
-      let reloading = false;
-
-      const handleChange = async changedPath => {
-        if (reloading) return;
-        reloading = true;
-
-        write(`\n🔄 File changed: ${changedPath}\n`);
-        write('🔄 Validating and reloading configuration...\n');
-
-        try {
-          const result = await orch.reload();
-          const reloaded = result.reloaded.length;
-          const failed = result.failed.length;
-          write(`✅ Reload complete: ${reloaded} reloaded, ${failed} failed\n`);
-        } catch (err) {
-          write(`❌ Reload failed: ${err.message}\n`);
-        }
-
-        reloading = false;
-      };
-
-      watcher.on('change', handleChange);
-      watcher.on('add', handleChange);
-
-      write('\n🔄 Watching config files for changes...\n');
+      await configWatcher.watch(watchPaths);
+      write('\n👁️  Watching config files for changes...\n');
       write('🎉 AI Army is ready! Press Ctrl+C to stop.\n');
-    } else {
-      write('\n🎉 AI Army is running! Press Ctrl+C to stop.\n');
+    } catch (_err) {
+      if (_err instanceof ConfigWatcherError) {
+        write('\n⚠️ File watching not available, running without hot reload\n');
+        write(`   (${_err.message})\n`);
+      } else {
+        write('\n⚠️ File watching disabled\n');
+      }
     }
 
     // Setup graceful shutdown handlers
@@ -140,16 +117,20 @@ export async function runDev({
 
       write(`\n\n🛑 Received ${signal}, shutting down gracefully...\n`);
 
-      // Close file watcher
-      if (watcher && typeof watcher.close === 'function') {
-        await watcher.close();
+      // Stop config watcher
+      if (configWatcher) {
+        try {
+          await configWatcher.stop();
+        } catch (_err) {
+          // Ignore watcher cleanup errors
+        }
       }
 
       try {
         await orch.stop();
         write('✅ Shutdown complete\n');
-      } catch (err) {
-        write(`⚠️ Shutdown completed with errors: ${err.message}\n`);
+      } catch (shutdownErr) {
+        write(`⚠️ Shutdown completed with errors: ${shutdownErr.message}\n`);
       }
 
       if (onShutdown) {
@@ -162,7 +143,7 @@ export async function runDev({
     processRef.on('SIGINT', onSigInt);
     processRef.on('SIGTERM', onSigTerm);
 
-    return { orchestrator: orch, watcher };
+    return { orchestrator: orch, watcher: configWatcher };
   } catch (err) {
     if (err instanceof OrchestratorError) {
       write(`\n❌ Startup failed: ${err.message}\n`);

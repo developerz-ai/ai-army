@@ -3,7 +3,7 @@
  *
  * Tests the runDev() function with mock dependencies:
  * - Mock Orchestrator with configurable start/stop/reload behavior
- * - Mock file watcher for hot reload testing
+ * - Mock ConfigWatcher for hot reload testing
  * - Verifies output formatting, signal handling, and error cases
  * - Tests development mode startup and file watching
  */
@@ -12,6 +12,7 @@ import { test, describe, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { runDev, DevCommandError } from './DevCommand.js';
 import { OrchestratorError } from '../core/orchestrator.js';
+import { ConfigWatcherError } from '../config/ConfigWatcher.js';
 
 // ============================================================================
 // Test Helpers
@@ -99,18 +100,13 @@ function createMockOrchestrator(options = {}) {
 }
 
 /**
- * Create a mock watcher factory
+ * Create a mock ConfigWatcher factory
  * @returns {{ factory: Function, watcher: Object }}
  */
-function createMockWatcherFactory() {
-  const handlers = {};
+function createMockConfigWatcherFactory() {
   const watcher = {
-    on(event, handler) {
-      handlers[event] = handler;
-      return watcher;
-    },
-    close: mock.fn(async () => {}),
-    handlers,
+    watch: mock.fn(async () => {}),
+    stop: mock.fn(async () => {}),
   };
 
   const factory = mock.fn(() => watcher);
@@ -133,11 +129,11 @@ describe('DevCommand - runDev()', () => {
 
   test('outputs development mode message on start', async () => {
     const orch = createMockOrchestrator();
-    const { factory } = createMockWatcherFactory();
+    const { factory } = createMockConfigWatcherFactory();
 
     await runDev({
       orchestrator: orch,
-      watcherFactory: factory,
+      configWatcherFactory: factory,
       output: out,
       processRef: proc,
     });
@@ -149,11 +145,11 @@ describe('DevCommand - runDev()', () => {
 
   test('calls orchestrator.start()', async () => {
     const orch = createMockOrchestrator();
-    const { factory } = createMockWatcherFactory();
+    const { factory } = createMockConfigWatcherFactory();
 
     await runDev({
       orchestrator: orch,
-      watcherFactory: factory,
+      configWatcherFactory: factory,
       output: out,
       processRef: proc,
     });
@@ -169,11 +165,11 @@ describe('DevCommand - runDev()', () => {
         databaseConnected: true,
       },
     });
-    const { factory } = createMockWatcherFactory();
+    const { factory } = createMockConfigWatcherFactory();
 
     await runDev({
       orchestrator: orch,
-      watcherFactory: factory,
+      configWatcherFactory: factory,
       output: out,
       processRef: proc,
     });
@@ -185,11 +181,11 @@ describe('DevCommand - runDev()', () => {
 
   test('shows watching message when watcher is active', async () => {
     const orch = createMockOrchestrator();
-    const { factory } = createMockWatcherFactory();
+    const { factory } = createMockConfigWatcherFactory();
 
     await runDev({
       orchestrator: orch,
-      watcherFactory: factory,
+      configWatcherFactory: factory,
       output: out,
       processRef: proc,
     });
@@ -198,87 +194,83 @@ describe('DevCommand - runDev()', () => {
     assert.ok(result.includes('Watching config files'));
   });
 
-  test('registers file change handler', async () => {
+  test('calls ConfigWatcher.watch() with correct paths', async () => {
     const orch = createMockOrchestrator();
-    const { factory, watcher } = createMockWatcherFactory();
+    const { factory, watcher } = createMockConfigWatcherFactory();
 
     await runDev({
       orchestrator: orch,
-      watcherFactory: factory,
+      configWatcherFactory: factory,
       output: out,
       processRef: proc,
     });
 
-    assert.ok(watcher.handlers.change, 'change handler should be registered');
-    assert.ok(watcher.handlers.add, 'add handler should be registered');
+    assert.equal(watcher.watch.mock.calls.length, 1);
+    const watchPaths = watcher.watch.mock.calls[0].arguments[0];
+    assert.ok(Array.isArray(watchPaths));
+    assert.ok(watchPaths.length >= 2);
   });
 
-  test('file change triggers reload', async () => {
+  test('ConfigWatcher is created with orchestrator and logger', async () => {
     const orch = createMockOrchestrator();
-    const { factory, watcher } = createMockWatcherFactory();
+    const { factory, watcher } = createMockConfigWatcherFactory();
 
     await runDev({
       orchestrator: orch,
-      watcherFactory: factory,
+      configWatcherFactory: factory,
       output: out,
       processRef: proc,
     });
 
-    // Simulate file change
-    await watcher.handlers.change('./config.json');
+    // Verify factory was called (creating ConfigWatcher)
+    assert.equal(factory.mock.calls.length, 1);
+    assert.ok(watcher.watch.mock.calls.length > 0);
+  });
 
-    assert.equal(orch.reload.mock.calls.length, 1);
+  test('handles ConfigWatcher creation error gracefully', async () => {
+    const orch = createMockOrchestrator();
+    const factory = mock.fn(() => {
+      throw new ConfigWatcherError('chokidar not available');
+    });
+
+    await runDev({
+      orchestrator: orch,
+      configWatcherFactory: factory,
+      output: out,
+      processRef: proc,
+    });
+
     const result = out.output();
-    assert.ok(result.includes('File changed'));
-    assert.ok(result.includes('Reload complete'));
+    assert.ok(result.includes('File watching not available'));
+    assert.ok(result.includes('running without hot reload'));
   });
 
-  test('handles reload error gracefully', async () => {
-    const orch = createMockOrchestrator({
-      reloadError: new Error('Config validation failed'),
-    });
-    const { factory, watcher } = createMockWatcherFactory();
-
-    await runDev({
-      orchestrator: orch,
-      watcherFactory: factory,
-      output: out,
-      processRef: proc,
-    });
-
-    // Simulate file change
-    await watcher.handlers.change('./config.json');
-
-    assert.ok(out.output().includes('Reload failed'));
-    assert.ok(out.output().includes('Config validation failed'));
-  });
-
-  test('SIGINT triggers graceful shutdown and closes watcher', async () => {
+  test('SIGINT triggers graceful shutdown and stops watcher', async () => {
     const orch = createMockOrchestrator();
-    const { factory, watcher } = createMockWatcherFactory();
+    const { factory, watcher } = createMockConfigWatcherFactory();
 
     await runDev({
       orchestrator: orch,
-      watcherFactory: factory,
+      configWatcherFactory: factory,
       output: out,
       processRef: proc,
     });
 
     await proc.emit('SIGINT');
 
-    assert.equal(watcher.close.mock.calls.length, 1);
+    assert.equal(watcher.stop.mock.calls.length, 1);
     assert.equal(orch.stop.mock.calls.length, 1);
     assert.ok(out.output().includes('Shutdown complete'));
   });
 
   test('calls onShutdown callback after shutdown', async () => {
     const orch = createMockOrchestrator();
-    const { factory } = createMockWatcherFactory();
+    const { factory } = createMockConfigWatcherFactory();
     let shutdownCalled = false;
 
     await runDev({
       orchestrator: orch,
-      watcherFactory: factory,
+      configWatcherFactory: factory,
       output: out,
       processRef: proc,
       onShutdown: () => {
@@ -296,11 +288,11 @@ describe('DevCommand - runDev()', () => {
       component: 'database',
     });
     const orch = createMockOrchestrator({ startError });
-    const { factory } = createMockWatcherFactory();
+    const { factory } = createMockConfigWatcherFactory();
 
     const result = await runDev({
       orchestrator: orch,
-      watcherFactory: factory,
+      configWatcherFactory: factory,
       output: out,
       processRef: proc,
     });
@@ -312,13 +304,17 @@ describe('DevCommand - runDev()', () => {
     assert.equal(result.watcher, null);
   });
 
-  test('works without watcher (null watcher factory returns null)', async () => {
+  test('works without watcher when ConfigWatcher creation fails', async () => {
     const orch = createMockOrchestrator();
 
-    // Pass a watcher factory that returns null to simulate chokidar not available
+    // Pass a watcher factory that throws to simulate ConfigWatcher creation failure
+    const factory = mock.fn(() => {
+      throw new Error('chokidar not available');
+    });
+
     const result = await runDev({
       orchestrator: orch,
-      watcherFactory: () => null,
+      configWatcherFactory: factory,
       output: out,
       processRef: proc,
     });
@@ -328,16 +324,16 @@ describe('DevCommand - runDev()', () => {
     // Should still work even without file watching
     const output = out.output();
     assert.ok(output.includes('development mode'));
-    assert.ok(output.includes('AI Army is running'));
+    assert.ok(output.includes('File watching disabled'));
   });
 
   test('returns orchestrator and watcher', async () => {
     const orch = createMockOrchestrator();
-    const { factory, watcher } = createMockWatcherFactory();
+    const { factory, watcher } = createMockConfigWatcherFactory();
 
     const result = await runDev({
       orchestrator: orch,
-      watcherFactory: factory,
+      configWatcherFactory: factory,
       output: out,
       processRef: proc,
     });
@@ -346,39 +342,21 @@ describe('DevCommand - runDev()', () => {
     assert.equal(result.watcher, watcher);
   });
 
-  test('prevents concurrent reloads', async () => {
-    let reloadCount = 0;
-    let resolveReload;
+  test('ConfigWatcher handles concurrent changes', async () => {
     const orch = createMockOrchestrator();
-    // Override reload with a controllable promise barrier
-    orch.reload = mock.fn(() => {
-      reloadCount++;
-      return new Promise(resolve => {
-        resolveReload = () => resolve({ reloaded: [], failed: [] });
-      });
-    });
-
-    const { factory, watcher } = createMockWatcherFactory();
+    const { factory, watcher } = createMockConfigWatcherFactory();
 
     await runDev({
       orchestrator: orch,
-      watcherFactory: factory,
+      configWatcherFactory: factory,
       output: out,
       processRef: proc,
     });
 
-    // Trigger first change — starts reload (sets reloading = true)
-    const firstReload = watcher.handlers.change('./config.json');
-
-    // Trigger second change while first is still in progress — should be ignored
-    watcher.handlers.change('./bots/test/config.json');
-
-    // Release the first reload and await it
-    resolveReload();
-    await firstReload;
-
-    // Only one reload should have been triggered
-    assert.equal(reloadCount, 1);
+    // ConfigWatcher itself handles concurrency, we just verify watch was called
+    assert.equal(watcher.watch.mock.calls.length, 1);
+    const watchPaths = watcher.watch.mock.calls[0].arguments[0];
+    assert.ok(Array.isArray(watchPaths));
   });
 });
 

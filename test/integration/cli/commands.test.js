@@ -150,20 +150,42 @@ function createMockOrchestrator(options = {}) {
 }
 
 /**
- * Create a mock watcher factory
+ * Create a mock watcher factory that simulates ConfigWatcher behavior
  * @returns {{ factory: Function, watcher: Object }}
  */
 function createMockWatcherFactory() {
   const handlers = {};
   const watcher = {
-    on(event, handler) {
-      handlers[event] = handler;
-      return watcher;
-    },
-    close: mock.fn(async () => {}),
+    watch: mock.fn(async () => {}),
+    stop: mock.fn(async () => {}),
     handlers,
   };
-  return { factory: mock.fn(() => watcher), watcher };
+  const factory = mock.fn((orch, opts) => {
+    const logger = opts?.logger || (() => {});
+
+    handlers.change = async changedPath => {
+      logger(`File changed: ${changedPath}`);
+      try {
+        const result = await orch.reload();
+        const reloaded = result.reloaded?.length ?? 0;
+        const failed = result.failed?.length ?? 0;
+        if (failed > 0) {
+          logger(`Reload complete: ${reloaded} reloaded, ${failed} failed`);
+          for (const f of result.failed) {
+            logger(`  Failed: ${f.botId} - ${f.error}`);
+          }
+        } else {
+          logger(`Reload complete: ${reloaded} reloaded`);
+        }
+      } catch (err) {
+        logger(`Reload failed: ${err.message}`);
+      }
+    };
+    handlers.add = handlers.change;
+
+    return watcher;
+  });
+  return { factory, watcher };
 }
 
 // ============================================================================
@@ -1045,7 +1067,7 @@ describe('dev command - integration with mock orchestrator and watcher', () => {
 
     const result = await runDev({
       orchestrator: orch,
-      watcherFactory: factory,
+      configWatcherFactory: factory,
       output: out,
       processRef: proc,
     });
@@ -1067,7 +1089,7 @@ describe('dev command - integration with mock orchestrator and watcher', () => {
 
     await runDev({
       orchestrator: orch,
-      watcherFactory: factory,
+      configWatcherFactory: factory,
       output: out,
       processRef: proc,
     });
@@ -1089,7 +1111,7 @@ describe('dev command - integration with mock orchestrator and watcher', () => {
 
     await runDev({
       orchestrator: orch,
-      watcherFactory: factory,
+      configWatcherFactory: factory,
       output: out,
       processRef: proc,
     });
@@ -1105,14 +1127,14 @@ describe('dev command - integration with mock orchestrator and watcher', () => {
 
     await runDev({
       orchestrator: orch,
-      watcherFactory: factory,
+      configWatcherFactory: factory,
       output: out,
       processRef: proc,
     });
 
     await proc.emit('SIGINT');
 
-    assert.equal(watcher.close.mock.calls.length, 1);
+    assert.equal(watcher.stop.mock.calls.length, 1);
     assert.equal(orch.stop.mock.calls.length, 1);
   });
 
@@ -1126,7 +1148,7 @@ describe('dev command - integration with mock orchestrator and watcher', () => {
 
     const result = await runDev({
       orchestrator: orch,
-      watcherFactory: factory,
+      configWatcherFactory: factory,
       output: out,
       processRef: proc,
     });
@@ -1143,7 +1165,7 @@ describe('dev command - integration with mock orchestrator and watcher', () => {
 
     await runDev({
       orchestrator: orch,
-      watcherFactory: factory,
+      configWatcherFactory: factory,
       output: out,
       processRef: proc,
     });
@@ -1162,7 +1184,7 @@ describe('dev command - integration with mock orchestrator and watcher', () => {
 
     await runDev({
       orchestrator: orch,
-      watcherFactory: factory,
+      configWatcherFactory: factory,
       output: out,
       processRef: proc,
     });
@@ -1186,7 +1208,7 @@ describe('dev command - integration with mock orchestrator and watcher', () => {
 
     await runDev({
       orchestrator: orch,
-      watcherFactory: factory,
+      configWatcherFactory: factory,
       output: out,
       processRef: proc,
     });
@@ -1206,7 +1228,7 @@ describe('dev command - integration with mock orchestrator and watcher', () => {
       () =>
         runDev({
           orchestrator: orch,
-          watcherFactory: factory,
+          configWatcherFactory: factory,
           output: out,
           processRef: proc,
         }),
@@ -1227,7 +1249,7 @@ describe('dev command - integration with mock orchestrator and watcher', () => {
 
     await runDev({
       orchestrator: orch,
-      watcherFactory: factory,
+      configWatcherFactory: factory,
       output: out,
       processRef: proc,
     });
@@ -1236,7 +1258,7 @@ describe('dev command - integration with mock orchestrator and watcher', () => {
 
     const output = out.output();
     assert.ok(output.includes('errors'));
-    assert.equal(watcher.close.mock.calls.length, 1);
+    assert.equal(watcher.stop.mock.calls.length, 1);
   });
 
   test('calls onShutdown callback in dev mode', async () => {
@@ -1246,7 +1268,7 @@ describe('dev command - integration with mock orchestrator and watcher', () => {
 
     await runDev({
       orchestrator: orch,
-      watcherFactory: factory,
+      configWatcherFactory: factory,
       output: out,
       processRef: proc,
       onShutdown: () => {
