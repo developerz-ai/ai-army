@@ -543,8 +543,56 @@ describe('ConfigWatcher', () => {
     });
   });
 
-  describe('concurrent reload prevention', () => {
-    test('prevents concurrent reloads', async () => {
+  describe('concurrent reload prevention with coalescing', () => {
+    test('coalesces changes during reload and triggers follow-up', async () => {
+      let reloadCount = 0;
+      const resolvers = [];
+      const orch = {
+        reload: mock.fn(() => {
+          reloadCount++;
+          return new Promise(resolve => {
+            resolvers.push(() => resolve({ reloaded: [], failed: [] }));
+          });
+        }),
+      };
+
+      const { watcher: mockWatcher, emit } = createMockWatcher();
+      const mockWatch = createMockChokidarWatch(mockWatcher);
+
+      const cw = new ConfigWatcher(orch, {
+        logger: logCapture.logger,
+        chokidarWatch: mockWatch,
+      });
+
+      await cw.watch(['./config.json']);
+
+      // Trigger first change (starts async reload)
+      const firstReload = emit('change', './config.json');
+
+      // Trigger second change while first is in progress - should be coalesced
+      emit('change', './bots/test/config.json');
+
+      // Only 1 reload should be active while first is in progress
+      assert.equal(reloadCount, 1, 'Only one reload should be active during first reload');
+      assert.equal(cw.pendingChange, './bots/test/config.json', 'Pending change should be stored');
+
+      // Resolve the first reload - triggers coalesced follow-up
+      resolvers[0]();
+      await firstReload;
+
+      // Allow microtasks to settle for the follow-up reload
+      await new Promise(r => setTimeout(r, 10));
+
+      assert.equal(reloadCount, 2, 'Coalesced follow-up reload should have triggered');
+
+      // Resolve the second reload
+      resolvers[1]();
+      await new Promise(r => setTimeout(r, 10));
+
+      await cw.stop();
+    });
+
+    test('does not trigger follow-up when no changes during reload', async () => {
       let reloadCount = 0;
       let resolveReload;
       const orch = {
@@ -566,17 +614,16 @@ describe('ConfigWatcher', () => {
 
       await cw.watch(['./config.json']);
 
-      // Trigger first change (starts async reload)
+      // Trigger only one change
       const firstReload = emit('change', './config.json');
 
-      // Trigger second change while first is in progress - should be ignored
-      await emit('change', './bots/test/config.json');
-
-      // Resolve the first reload
+      // Resolve without any pending changes
       resolveReload();
       await firstReload;
 
-      assert.equal(reloadCount, 1, 'Only one reload should have been triggered');
+      await new Promise(r => setTimeout(r, 10));
+
+      assert.equal(reloadCount, 1, 'No follow-up reload without pending changes');
 
       await cw.stop();
     });

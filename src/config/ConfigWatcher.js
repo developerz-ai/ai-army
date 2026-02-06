@@ -57,6 +57,9 @@ export class ConfigWatcher {
 
     /** @type {boolean} */
     this.reloading = false;
+
+    /** @type {string|null} Coalesced pending change path during reload */
+    this.pendingChange = null;
   }
 
   /**
@@ -88,7 +91,10 @@ export class ConfigWatcher {
     });
 
     const handleChange = async changedPath => {
-      if (this.reloading) return;
+      if (this.reloading) {
+        this.pendingChange = changedPath;
+        return;
+      }
       this.reloading = true;
 
       this.logger(`\u{1F4DD} Config changed: ${changedPath}`);
@@ -106,6 +112,13 @@ export class ConfigWatcher {
         this.logger(`\u274C Reload error: ${err.message}`);
       } finally {
         this.reloading = false;
+
+        // Coalesce: if changes arrived during reload, trigger one more reload
+        if (this.pendingChange) {
+          const pending = this.pendingChange;
+          this.pendingChange = null;
+          handleChange(pending);
+        }
       }
     };
 
@@ -174,6 +187,7 @@ export class ConfigWatcher {
       this.watcher = null;
     }
     this.reloading = false;
+    this.pendingChange = null;
   }
 }
 

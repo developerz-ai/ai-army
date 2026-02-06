@@ -522,8 +522,68 @@ describe('ConfigWatcher Integration - Real File System', () => {
   // Concurrent Reload Prevention (real file writes)
   // ==========================================================================
 
-  describe('concurrent reload prevention', () => {
-    test('ignores rapid file changes while reload is in progress', async () => {
+  describe('concurrent reload prevention with coalescing', () => {
+    test('coalesces changes during reload and triggers follow-up reload', async () => {
+      const tmpDir = await createTempWatchDir();
+      const resolvers = [];
+      let reloadCallCount = 0;
+
+      const orchestrator = {
+        reload: () => {
+          reloadCallCount++;
+          return new Promise(resolve => {
+            resolvers.push(() => resolve({ reloaded: ['bot-1'], failed: [] }));
+          });
+        },
+      };
+
+      const { logger } = createLogger();
+
+      const watcher = new ConfigWatcher(orchestrator, {
+        logger,
+        stabilityThreshold: 100,
+        pollInterval: 50,
+      });
+
+      const configPath = path.join(tmpDir, 'config.json');
+      await watcher.watch([configPath]);
+
+      // Trigger first change
+      const config1 = { providers: { a: { type: 'anthropic', apiKey: 'k1' } } };
+      await fs.writeFile(configPath, JSON.stringify(config1, null, 2), 'utf8');
+
+      // Wait for the first reload to start
+      await waitFor(() => reloadCallCount >= 1, 8000);
+
+      // Write more changes while reload is in progress (should be coalesced)
+      const config2 = { providers: { a: { type: 'anthropic', apiKey: 'k2' } } };
+      await fs.writeFile(configPath, JSON.stringify(config2, null, 2), 'utf8');
+
+      // Small delay for chokidar to process the second write
+      await new Promise(r => setTimeout(r, 300));
+
+      // Only 1 reload should be active so far
+      assert.equal(reloadCallCount, 1, 'Only one reload should be active');
+
+      // Resolve the first reload - should trigger coalesced follow-up
+      resolvers[0]();
+
+      // Wait for the follow-up reload to start
+      await waitFor(() => reloadCallCount >= 2, 5000);
+
+      // Resolve the second reload
+      resolvers[1]();
+
+      // Wait for completion
+      await new Promise(r => setTimeout(r, 200));
+
+      // Coalescing should trigger exactly one follow-up reload
+      assert.equal(reloadCallCount, 2, 'Should trigger one follow-up reload for coalesced changes');
+
+      await watcher.stop();
+    });
+
+    test('does not trigger follow-up when no changes during reload', async () => {
       const tmpDir = await createTempWatchDir();
       let resolveReload;
       let reloadCallCount = 0;
@@ -548,28 +608,20 @@ describe('ConfigWatcher Integration - Real File System', () => {
       const configPath = path.join(tmpDir, 'config.json');
       await watcher.watch([configPath]);
 
-      // Trigger first change
+      // Trigger one change
       const config1 = { providers: { a: { type: 'anthropic', apiKey: 'k1' } } };
       await fs.writeFile(configPath, JSON.stringify(config1, null, 2), 'utf8');
 
-      // Wait for the first reload to start
+      // Wait for the reload to start
       await waitFor(() => reloadCallCount >= 1, 8000);
 
-      // Write more changes while reload is in progress
-      const config2 = { providers: { a: { type: 'anthropic', apiKey: 'k2' } } };
-      await fs.writeFile(configPath, JSON.stringify(config2, null, 2), 'utf8');
-
-      // Small delay for chokidar to process the second write
-      await new Promise(r => setTimeout(r, 300));
-
-      // Resolve the first reload
+      // Resolve reload without any pending changes
       resolveReload();
 
-      // Wait a bit more for any potential second reload
+      // Wait to confirm no follow-up
       await new Promise(r => setTimeout(r, 500));
 
-      // Due to the reloading guard, only 1 reload should have been triggered
-      assert.equal(reloadCallCount, 1, 'Only one reload should run at a time');
+      assert.equal(reloadCallCount, 1, 'Should not trigger follow-up without pending changes');
 
       await watcher.stop();
     });
