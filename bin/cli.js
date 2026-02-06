@@ -127,7 +127,7 @@ export function createProgram() {
   program
     .command('reload')
     .description(
-      'Validate and reload configuration (nginx-style). Runs validate-only when outside "ai-army dev"',
+      'Validate and reload configuration (nginx-style). Runs validate-only when outside "ai-army dev"'
     )
     .option('-c, --config <path>', 'Config file path', './config.json')
     .action(async options => {

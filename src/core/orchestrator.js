@@ -918,6 +918,17 @@ export class Orchestrator {
       if (bot) {
         const needsRestart = this.botReloader.needsContainerRestart(bot.config, mergedConfig);
         await this.botReloader.reloadBotConfig(botId, mergedConfig);
+
+        // Reload soul if soul path is configured
+        if (mergedConfig.soul) {
+          try {
+            const newSoulContent = await this.botReloader.soulLoader.load(mergedConfig.soul);
+            await this.botReloader.reloadSoul(botId, newSoulContent);
+          } catch (err) {
+            this._log(`⚠️  Failed to reload soul for '${botId}': ${err.message}`);
+          }
+        }
+
         if (needsRestart) {
           await this.botReloader.reloadContainer(botId, mergedConfig.sandbox);
         }
