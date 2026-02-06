@@ -21,6 +21,10 @@
 import { Command } from 'commander';
 import path from 'path';
 import { ProjectInitializer } from '../src/cli/ProjectInitializer.js';
+import { runValidate } from '../src/cli/ValidateCommand.js';
+import { runMigrate } from '../src/cli/MigrateCommand.js';
+import { runStart } from '../src/cli/StartCommand.js';
+import { runDev } from '../src/cli/DevCommand.js';
 
 /**
  * Create and configure the CLI program
@@ -40,43 +44,73 @@ export function createProgram() {
       await runInit(projectName, options, process.stdout, process.stderr);
     });
 
-  // === validate command (stub for Phase 7b) ===
+  // === validate command ===
   program
     .command('validate')
     .description('Validate configuration files')
     .option('-c, --config <path>', 'Config file path', './config.json')
-    .action(async _options => {
-      console.log('✅ Validating configuration...');
-      console.log('⚠️  validate command not yet implemented');
+    .action(async options => {
+      const result = await runValidate({
+        configPath: options.config,
+        output: process.stdout,
+      });
+      if (!result.valid) {
+        process.exitCode = 1;
+      }
     });
 
-  // === migrate command (stub for Phase 7b) ===
+  // === migrate command ===
   program
     .command('migrate')
     .description('Run database migrations')
     .action(async () => {
-      console.log('🔄 Running migrations...');
-      console.log('⚠️  migrate command not yet implemented');
+      const { PostgresStorage } = await import('../src/adapters/storage/postgres.js');
+      const databaseUrl = process.env.DATABASE_URL;
+      if (!databaseUrl) {
+        process.stderr.write('❌ DATABASE_URL environment variable is required\n');
+        process.exitCode = 1;
+        return;
+      }
+      const storage = new PostgresStorage(databaseUrl);
+      try {
+        await storage.connect();
+        const result = await runMigrate({
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      } catch (err) {
+        process.stderr.write(`❌ Migration error: ${err.message}\n`);
+        process.exitCode = 1;
+      } finally {
+        await storage.disconnect();
+      }
     });
 
-  // === start command (stub for Phase 7b) ===
+  // === start command ===
   program
     .command('start')
     .description('Start AI Army in production mode')
     .option('-c, --config <path>', 'Config file path', './config.json')
-    .action(async _options => {
-      console.log('🚀 Starting in production mode...');
-      console.log('⚠️  start command not yet implemented');
+    .action(async options => {
+      await runStart({
+        configPath: options.config,
+        output: process.stdout,
+      });
     });
 
-  // === dev command (stub for Phase 7b) ===
+  // === dev command ===
   program
     .command('dev')
     .description('Start AI Army in development mode (with hot reload)')
     .option('-c, --config <path>', 'Config file path', './config.json')
-    .action(async _options => {
-      console.log('🛠️  Starting in development mode...');
-      console.log('⚠️  dev command not yet implemented');
+    .action(async options => {
+      await runDev({
+        configPath: options.config,
+        output: process.stdout,
+      });
     });
 
   // === status command (stub for Phase 7b) ===
