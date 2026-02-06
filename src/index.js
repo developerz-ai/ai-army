@@ -21,5 +21,3 @@ export { PostgresStorage } from './adapters/storage/postgres.js';
 
 // Types (when we add TypeScript types)
 // export type { BotConfig, TemplateConfig, ChannelAdapter } from './types/index.js';
-
-console.log('✅ AI Assistants Army loaded');
