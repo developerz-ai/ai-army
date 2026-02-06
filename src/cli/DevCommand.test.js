@@ -343,12 +343,14 @@ describe('DevCommand - runDev()', () => {
 
   test('prevents concurrent reloads', async () => {
     let reloadCount = 0;
+    let resolveReload;
     const orch = createMockOrchestrator();
-    // Override reload to be slow
-    orch.reload = mock.fn(async () => {
+    // Override reload with a controllable promise barrier
+    orch.reload = mock.fn(() => {
       reloadCount++;
-      await new Promise(resolve => setTimeout(resolve, 50));
-      return { reloaded: [], failed: [] };
+      return new Promise(resolve => {
+        resolveReload = () => resolve({ reloaded: [], failed: [] });
+      });
     });
 
     const { factory, watcher } = createMockWatcherFactory();
@@ -360,12 +362,15 @@ describe('DevCommand - runDev()', () => {
       processRef: proc,
     });
 
-    // Trigger two changes quickly - second should be ignored
-    watcher.handlers.change('./config.json');
+    // Trigger first change — starts reload (sets reloading = true)
+    const firstReload = watcher.handlers.change('./config.json');
+
+    // Trigger second change while first is still in progress — should be ignored
     watcher.handlers.change('./bots/test/config.json');
 
-    // Wait for the first reload to complete
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // Release the first reload and await it
+    resolveReload();
+    await firstReload;
 
     // Only one reload should have been triggered
     assert.equal(reloadCount, 1);

@@ -62,8 +62,10 @@ async function discoverBotConfigs(botsPath, loader) {
     const botConfigPath = path.join(resolvedPath, entry.name, 'config.json');
     try {
       const botConfig = await loader.load(botConfigPath);
-      const botId = botConfig.id || entry.name;
-      configs.set(botId, botConfig);
+      // Use directory name as map key — the validator schema requires `id`,
+      // so configs missing it will correctly fail validation downstream.
+      // We intentionally do NOT synthesize an id from the directory name.
+      configs.set(entry.name, botConfig);
     } catch {
       // Skip directories without valid config.json — they'll be reported
       // separately or are not bot directories
