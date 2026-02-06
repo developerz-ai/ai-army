@@ -88,14 +88,13 @@ export async function runDev({
     const watchPaths = [path.resolve(configPath), path.resolve(botsPath)];
 
     try {
+      const watcherOpts = { logger: msg => write(`${msg}\n`) };
       if (configWatcherFactory) {
         // Use injected watcher factory (for testing)
-        configWatcher = configWatcherFactory();
+        configWatcher = configWatcherFactory(orch, watcherOpts);
       } else {
         // Create ConfigWatcher with logger
-        configWatcher = new ConfigWatcher(orch, {
-          logger: msg => write(`${msg}\n`),
-        });
+        configWatcher = new ConfigWatcher(orch, watcherOpts);
       }
 
       await configWatcher.watch(watchPaths);
