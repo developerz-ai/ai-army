@@ -134,6 +134,10 @@ export async function runDev({
 
     // Setup graceful shutdown handlers
     const shutdown = async signal => {
+      // Remove signal handlers to prevent duplicate shutdowns
+      processRef.removeListener('SIGINT', onSigInt);
+      processRef.removeListener('SIGTERM', onSigTerm);
+
       write(`\n\n🛑 Received ${signal}, shutting down gracefully...\n`);
 
       // Close file watcher
@@ -153,8 +157,10 @@ export async function runDev({
       }
     };
 
-    processRef.on('SIGINT', async () => shutdown('SIGINT'));
-    processRef.on('SIGTERM', async () => shutdown('SIGTERM'));
+    const onSigInt = async () => shutdown('SIGINT');
+    const onSigTerm = async () => shutdown('SIGTERM');
+    processRef.on('SIGINT', onSigInt);
+    processRef.on('SIGTERM', onSigTerm);
 
     return { orchestrator: orch, watcher };
   } catch (err) {

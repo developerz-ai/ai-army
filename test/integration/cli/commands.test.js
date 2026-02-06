@@ -55,6 +55,11 @@ function createMockProcess() {
     on(signal, handler) {
       handlers[signal] = handler;
     },
+    removeListener(signal, handler) {
+      if (handlers[signal] === handler) {
+        delete handlers[signal];
+      }
+    },
     async emit(signal) {
       if (handlers[signal]) {
         await handlers[signal]();
