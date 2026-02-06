@@ -900,6 +900,9 @@ export class Orchestrator {
   /**
    * Reload a single bot using BotReloader (granular) or BotManager (fallback)
    *
+   * If the bot is not yet loaded (newly added to config), loads and starts it
+   * via BotManager.loadBot() + startBot().
+   *
    * When BotReloader is available, uses granular reload:
    * - Config-only changes: update in-memory, no container restart
    * - Soul-only changes: update personality, no container restart
@@ -913,28 +916,32 @@ export class Orchestrator {
    * @private
    */
   async _reloadBot(botId, mergedConfig) {
+    const bot = this.botManager.getBot(botId);
+
+    // New bot not yet loaded — load and start it
+    if (!bot) {
+      this._log(`🆕 New bot detected: '${botId}', loading...`);
+      await this.botManager.loadBot(botId, mergedConfig);
+      await this.botManager.startBot(botId);
+      return;
+    }
+
     if (this.botReloader) {
-      const bot = this.botManager.getBot(botId);
-      if (bot) {
-        const needsRestart = this.botReloader.needsContainerRestart(bot.config, mergedConfig);
-        await this.botReloader.reloadBotConfig(botId, mergedConfig);
+      const needsRestart = this.botReloader.needsContainerRestart(bot.config, mergedConfig);
+      await this.botReloader.reloadBotConfig(botId, mergedConfig);
 
-        // Reload soul if soul path is configured
-        if (mergedConfig.soul) {
-          try {
-            const newSoulContent = await this.botReloader.soulLoader.load(mergedConfig.soul);
-            await this.botReloader.reloadSoul(botId, newSoulContent);
-          } catch (err) {
-            this._log(`⚠️  Failed to reload soul for '${botId}': ${err.message}`);
-          }
+      // Reload soul if soul path is configured
+      if (mergedConfig.soul) {
+        try {
+          const newSoulContent = await this.botReloader.soulLoader.load(mergedConfig.soul);
+          await this.botReloader.reloadSoul(botId, newSoulContent);
+        } catch (err) {
+          this._log(`⚠️  Failed to reload soul for '${botId}': ${err.message}`);
         }
+      }
 
-        if (needsRestart) {
-          await this.botReloader.reloadContainer(botId, mergedConfig.sandbox);
-        }
-      } else {
-        // Bot not yet loaded — fall through to BotManager
-        await this.botManager.reloadBot(botId, mergedConfig);
+      if (needsRestart) {
+        await this.botReloader.reloadContainer(botId, mergedConfig.sandbox);
       }
     } else {
       await this.botManager.reloadBot(botId, mergedConfig);
