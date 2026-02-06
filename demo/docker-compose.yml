@@ -1,0 +1,63 @@
+# Docker Compose for AI Army Demo
+# Starts PostgreSQL 18 + ai-army services with one command.
+#
+# Usage:
+#   docker compose up -d          # Start all services
+#   docker compose down           # Stop all services
+#   docker compose down -v        # Stop and remove volumes
+#   docker compose logs -f        # Follow logs
+#
+# Prerequisites:
+#   - Docker with Compose V2
+#   - Copy .env.example to .env and set ANTHROPIC_API_KEY
+
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: ai-army-demo-postgres
+    labels:
+      ai-army-demo: "true"
+    environment:
+      POSTGRES_DB: ai_army_demo
+      POSTGRES_USER: demo
+      POSTGRES_PASSWORD: demo
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "${DEMO_PG_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U demo -d ai_army_demo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  ai-army:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: ai-army-demo-app
+    labels:
+      ai-army-demo: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://demo:demo@postgres:5432/ai_army_demo
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    volumes:
+      - .:/app/demo:ro
+      - ./bots:/app/demo/bots:ro
+      - ./data:/app/demo/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "${DEMO_API_PORT:-3000}:3000"
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+    labels:
+      ai-army-demo: "true"
