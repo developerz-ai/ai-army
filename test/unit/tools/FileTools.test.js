@@ -491,9 +491,9 @@ describe('createWriteFileTool', () => {
         content: 'hello world',
       });
 
-      // The write command should use heredoc (cat >> ... << EOF)
+      // The write command should use heredoc (cat >> ... << EOF) with timestamp + random hex
       const writeCmd = dockerManager.exec.mock.calls[1].arguments[1];
-      assert.match(writeCmd, /cat >.*<<.*'_AI_ARMY_EOF_/);
+      assert.match(writeCmd, /cat >.*<<.*'_AI_ARMY_EOF_\d+_[0-9a-f]+'/);
       assert.ok(writeCmd.includes('hello world'));
     });
 
@@ -766,7 +766,7 @@ describe('createGlobTool', () => {
       assert.match(command, /\/home\/agent\/src/);
     });
 
-    test('uses find command with pattern', async () => {
+    test('uses find command with -name for simple patterns', async () => {
       dockerManager.exec = mock.fn(async () => ({
         exitCode: 0,
         stdout: '',
@@ -778,8 +778,38 @@ describe('createGlobTool', () => {
 
       const command = dockerManager.exec.mock.calls[0].arguments[1];
       assert.match(command, /find/);
-      assert.match(command, /\*\.js/);
+      assert.match(command, /-name "\*\.js"/);
       assert.match(command, /-type f/);
+    });
+
+    test('uses find command with -path for patterns containing /', async () => {
+      dockerManager.exec = mock.fn(async () => ({
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+      }));
+
+      const glob = createGlobTool(containerPool, 'test-bot');
+      await glob.execute({ pattern: 'src/*.js' });
+
+      const command = dockerManager.exec.mock.calls[0].arguments[1];
+      assert.match(command, /find/);
+      assert.match(command, /-path "src\/\*\.js"/);
+      assert.match(command, /-type f/);
+    });
+
+    test('converts ** to * in path patterns for find compatibility', async () => {
+      dockerManager.exec = mock.fn(async () => ({
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+      }));
+
+      const glob = createGlobTool(containerPool, 'test-bot');
+      await glob.execute({ pattern: '**/*.ts' });
+
+      const command = dockerManager.exec.mock.calls[0].arguments[1];
+      assert.match(command, /-path "\*\/\*\.ts"/);
     });
 
     test('limits results with head command', async () => {

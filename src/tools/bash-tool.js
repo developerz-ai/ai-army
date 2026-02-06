@@ -18,8 +18,7 @@ import { z } from 'zod';
  * @type {Array<{pattern: RegExp, description: string}>}
  */
 const DANGEROUS_PATTERNS = [
-  { pattern: /rm\s+-rf\s+\/(?!\S)/, description: 'rm -rf /' },
-  { pattern: /rm\s+-rf\s+\/\s*$/, description: 'rm -rf / (end of command)' },
+  { pattern: /rm\s+-rf\s+\/(?:\s|$)/, description: 'rm -rf /' },
   {
     pattern: /rm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+)?--no-preserve-root/,
     description: '--no-preserve-root',
@@ -29,8 +28,7 @@ const DANGEROUS_PATTERNS = [
   { pattern: /mkfs\./, description: 'format filesystem' },
   { pattern: /dd\s+.*of=\/dev\//, description: 'dd to device' },
   { pattern: /:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/, description: 'fork bomb' },
-  { pattern: /chmod\s+-R\s+777\s+\/(?!\S)/, description: 'chmod 777 /' },
-  { pattern: /chmod\s+-R\s+777\s+\/\s*$/, description: 'chmod 777 / (end of command)' },
+  { pattern: /chmod\s+-R\s+777\s+\/(?:\s|$)/, description: 'chmod 777 /' },
 ];
 
 /** Default command timeout in milliseconds */

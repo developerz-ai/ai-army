@@ -83,6 +83,7 @@ export function sanitizePath(filePath) {
   }
 
   // Block shell metacharacters that could escape quoted strings
+  // Note: Inside a regex character class [...], parentheses are literal (no escaping needed)
   const dangerousChars = /[`$(){}|;&<>!]/;
   if (dangerousChars.test(filePath)) {
     return {
@@ -231,8 +232,10 @@ export function createWriteFileTool(containerPool, botId, toolConfig = {}) {
         }
 
         // Use heredoc for safe content transfer (avoids shell escaping issues)
+        // Delimiter includes timestamp + random hex to prevent collisions with file content
         const operator = append ? '>>' : '>';
-        const delimiter = `_AI_ARMY_EOF_${Date.now()}`;
+        const randomHex = Math.random().toString(16).slice(2, 10);
+        const delimiter = `_AI_ARMY_EOF_${Date.now()}_${randomHex}`;
         const cmd = `cat ${operator} "${filePath}" << '${delimiter}'\n${content}\n${delimiter}`;
 
         const result = await dockerManager.exec(container, cmd, { timeout });
@@ -303,7 +306,20 @@ export function createGlobTool(containerPool, botId, toolConfig = {}) {
         const { dockerManager } = containerPool;
 
         const dir = cwd || '/home/agent';
-        const cmd = `find "${dir}" -path "${pattern}" -type f 2>/dev/null | head -${maxResults}`;
+
+        // Convert glob pattern to appropriate find flags:
+        // - Simple globs (*.js) use -name for filename matching
+        // - Path globs (**/*.js, src/*.js) use -path with ** converted to *
+        let findFilter;
+        if (pattern.includes('/')) {
+          // Pattern has path separators - use -path with ** → * conversion
+          const findPattern = pattern.replace(/\*\*/g, '*');
+          findFilter = `-path "${findPattern}"`;
+        } else {
+          // Simple filename glob - use -name
+          findFilter = `-name "${pattern}"`;
+        }
+        const cmd = `find "${dir}" ${findFilter} -type f 2>/dev/null | head -${maxResults}`;
 
         const result = await dockerManager.exec(container, cmd, { timeout });
 
