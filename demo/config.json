@@ -1,0 +1,33 @@
+{
+  "defaults": {
+    "model": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-5",
+      "fallbacks": ["claude-haiku-4-5"]
+    },
+    "sandbox": {
+      "type": "docker",
+      "image": "node:22-slim",
+      "memory": "512m",
+      "cpus": 1,
+      "network": "bridge"
+    },
+    "maxSteps": 30,
+    "compaction": {
+      "enabled": true,
+      "threshold": 50000,
+      "flushBeforeCompact": true
+    }
+  },
+  "providers": {
+    "anthropic": {
+      "type": "anthropic",
+      "apiKey": "${ANTHROPIC_API_KEY}"
+    }
+  },
+  "channels": {},
+  "mcpServers": {},
+  "secrets": {
+    "provider": "env"
+  }
+}

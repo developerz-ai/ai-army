@@ -1,0 +1,12 @@
+{
+  "id": "calculator-bot",
+  "name": "Calculator Bot",
+  "description": "Demonstrates bash tool usage in sandbox",
+  "soul": "./soul.md",
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-5",
+  "tools": ["bash"],
+  "sandbox": {
+    "packages": ["bc"]
+  }
+}
