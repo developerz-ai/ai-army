@@ -457,6 +457,23 @@ describe('GlobTool Integration', { skip: !DOCKER_AVAILABLE }, () => {
     await fs.writeFile(path.join(tempDir, 'src', 'style.css'), 'body {}');
     await fs.writeFile(path.join(tempDir, 'lib', 'utils.js'), 'export const utils = {};');
     await fs.writeFile(path.join(tempDir, 'README.md'), '# Project');
+
+    // Additional nested structure for path separator tests
+    await fs.mkdir(path.join(tempDir, 'src', 'components'), { recursive: true });
+    await fs.mkdir(path.join(tempDir, 'src', 'utils'), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDir, 'src', 'components', 'App.tsx'),
+      'export const App = () => {};'
+    );
+    await fs.writeFile(
+      path.join(tempDir, 'src', 'components', 'Header.tsx'),
+      'export const Header = () => {};'
+    );
+    await fs.writeFile(
+      path.join(tempDir, 'src', 'utils', 'helpers.ts'),
+      'export const helper = {};'
+    );
+    await fs.writeFile(path.join(tempDir, 'src', 'index.ts'), 'export default {};');
   });
 
   after(async () => {
@@ -488,6 +505,46 @@ describe('GlobTool Integration', { skip: !DOCKER_AVAILABLE }, () => {
     assert.ok(result.files.length >= 2);
     assert.ok(result.files.some(f => f.includes('app.js')));
     assert.ok(result.files.some(f => f.includes('index.js')));
+  });
+
+  it('finds files with path separator pattern (src/*.js)', async () => {
+    const result = await glob.execute({ pattern: 'src/*.js' });
+
+    assert.equal(result.success, true);
+    assert.ok(result.files.length >= 2, `Expected >=2 files, got ${result.files.length}`);
+    assert.ok(result.files.some(f => f.includes('src/app.js')));
+    assert.ok(result.files.some(f => f.includes('src/index.js')));
+    // Should not match lib/*.js since pattern specifies src/
+    assert.ok(!result.files.some(f => f.includes('lib/')));
+  });
+
+  it('finds files with recursive glob pattern (**/*.ts)', async () => {
+    const result = await glob.execute({ pattern: '**/*.ts' });
+
+    assert.equal(result.success, true);
+    assert.ok(result.files.length >= 2, `Expected >=2 .ts files, got ${result.files.length}`);
+    assert.ok(result.files.some(f => f.includes('helpers.ts')));
+    assert.ok(result.files.some(f => f.includes('index.ts')));
+  });
+
+  it('finds files with recursive glob pattern (**/*.tsx)', async () => {
+    const result = await glob.execute({ pattern: '**/*.tsx' });
+
+    assert.equal(result.success, true);
+    assert.ok(result.files.length >= 2, `Expected >=2 .tsx files, got ${result.files.length}`);
+    assert.ok(result.files.some(f => f.includes('App.tsx')));
+    assert.ok(result.files.some(f => f.includes('Header.tsx')));
+  });
+
+  it('finds files with nested path separator pattern (src/components/*.tsx)', async () => {
+    const result = await glob.execute({ pattern: 'src/components/*.tsx' });
+
+    assert.equal(result.success, true);
+    assert.ok(result.files.length >= 2, `Expected >=2 files, got ${result.files.length}`);
+    assert.ok(result.files.some(f => f.includes('App.tsx')));
+    assert.ok(result.files.some(f => f.includes('Header.tsx')));
+    // Should not match src/utils/ files
+    assert.ok(!result.files.some(f => f.includes('helpers.ts')));
   });
 
   it('finds files in nested directories', async () => {
