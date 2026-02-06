@@ -132,6 +132,47 @@ function createMockMigrationRunner(overrides = {}) {
 }
 
 /**
+ * Create a mock MessageProcessor
+ * @param {Object} [overrides={}] - Override defaults
+ * @returns {Object} Mock MessageProcessor
+ */
+function createMockMessageProcessor(overrides = {}) {
+  return {
+    processMessage: mock.fn(async () => ({
+      text: 'AI response',
+      toolCalls: [],
+      usage: { promptTokens: 10, completionTokens: 20 },
+      sessionId: 'session-123',
+      durationMs: 150,
+    })),
+    ...overrides,
+  };
+}
+
+/**
+ * Create a mock MessageRouter
+ * @param {Object} [overrides={}] - Override defaults
+ * @returns {Object} Mock MessageRouter
+ */
+function createMockMessageRouter(overrides = {}) {
+  return {
+    route: mock.fn(async () => ({
+      bot: {
+        id: 'test-bot',
+        config: {
+          id: 'test-bot',
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-5',
+          channel: 'slack-main',
+        },
+      },
+      allowed: true,
+    })),
+    ...overrides,
+  };
+}
+
+/**
  * Create a mock channel adapter class
  * @param {Object} [overrides={}] - Override method behavior
  * @returns {Function} Mock adapter constructor
@@ -141,6 +182,8 @@ function createMockChannelAdapterClass(overrides = {}) {
     constructor() {
       this.initialized = false;
       this.config = null;
+      this.messageHandler = null;
+      this.sentMessages = [];
     }
 
     async initialize(config) {
@@ -158,8 +201,13 @@ function createMockChannelAdapterClass(overrides = {}) {
       this.initialized = false;
     }
 
-    async onMessage(_handler) {}
-    async sendMessage(_channelId, _text) {}
+    onMessage(handler) {
+      this.messageHandler = handler;
+    }
+
+    async sendMessage(channelId, text, threadTs) {
+      this.sentMessages.push({ channelId, text, threadTs });
+    }
   };
 }
 
@@ -1397,6 +1445,629 @@ describe('Orchestrator', () => {
 
       assert.ok(logs.some(l => l.includes('Stopping')));
       assert.ok(logs.some(l => l.includes('Orchestrator stopped')));
+    });
+  });
+
+  // ===========================================================================
+  // _setupChannelHandlers()
+  // ===========================================================================
+
+  describe('_setupChannelHandlers()', () => {
+    test('wires onMessage handlers when messageRouter and messageProcessor are set', async () => {
+      const MockAdapter = createMockChannelAdapterClass();
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+
+      const messageRouter = createMockMessageRouter();
+      const messageProcessor = createMockMessageProcessor();
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        messageRouter,
+        messageProcessor,
+      });
+      orch.registerChannelAdapter('slack', MockAdapter);
+
+      await orch.start();
+
+      assert.equal(orch.channels.size, 1);
+      const adapter = orch.channels.get('slack-main');
+      assert.ok(adapter.messageHandler, 'onMessage handler should be registered');
+
+      await orch.stop();
+    });
+
+    test('logs wired count when handlers are set', async () => {
+      const MockAdapter = createMockChannelAdapterClass();
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+
+      const logs = [];
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        messageRouter: createMockMessageRouter(),
+        messageProcessor: createMockMessageProcessor(),
+        logger: msg => logs.push(msg),
+      });
+      orch.registerChannelAdapter('slack', MockAdapter);
+
+      await orch.start();
+
+      assert.ok(logs.some(l => l.includes('Wired 1 channel(s) to MessageProcessor')));
+
+      await orch.stop();
+    });
+
+    test('skips wiring when messageRouter is missing', async () => {
+      const MockAdapter = createMockChannelAdapterClass();
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+
+      const logs = [];
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        messageProcessor: createMockMessageProcessor(),
+        // no messageRouter
+        logger: msg => logs.push(msg),
+      });
+      orch.registerChannelAdapter('slack', MockAdapter);
+
+      await orch.start();
+
+      const adapter = orch.channels.get('slack-main');
+      assert.equal(adapter.messageHandler, null, 'No handler should be set');
+      assert.ok(
+        logs.some(l => l.includes('skipping channel handler wiring')),
+        'Should log skip message'
+      );
+
+      await orch.stop();
+    });
+
+    test('skips wiring when messageProcessor is missing', async () => {
+      const MockAdapter = createMockChannelAdapterClass();
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        messageRouter: createMockMessageRouter(),
+        // no messageProcessor
+      });
+      orch.registerChannelAdapter('slack', MockAdapter);
+
+      await orch.start();
+
+      const adapter = orch.channels.get('slack-main');
+      assert.equal(adapter.messageHandler, null);
+
+      await orch.stop();
+    });
+
+    test('skips adapters without onMessage method', async () => {
+      // Create adapter without onMessage
+      const NoOnMessageAdapter = class {
+        constructor() {
+          this.initialized = false;
+        }
+        async initialize() {
+          this.initialized = true;
+        }
+        async close() {
+          this.initialized = false;
+        }
+      };
+
+      const mainConfig = createMainConfig({
+        channels: {
+          'bare-channel': { type: 'bare', botToken: 'test' },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+
+      const logs = [];
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        messageRouter: createMockMessageRouter(),
+        messageProcessor: createMockMessageProcessor(),
+        logger: msg => logs.push(msg),
+      });
+      orch.registerChannelAdapter('bare', NoOnMessageAdapter);
+
+      await orch.start();
+
+      assert.ok(
+        logs.some(l => l.includes('does not support onMessage')),
+        'Should log skip for adapters without onMessage'
+      );
+
+      await orch.stop();
+    });
+
+    test('does not log skip message when no channels configured', async () => {
+      const logs = [];
+      const orch = new Orchestrator({
+        ...opts,
+        messageRouter: createMockMessageRouter(),
+        // no messageProcessor
+        logger: msg => logs.push(msg),
+      });
+
+      await orch.start();
+
+      assert.ok(
+        !logs.some(l => l.includes('skipping channel handler wiring')),
+        'Should not log skip when no channels exist'
+      );
+
+      await orch.stop();
+    });
+
+    test('creates messageRouter from factory during startup', async () => {
+      const mockRouter = createMockMessageRouter();
+      const routerFactory = mock.fn(() => mockRouter);
+
+      const orch = new Orchestrator({
+        ...opts,
+        messageRouterFactory: routerFactory,
+        messageProcessor: createMockMessageProcessor(),
+      });
+
+      await orch.start();
+
+      assert.equal(routerFactory.mock.calls.length, 1);
+      assert.equal(orch.messageRouter, mockRouter);
+
+      await orch.stop();
+    });
+
+    test('creates messageProcessor from factory during startup', async () => {
+      const mockProcessor = createMockMessageProcessor();
+      const processorFactory = mock.fn(() => mockProcessor);
+
+      const orch = new Orchestrator({
+        ...opts,
+        messageProcessorFactory: processorFactory,
+        messageRouter: createMockMessageRouter(),
+      });
+
+      await orch.start();
+
+      assert.equal(processorFactory.mock.calls.length, 1);
+      assert.equal(orch.messageProcessor, mockProcessor);
+
+      await orch.stop();
+    });
+  });
+
+  // ===========================================================================
+  // _handleChannelMessage()
+  // ===========================================================================
+
+  describe('_handleChannelMessage()', () => {
+    test('routes message, processes it, and sends response', async () => {
+      const MockAdapter = createMockChannelAdapterClass();
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+        },
+        bots: {
+          'test-bot': {
+            soul: './soul.md',
+            provider: 'anthropic',
+            model: 'claude-sonnet-4-5',
+            channel: 'slack-main',
+          },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+
+      const messageRouter = createMockMessageRouter();
+      const messageProcessor = createMockMessageProcessor();
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        messageRouter,
+        messageProcessor,
+      });
+      orch.registerChannelAdapter('slack', MockAdapter);
+
+      await orch.start();
+
+      // Simulate incoming message
+      const adapter = orch.channels.get('slack-main');
+      await adapter.messageHandler({
+        type: 'slack',
+        userId: 'U123',
+        channelId: 'C456',
+        text: 'Hello bot!',
+        isDM: false,
+        threadTs: '1234567890.123456',
+      });
+
+      // Verify route was called with channelName
+      assert.equal(messageRouter.route.mock.calls.length, 1);
+      const routeArg = messageRouter.route.mock.calls[0].arguments[0];
+      assert.equal(routeArg.channelName, 'slack-main');
+      assert.equal(routeArg.userId, 'U123');
+      assert.equal(routeArg.text, 'Hello bot!');
+
+      // Verify processMessage was called
+      assert.equal(messageProcessor.processMessage.mock.calls.length, 1);
+
+      // Verify response was sent back via adapter
+      assert.equal(adapter.sentMessages.length, 1);
+      assert.equal(adapter.sentMessages[0].channelId, 'C456');
+      assert.equal(adapter.sentMessages[0].text, 'AI response');
+      assert.equal(adapter.sentMessages[0].threadTs, '1234567890.123456');
+
+      await orch.stop();
+    });
+
+    test('does not process message when routing returns not allowed', async () => {
+      const MockAdapter = createMockChannelAdapterClass();
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+
+      const messageRouter = createMockMessageRouter({
+        route: mock.fn(async () => ({
+          bot: { id: 'test-bot' },
+          allowed: false,
+          reason: 'User not in allowlist',
+        })),
+      });
+      const messageProcessor = createMockMessageProcessor();
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        messageRouter,
+        messageProcessor,
+      });
+      orch.registerChannelAdapter('slack', MockAdapter);
+
+      await orch.start();
+
+      const adapter = orch.channels.get('slack-main');
+      await adapter.messageHandler({
+        type: 'slack',
+        userId: 'U123',
+        channelId: 'C456',
+        text: 'Hello!',
+        isDM: false,
+      });
+
+      // processMessage should NOT have been called
+      assert.equal(messageProcessor.processMessage.mock.calls.length, 0);
+      // No response sent
+      assert.equal(adapter.sentMessages.length, 0);
+
+      await orch.stop();
+    });
+
+    test('does not process message when no bot found', async () => {
+      const MockAdapter = createMockChannelAdapterClass();
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+
+      const messageRouter = createMockMessageRouter({
+        route: mock.fn(async () => ({
+          bot: null,
+          allowed: false,
+          reason: 'No bot found for channel',
+        })),
+      });
+      const messageProcessor = createMockMessageProcessor();
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        messageRouter,
+        messageProcessor,
+      });
+      orch.registerChannelAdapter('slack', MockAdapter);
+
+      await orch.start();
+
+      const adapter = orch.channels.get('slack-main');
+      await adapter.messageHandler({
+        type: 'slack',
+        userId: 'U123',
+        channelId: 'C456',
+        text: 'Hello!',
+        isDM: false,
+      });
+
+      assert.equal(messageProcessor.processMessage.mock.calls.length, 0);
+      assert.equal(adapter.sentMessages.length, 0);
+
+      await orch.stop();
+    });
+
+    test('does not send empty response text', async () => {
+      const MockAdapter = createMockChannelAdapterClass();
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+
+      const messageProcessor = createMockMessageProcessor({
+        processMessage: mock.fn(async () => ({
+          text: '',
+          toolCalls: [],
+          usage: {},
+          sessionId: 'session-123',
+          durationMs: 100,
+        })),
+      });
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        messageRouter: createMockMessageRouter(),
+        messageProcessor,
+      });
+      orch.registerChannelAdapter('slack', MockAdapter);
+
+      await orch.start();
+
+      const adapter = orch.channels.get('slack-main');
+      await adapter.messageHandler({
+        type: 'slack',
+        userId: 'U123',
+        channelId: 'C456',
+        text: 'Hello!',
+        isDM: false,
+      });
+
+      // Should not send empty response
+      assert.equal(adapter.sentMessages.length, 0);
+
+      await orch.stop();
+    });
+
+    test('catches and logs errors during message handling', async () => {
+      const MockAdapter = createMockChannelAdapterClass();
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+
+      const messageRouter = createMockMessageRouter({
+        route: mock.fn(async () => {
+          throw new Error('Router exploded');
+        }),
+      });
+
+      const logs = [];
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        messageRouter,
+        messageProcessor: createMockMessageProcessor(),
+        logger: msg => logs.push(msg),
+      });
+      orch.registerChannelAdapter('slack', MockAdapter);
+
+      await orch.start();
+
+      const adapter = orch.channels.get('slack-main');
+      // Should not throw even though router errors
+      await adapter.messageHandler({
+        type: 'slack',
+        userId: 'U123',
+        channelId: 'C456',
+        text: 'Hello!',
+        isDM: false,
+      });
+
+      assert.ok(
+        logs.some(l => l.includes('Error handling message') && l.includes('Router exploded')),
+        'Should log error message'
+      );
+
+      await orch.stop();
+    });
+
+    test('catches and logs errors from processMessage', async () => {
+      const MockAdapter = createMockChannelAdapterClass();
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+
+      const messageProcessor = createMockMessageProcessor({
+        processMessage: mock.fn(async () => {
+          throw new Error('LLM API timeout');
+        }),
+      });
+
+      const logs = [];
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        messageRouter: createMockMessageRouter(),
+        messageProcessor,
+        logger: msg => logs.push(msg),
+      });
+      orch.registerChannelAdapter('slack', MockAdapter);
+
+      await orch.start();
+
+      const adapter = orch.channels.get('slack-main');
+      await adapter.messageHandler({
+        type: 'slack',
+        userId: 'U123',
+        channelId: 'C456',
+        text: 'Hello!',
+        isDM: false,
+      });
+
+      assert.ok(
+        logs.some(l => l.includes('LLM API timeout')),
+        'Should log processMessage error'
+      );
+      // No response sent on error
+      assert.equal(adapter.sentMessages.length, 0);
+
+      await orch.stop();
+    });
+
+    test('wires multiple channels and routes independently', async () => {
+      const MockSlack = createMockChannelAdapterClass();
+      const MockDiscord = createMockChannelAdapterClass();
+
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+          'discord-main': { type: 'discord', botToken: 'discord-test' },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+
+      const messageRouter = createMockMessageRouter();
+      const messageProcessor = createMockMessageProcessor();
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        messageRouter,
+        messageProcessor,
+      });
+      orch.registerChannelAdapter('slack', MockSlack);
+      orch.registerChannelAdapter('discord', MockDiscord);
+
+      await orch.start();
+
+      // Both channels should have handlers wired
+      const slackAdapter = orch.channels.get('slack-main');
+      const discordAdapter = orch.channels.get('discord-main');
+      assert.ok(slackAdapter.messageHandler);
+      assert.ok(discordAdapter.messageHandler);
+
+      // Simulate message on Slack
+      await slackAdapter.messageHandler({
+        type: 'slack',
+        userId: 'U123',
+        channelId: 'C456',
+        text: 'Slack message',
+        isDM: false,
+      });
+
+      // Route should have been called with channelName 'slack-main'
+      assert.equal(messageRouter.route.mock.calls.length, 1);
+      assert.equal(messageRouter.route.mock.calls[0].arguments[0].channelName, 'slack-main');
+
+      // Simulate message on Discord
+      await discordAdapter.messageHandler({
+        type: 'discord',
+        userId: 'D789',
+        channelId: 'DCHAN',
+        text: 'Discord message',
+        isDM: false,
+      });
+
+      // Route should have been called again with channelName 'discord-main'
+      assert.equal(messageRouter.route.mock.calls.length, 2);
+      assert.equal(messageRouter.route.mock.calls[1].arguments[0].channelName, 'discord-main');
+
+      await orch.stop();
+    });
+  });
+
+  // ===========================================================================
+  // getStatus() with messageProcessor/messageRouter
+  // ===========================================================================
+
+  describe('getStatus() - message pipeline fields', () => {
+    test('reports messageProcessorReady and messageRouterReady as false by default', () => {
+      const status = orchestrator.getStatus();
+      assert.equal(status.messageProcessorReady, false);
+      assert.equal(status.messageRouterReady, false);
+    });
+
+    test('reports messageProcessorReady as true when injected', async () => {
+      const orch = new Orchestrator({
+        ...opts,
+        messageProcessor: createMockMessageProcessor(),
+      });
+
+      const status = orch.getStatus();
+      assert.equal(status.messageProcessorReady, true);
+    });
+
+    test('reports messageRouterReady as true when injected', async () => {
+      const orch = new Orchestrator({
+        ...opts,
+        messageRouter: createMockMessageRouter(),
+      });
+
+      const status = orch.getStatus();
+      assert.equal(status.messageRouterReady, true);
+    });
+
+    test('reports both ready after start with factories', async () => {
+      const orch = new Orchestrator({
+        ...opts,
+        messageRouterFactory: () => createMockMessageRouter(),
+        messageProcessorFactory: () => createMockMessageProcessor(),
+      });
+
+      await orch.start();
+
+      const status = orch.getStatus();
+      assert.equal(status.messageProcessorReady, true);
+      assert.equal(status.messageRouterReady, true);
+
+      await orch.stop();
     });
   });
 });
