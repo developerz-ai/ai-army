@@ -933,7 +933,10 @@ export class Orchestrator {
       // Reload soul if soul path is configured
       if (mergedConfig.soul) {
         try {
-          const newSoulContent = await this.botReloader.soulLoader.load(mergedConfig.soul);
+          const newSoulContent = await this.botReloader.soulLoader.load(mergedConfig.soul, {
+            botName: mergedConfig.name || botId,
+            botId,
+          });
           await this.botReloader.reloadSoul(botId, newSoulContent);
         } catch (err) {
           this._log(`⚠️  Failed to reload soul for '${botId}': ${err.message}`);
