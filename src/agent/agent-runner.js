@@ -186,6 +186,8 @@ export class AgentRunner {
     const { model, tools, generateOptions } = await this._resolveConfig(botConfig);
     const { controller, cleanup } = createStreamTimeout(generateOptions.timeout, botConfig.id);
 
+    let callbackError = null;
+
     try {
       const result = streamText({
         model,
@@ -202,7 +204,13 @@ export class AgentRunner {
 
       for await (const chunk of result.textStream) {
         fullText += chunk;
-        onChunk(chunk);
+        try {
+          onChunk(chunk);
+        } catch (cbErr) {
+          callbackError = cbErr;
+          controller.abort(cbErr);
+          throw cbErr;
+        }
       }
 
       // Await final result for usage stats
@@ -218,8 +226,8 @@ export class AgentRunner {
       if (err instanceof AgentRunnerError) {
         throw err;
       }
-      // Convert AbortError to a timeout-specific error
-      if (err.name === 'AbortError' || controller.signal.aborted) {
+      // Convert AbortError to a timeout-specific error (but not callback aborts)
+      if (!callbackError && (err.name === 'AbortError' || controller.signal.aborted)) {
         throw new AgentRunnerError(
           `Stream timed out after ${generateOptions.timeout}ms for bot "${botConfig.id}"`,
           { operation: 'stream', botId: botConfig.id, cause: err }
@@ -264,9 +272,9 @@ export class AgentRunner {
     }
 
     const generateOptions = {
-      maxSteps: botConfig.maxSteps || DEFAULT_MAX_STEPS,
+      maxSteps: botConfig.maxSteps ?? DEFAULT_MAX_STEPS,
       temperature: botConfig.temperature,
-      timeout: botConfig.timeout || DEFAULT_TIMEOUT_MS,
+      timeout: botConfig.timeout ?? DEFAULT_TIMEOUT_MS,
     };
 
     return { model, tools, generateOptions };

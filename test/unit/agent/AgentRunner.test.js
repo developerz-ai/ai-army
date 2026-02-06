@@ -861,6 +861,64 @@ describe('AgentRunner', () => {
         );
       });
 
+      test('aborts stream when onChunk callback throws', async t => {
+        let abortSignalUsed;
+        const callbackError = new Error('onChunk processing failed');
+
+        async function* mockTextStream() {
+          yield 'first chunk';
+          yield 'second chunk';
+        }
+
+        const mockStreamResult = {
+          textStream: mockTextStream(),
+          then(resolve) {
+            resolve({
+              toolCalls: [],
+              usage: { promptTokens: 5, completionTokens: 3, totalTokens: 8 },
+              finishReason: 'stop',
+            });
+          },
+        };
+
+        const streamTextMock = t.mock.module('ai', {
+          namedExports: {
+            generateText: mock.fn(),
+            streamText: mock.fn(args => {
+              abortSignalUsed = args.abortSignal;
+              return mockStreamResult;
+            }),
+          },
+        });
+
+        const { AgentRunner: MockedRunner } = await import(
+          `../../../src/agent/agent-runner.js?s_onchunk=${Date.now()}`
+        );
+
+        const mockRunner = new MockedRunner(modelFactory, toolRegistry);
+
+        // onChunk throws on the first chunk
+        const failingOnChunk = () => {
+          throw callbackError;
+        };
+
+        await assert.rejects(
+          () => mockRunner.stream(createBotConfig(), createMessages(), failingOnChunk),
+          err => {
+            assert.equal(err.name, 'AgentRunnerError');
+            assert.match(err.message, /Agent stream failed for bot "test-bot"/);
+            assert.match(err.message, /onChunk processing failed/);
+            return true;
+          }
+        );
+
+        // Verify the abort signal was triggered
+        assert.ok(abortSignalUsed, 'Should have passed abortSignal to streamText');
+        assert.ok(abortSignalUsed.aborted, 'AbortSignal should be aborted after onChunk error');
+
+        streamTextMock.restore();
+      });
+
       test('passes abortSignal to streamText for timeout handling', async t => {
         let capturedArgs;
 
@@ -1039,6 +1097,22 @@ describe('AgentRunner', () => {
       const resolved = await runner._resolveConfig(config);
 
       assert.equal(resolved.generateOptions.timeout, 120_000);
+    });
+
+    test('preserves explicit maxSteps of 0 via nullish coalescing', async () => {
+      const config = createBotConfig({ maxSteps: 0 });
+
+      const resolved = await runner._resolveConfig(config);
+
+      assert.equal(resolved.generateOptions.maxSteps, 0);
+    });
+
+    test('preserves explicit timeout of 0 via nullish coalescing', async () => {
+      const config = createBotConfig({ timeout: 0 });
+
+      const resolved = await runner._resolveConfig(config);
+
+      assert.equal(resolved.generateOptions.timeout, 0);
     });
 
     test('passes apiKey to modelFactory when present', async () => {
