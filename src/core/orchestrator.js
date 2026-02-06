@@ -81,7 +81,8 @@ export class Orchestrator {
    * @param {Function} [options.messageProcessorFactory] - Factory to create MessageProcessor
    * @param {Function} [options.messageRouterFactory] - Factory to create MessageRouter
    * @param {Object} [options.botReloader] - Pre-configured BotReloader instance (for DI/testing)
-   * @param {Function} [options.botReloaderFactory] - Factory to create BotReloader (for DI/testing)
+   * @param {Function} [options.botReloaderFactory] - Factory (botManager, config) => BotReloader.
+   *   The factory must close over containerPool + soulLoader or supply them internally.
    */
   constructor(options = {}) {
     this.configPath = options.configPath || './config.json';
@@ -590,9 +591,18 @@ export class Orchestrator {
       );
     }
 
-    // Create BotReloader if dependencies are available
+    // Create BotReloader if dependencies are available.
+    // The factory receives (botManager, config) and must internally supply
+    // containerPool + soulLoader (e.g. closed over at factory creation time).
     if (!this.botReloader && this.botReloaderFactory && this.botManager) {
-      this.botReloader = this.botReloaderFactory(this.botManager, this.config);
+      const reloader = this.botReloaderFactory(this.botManager, this.config);
+      if (!reloader || typeof reloader !== 'object') {
+        throw new OrchestratorError(
+          'botReloaderFactory must return a BotReloader instance',
+          { operation: 'start', component: 'botReloader' }
+        );
+      }
+      this.botReloader = reloader;
     }
   }
 
@@ -944,7 +954,13 @@ export class Orchestrator {
       }
 
       if (needsRestart) {
-        await this.botReloader.reloadContainer(botId, mergedConfig.sandbox);
+        if (mergedConfig.sandbox && typeof mergedConfig.sandbox === 'object') {
+          await this.botReloader.reloadContainer(botId, mergedConfig.sandbox);
+        } else {
+          this._log(
+            `⚠️  Sandbox removed for '${botId}'; skipping container reload (no sandbox config)`
+          );
+        }
       }
     } else {
       await this.botManager.reloadBot(botId, mergedConfig);
