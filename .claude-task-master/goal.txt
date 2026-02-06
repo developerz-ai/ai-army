@@ -1,0 +1,1 @@
+implement all from docs/*.mvp -- before review all the docs/**/*.md and the src and let's do it full complete tested

@@ -1,0 +1,35 @@
+{
+  "version": "1.0",
+  "api": {
+    "anthropic_api_key": null,
+    "anthropic_base_url": "https://api.anthropic.com",
+    "openrouter_api_key": null,
+    "openrouter_base_url": "https://openrouter.ai/api/v1"
+  },
+  "models": {
+    "sonnet": "claude-sonnet-4-5-20250929",
+    "opus": "claude-opus-4-6",
+    "haiku": "claude-haiku-4-5-20251001"
+  },
+  "git": {
+    "target_branch": "main",
+    "auto_push": true
+  },
+  "tools": {
+    "planning": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Bash",
+      "WebFetch",
+      "WebSearch"
+    ],
+    "verification": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Bash"
+    ],
+    "working": []
+  }
+}
