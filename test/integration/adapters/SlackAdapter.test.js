@@ -82,7 +82,11 @@ class MockBoltApp {
   }
 }
 
-// Register the mock before importing SlackAdapter
+// Register the mock before importing SlackAdapter.
+// Note: Node.js mock.module() uses `defaultExport` (not `default`) to set the
+// module's default export. The source does `import bolt from '@slack/bolt'` then
+// `const { App } = bolt`, so we provide App on the default export object.
+// Named export is also provided for completeness.
 mock.module('@slack/bolt', {
   defaultExport: { App: MockBoltApp },
   namedExports: { App: MockBoltApp },
