@@ -259,12 +259,21 @@ describe('ChannelManager', () => {
 
     test('stops existing channel when re-initializing same name', async () => {
       await manager.initializeChannel('slack-main', createChannelConfig());
-      const firstAdapter = MockSlackAdapter._lastInstance;
+
+      // Capture the adapter from the stored channel entry (not static mock state)
+      // to verify _stopChannel finds and stops the adapter via the map
+      const firstChannel = manager.getChannel('slack-main');
+      const firstAdapter = firstChannel.adapter;
 
       await manager.initializeChannel('slack-main', createChannelConfig());
 
       assert.equal(firstAdapter.stop.mock.calls.length, 1);
       assert.equal(manager.channels.size, 1);
+
+      // Verify the stored channel now holds the new adapter, not the old one
+      const updatedChannel = manager.getChannel('slack-main');
+      assert.notEqual(updatedChannel.adapter, firstAdapter);
+      assert.equal(updatedChannel.status, CHANNEL_STATUSES.READY);
     });
 
     test('logs initialization when logger provided', async () => {
@@ -439,6 +448,30 @@ describe('ChannelManager', () => {
       }
 
       assert.equal(manager.channels.has('fail-chan'), false);
+    });
+
+    test('cleans up old channel on re-init even when new init fails', async () => {
+      await manager.initializeChannel('slack-main', createChannelConfig());
+      const firstChannel = manager.getChannel('slack-main');
+      const firstAdapter = firstChannel.adapter;
+
+      const FailingInit = createMockAdapterClass({
+        initialize: mock.fn(async () => {
+          throw new Error('Re-init failed');
+        }),
+      });
+      manager.registerAdapter('slack', FailingInit);
+
+      try {
+        await manager.initializeChannel('slack-main', createChannelConfig());
+      } catch (_err) {
+        // expected
+      }
+
+      // Old adapter must have been stopped
+      assert.equal(firstAdapter.stop.mock.calls.length, 1);
+      // Failed re-init should not leave stale entry in the map
+      assert.equal(manager.channels.has('slack-main'), false);
     });
   });
 

@@ -154,10 +154,13 @@ export class ChannelManager {
       );
     }
 
-    // Close existing channel with same name if re-initializing
+    // Stop existing channel with same name before re-initializing.
+    // Must stop before replacing the map entry so the old adapter
+    // is properly cleaned up (connections, event handlers, etc.).
     if (this.channels.has(name)) {
       this._log(`Re-initializing channel '${name}', stopping existing instance...`);
       await this._stopChannel(name);
+      this.channels.delete(name);
     }
 
     const channel = {
@@ -168,18 +171,22 @@ export class ChannelManager {
       createdAt: new Date(),
     };
 
+    // Store early so the channel is tracked during initialization.
+    // Rolled back (removed) on failure below.
+    this.channels.set(name, channel);
+
     try {
       const adapter = new AdapterClass(config);
       await adapter.initialize(config);
 
       channel.adapter = adapter;
       channel.status = CHANNEL_STATUSES.READY;
-      this.channels.set(name, channel);
       this._log(`Initialized channel: ${name} (${config.type})`);
 
       return channel;
     } catch (err) {
       channel.status = CHANNEL_STATUSES.ERROR;
+      this.channels.delete(name);
       if (err instanceof ChannelManagerError) {
         throw err;
       }
