@@ -225,9 +225,10 @@ export function createWriteFileTool(containerPool, botId, toolConfig = {}) {
         const container = await containerPool.getContainer(botId);
         const { dockerManager } = containerPool;
 
-        // Create parent directory first
-        const dirPath = filePath.substring(0, filePath.lastIndexOf('/'));
-        if (dirPath) {
+        // Create parent directory first (only if path contains a slash)
+        const lastSlash = filePath.lastIndexOf('/');
+        if (lastSlash > 0) {
+          const dirPath = filePath.substring(0, lastSlash);
           await dockerManager.exec(container, `mkdir -p "${dirPath}"`, { timeout });
         }
 
@@ -310,11 +311,15 @@ export function createGlobTool(containerPool, botId, toolConfig = {}) {
         // Convert glob pattern to appropriate find flags:
         // - Simple globs (*.js) use -name for filename matching
         // - Path globs (**/*.js, src/*.js) use -path with ** converted to *
+        //   Prefix with * so -path matches against full paths from find
+        //   (e.g., /home/agent/src/app.js needs *src/*.js to match)
         let findFilter;
         if (pattern.includes('/')) {
           // Pattern has path separators - use -path with ** → * conversion
           const findPattern = pattern.replace(/\*\*/g, '*');
-          findFilter = `-path "${findPattern}"`;
+          // Prefix with * so it matches anywhere in the full path
+          const prefixed = findPattern.startsWith('*') ? findPattern : `*${findPattern}`;
+          findFilter = `-path "${prefixed}"`;
         } else {
           // Simple filename glob - use -name
           findFilter = `-name "${pattern}"`;
@@ -386,7 +391,8 @@ export function createGrepTool(containerPool, botId, toolConfig = {}) {
       }
 
       // Validate pattern - allow regex chars but block shell injection
-      const shellInjection = /[`${}|;&<>!]/;
+      // Also block " and \ which can break out of double-quoted shell strings
+      const shellInjection = /[`${}|;&<>!"\\]/;
       if (shellInjection.test(pattern)) {
         return {
           success: false,

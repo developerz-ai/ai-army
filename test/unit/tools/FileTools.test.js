@@ -478,6 +478,42 @@ describe('createWriteFileTool', () => {
       assert.match(execCalls[0], /\/home\/agent\/deep\/nested/);
     });
 
+    test('does not create directory for relative path without slash', async () => {
+      const execCalls = [];
+      dockerManager.exec = mock.fn(async (_container, cmd) => {
+        execCalls.push(cmd);
+        return { exitCode: 0, stdout: '', stderr: '' };
+      });
+
+      const writeFile = createWriteFileTool(containerPool, 'test-bot');
+      await writeFile.execute({
+        path: 'file.txt',
+        content: 'data',
+      });
+
+      // Should only have the write command, no mkdir -p
+      assert.equal(execCalls.length, 1);
+      assert.ok(!execCalls[0].includes('mkdir'));
+    });
+
+    test('does not create directory for root-relative path like /file.txt', async () => {
+      const execCalls = [];
+      dockerManager.exec = mock.fn(async (_container, cmd) => {
+        execCalls.push(cmd);
+        return { exitCode: 0, stdout: '', stderr: '' };
+      });
+
+      const writeFile = createWriteFileTool(containerPool, 'test-bot');
+      await writeFile.execute({
+        path: '/file.txt',
+        content: 'data',
+      });
+
+      // lastIndexOf('/') is 0, so lastSlash > 0 is false, no mkdir
+      assert.equal(execCalls.length, 1);
+      assert.ok(!execCalls[0].includes('mkdir'));
+    });
+
     test('uses heredoc for content transfer', async () => {
       dockerManager.exec = mock.fn(async () => ({
         exitCode: 0,
@@ -794,8 +830,24 @@ describe('createGlobTool', () => {
 
       const command = dockerManager.exec.mock.calls[0].arguments[1];
       assert.match(command, /find/);
-      assert.match(command, /-path "src\/\*\.js"/);
+      // Prefixed with * so -path matches full paths (e.g. /home/agent/src/app.js)
+      assert.match(command, /-path "\*src\/\*\.js"/);
       assert.match(command, /-type f/);
+    });
+
+    test('does not double-prefix patterns already starting with *', async () => {
+      dockerManager.exec = mock.fn(async () => ({
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+      }));
+
+      const glob = createGlobTool(containerPool, 'test-bot');
+      await glob.execute({ pattern: '*/src/*.js' });
+
+      const command = dockerManager.exec.mock.calls[0].arguments[1];
+      // Should not have ** prefix, pattern already starts with *
+      assert.match(command, /-path "\*\/src\/\*\.js"/);
     });
 
     test('converts ** to * in path patterns for find compatibility', async () => {
@@ -1172,6 +1224,28 @@ describe('createGrepTool', () => {
       const grep = createGrepTool(containerPool, 'test-bot');
       const result = await grep.execute({
         pattern: '$(whoami)',
+      });
+
+      assert.equal(result.success, false);
+      assert.deepEqual(result.matches, []);
+      assert.match(result.error, /dangerous characters/);
+    });
+
+    test('returns error for pattern with double quotes (prevents quote escaping)', async () => {
+      const grep = createGrepTool(containerPool, 'test-bot');
+      const result = await grep.execute({
+        pattern: 'foo" -R /',
+      });
+
+      assert.equal(result.success, false);
+      assert.deepEqual(result.matches, []);
+      assert.match(result.error, /dangerous characters/);
+    });
+
+    test('returns error for pattern with backslashes (prevents quote escaping)', async () => {
+      const grep = createGrepTool(containerPool, 'test-bot');
+      const result = await grep.execute({
+        pattern: 'foo\\bar',
       });
 
       assert.equal(result.success, false);
