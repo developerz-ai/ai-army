@@ -4,16 +4,19 @@
  * Provides an HTTP REST endpoint for sending and receiving messages.
  * Useful for custom integrations, webhooks, and API-driven bots.
  *
- * This adapter is a stub. To contribute an implementation, see the
- * channel adapter guide in docs/idea/09-channels.md.
+ * Uses Node.js built-in `http` module (no Express dependency), consistent
+ * with the pattern established in src/api/api-server.js.
  *
- * Expected REST endpoints (planned):
- * - POST /messages - Receive inbound messages
- * - GET  /messages/:sessionId - Poll for responses
- * - POST /messages/:sessionId/send - Send a message to a session
+ * REST endpoints:
+ * - POST {basePath}/messages          - Receive inbound messages
+ * - GET  {basePath}/messages/:sessionId - Poll for responses
+ *
+ * Config: { port, host, basePath, apiKey }
  *
  * @module adapters/channels/rest
  */
+
+import { createServer } from 'node:http';
 
 /**
  * Custom error for REST adapter failures
@@ -36,58 +39,476 @@ export class RESTAdapterError extends Error {
 }
 
 /**
- * REST channel adapter for HTTP-based messaging (stub)
+ * REST channel adapter for HTTP-based messaging
  *
- * All methods throw {@link RESTAdapterError} until a concrete implementation
- * is provided. See docs/idea/09-channels.md for the adapter interface contract.
+ * Implements the standard channel adapter interface:
+ * constructor(config), initialize(), start(), stop(),
+ * onMessage(handler), sendMessage(channelId, text).
+ *
+ * Inbound messages arrive via POST /messages and are dispatched to the
+ * registered message handler. Outbound messages are buffered per session
+ * and retrieved via GET /messages/:sessionId polling.
  *
  * @example
- * const adapter = new RESTAdapter();
- * // Throws RESTAdapterError - not yet implemented
- * await adapter.initialize({ port: 3000 });
+ * const adapter = new RESTAdapter({
+ *   port: 3100,
+ *   host: '0.0.0.0',
+ *   basePath: '/api/v1',
+ *   apiKey: 'my-secret-key',
+ * });
+ * await adapter.initialize();
+ * adapter.onMessage(async msg => console.log(msg));
+ * await adapter.start();
  */
 export class RESTAdapter {
   /**
+   * Create a RESTAdapter instance
+   * @param {Object} config - REST adapter configuration
+   * @param {number} config.port - Port to listen on
+   * @param {string} [config.host='0.0.0.0'] - Host to bind to
+   * @param {string} [config.basePath=''] - Base path prefix for endpoints
+   * @param {string} [config.apiKey] - Optional API key for authentication
+   */
+  constructor(config) {
+    if (!config || typeof config !== 'object') {
+      throw new RESTAdapterError('Config is required', {
+        operation: 'constructor',
+        reason: 'Missing or invalid config object',
+      });
+    }
+
+    if (!config.port || typeof config.port !== 'number') {
+      throw new RESTAdapterError('port is required and must be a number', {
+        operation: 'constructor',
+        reason: 'Missing or invalid port in config',
+      });
+    }
+
+    this.config = {
+      port: config.port,
+      host: config.host || '0.0.0.0',
+      basePath: (config.basePath || '').replace(/\/+$/, ''),
+      apiKey: config.apiKey || null,
+    };
+
+    /** @type {import('http').Server|null} */
+    this.server = null;
+
+    /** @type {Function|null} Registered message handler */
+    this.messageHandler = null;
+
+    /** @type {boolean} Whether initialize() has been called */
+    this.initialized = false;
+
+    /** @type {boolean} Whether start() has been called */
+    this.started = false;
+
+    /**
+     * Outbound message buffer keyed by sessionId.
+     * Messages are appended by sendMessage() and drained by GET /messages/:sessionId.
+     * @type {Map<string, Array<{text: string, timestamp: string}>>}
+     */
+    this.responseBuffers = new Map();
+  }
+
+  /**
    * Initialize the REST adapter
    *
-   * @param {Object} _config - REST adapter configuration
+   * Creates the HTTP server and configures request routing.
+   * Does not start listening — call start() after initialize().
+   *
    * @returns {Promise<void>}
-   * @throws {RESTAdapterError} Always - not yet implemented
+   * @throws {RESTAdapterError} If initialization fails
    */
-  async initialize(_config) {
-    throw new RESTAdapterError(
-      'RESTAdapter.initialize() is not implemented. See docs/idea/09-channels.md for contributing.',
-      { operation: 'initialize', reason: 'stub adapter' }
-    );
+  async initialize() {
+    if (this.initialized) {
+      return;
+    }
+
+    try {
+      this.server = createServer((req, res) => {
+        this._handleRequest(req, res).catch(err => {
+          if (!res.headersSent) {
+            this._sendJson(res, 500, {
+              error: 'Internal Server Error',
+              message: err.message,
+            });
+          }
+        });
+      });
+      this.initialized = true;
+    } catch (err) {
+      throw new RESTAdapterError('Failed to initialize REST adapter', {
+        cause: err,
+        operation: 'initialize',
+      });
+    }
+  }
+
+  /**
+   * Register a message handler callback
+   *
+   * The handler will be called with a standardized message object
+   * for each incoming POST /messages request.
+   *
+   * @param {Function} handler - Async function to handle incoming messages
+   * @throws {RESTAdapterError} If handler is not a function
+   */
+  onMessage(handler) {
+    if (typeof handler !== 'function') {
+      throw new RESTAdapterError('Message handler must be a function', {
+        operation: 'onMessage',
+        reason: `Expected function, got ${typeof handler}`,
+      });
+    }
+
+    this.messageHandler = handler;
+  }
+
+  /**
+   * Start listening for HTTP requests
+   *
+   * Begins accepting connections on the configured port and host.
+   * The adapter must be initialized before calling start().
+   *
+   * @returns {Promise<void>}
+   * @throws {RESTAdapterError} If not initialized or start fails
+   */
+  async start() {
+    if (!this.initialized) {
+      throw new RESTAdapterError('RESTAdapter not initialized. Call initialize() first', {
+        operation: 'start',
+      });
+    }
+
+    if (this.started) {
+      return;
+    }
+
+    return new Promise((resolve, reject) => {
+      this.server.on('error', err => {
+        this.started = false;
+        reject(
+          new RESTAdapterError(`Failed to start REST adapter: ${err.message}`, {
+            cause: err,
+            operation: 'start',
+          })
+        );
+      });
+
+      this.server.listen(this.config.port, this.config.host, () => {
+        this.started = true;
+        resolve();
+      });
+    });
+  }
+
+  /**
+   * Stop the HTTP server gracefully
+   *
+   * Closes the server and stops accepting new connections.
+   * Safe to call even if not started (will be a no-op).
+   *
+   * @returns {Promise<void>}
+   * @throws {RESTAdapterError} If stop fails
+   */
+  async stop() {
+    if (!this.started || !this.server) {
+      return;
+    }
+
+    return new Promise((resolve, reject) => {
+      this.server.close(err => {
+        this.started = false;
+        if (err) {
+          reject(
+            new RESTAdapterError(`Failed to stop REST adapter: ${err.message}`, {
+              cause: err,
+              operation: 'stop',
+            })
+          );
+        } else {
+          resolve();
+        }
+      });
+    });
   }
 
   /**
    * Send a message to a session via the REST channel
    *
-   * @param {string} _sessionId - Target session identifier
-   * @param {string} _text - Message text to send
+   * Buffers the message for the given session. The message will be
+   * available when the client polls GET /messages/:sessionId.
+   *
+   * @param {string} channelId - Target session/channel identifier
+   * @param {string} text - Message text to send
    * @returns {Promise<void>}
-   * @throws {RESTAdapterError} Always - not yet implemented
+   * @throws {RESTAdapterError} If not initialized or parameters are invalid
    */
-  async sendMessage(_sessionId, _text) {
-    throw new RESTAdapterError(
-      'RESTAdapter.sendMessage() is not implemented. See docs/idea/09-channels.md for contributing.',
-      { operation: 'sendMessage', reason: 'stub adapter' }
-    );
+  async sendMessage(channelId, text) {
+    if (!this.initialized) {
+      throw new RESTAdapterError('RESTAdapter not initialized. Call initialize() first', {
+        operation: 'sendMessage',
+      });
+    }
+
+    if (!channelId) {
+      throw new RESTAdapterError('channelId is required', {
+        operation: 'sendMessage',
+        reason: 'Missing channelId parameter',
+      });
+    }
+
+    if (typeof text !== 'string') {
+      throw new RESTAdapterError('text is required and must be a string', {
+        operation: 'sendMessage',
+        reason: 'Missing or non-string text parameter',
+      });
+    }
+
+    if (!this.responseBuffers.has(channelId)) {
+      this.responseBuffers.set(channelId, []);
+    }
+
+    this.responseBuffers.get(channelId).push({
+      text,
+      timestamp: new Date().toISOString(),
+    });
   }
 
   /**
    * Handle an incoming HTTP request
    *
-   * @param {Object} _req - HTTP request object
-   * @param {Object} _res - HTTP response object
+   * Routes requests to the appropriate handler based on method and path:
+   * - POST {basePath}/messages          → _handleInboundMessage
+   * - GET  {basePath}/messages/:sessionId → _handlePollMessages
+   *
+   * @param {import('http').IncomingMessage} req - HTTP request
+   * @param {import('http').ServerResponse} res - HTTP response
    * @returns {Promise<void>}
-   * @throws {RESTAdapterError} Always - not yet implemented
+   * @private
    */
-  async handleRequest(_req, _res) {
-    throw new RESTAdapterError(
-      'RESTAdapter.handleRequest() is not implemented. See docs/idea/09-channels.md for contributing.',
-      { operation: 'handleRequest', reason: 'stub adapter' }
-    );
+  async _handleRequest(req, res) {
+    const method = (typeof req.method === 'string' ? req.method : '').toUpperCase();
+
+    let pathname;
+    try {
+      ({ pathname } = new URL(req.url, `http://${req.headers.host || 'localhost'}`));
+    } catch (_err) {
+      ({ pathname } = new URL(req.url, 'http://localhost'));
+    }
+
+    // CORS headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key');
+
+    if (method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    // API key authentication
+    if (this.config.apiKey) {
+      const providedKey =
+        req.headers['x-api-key'] || this._extractBearerToken(req.headers.authorization);
+
+      if (providedKey !== this.config.apiKey) {
+        this._sendJson(res, 401, { error: 'Unauthorized', message: 'Invalid or missing API key' });
+        return;
+      }
+    }
+
+    const { basePath } = this.config;
+
+    // POST {basePath}/messages — inbound message
+    if (method === 'POST' && pathname === `${basePath}/messages`) {
+      await this._handleInboundMessage(req, res);
+      return;
+    }
+
+    // GET {basePath}/messages/:sessionId — poll for responses
+    const pollPattern = new RegExp(`^${this._escapeRegExp(basePath)}/messages/([^/]+)$`);
+    const pollMatch = pathname.match(pollPattern);
+    if (method === 'GET' && pollMatch) {
+      const sessionId = decodeURIComponent(pollMatch[1]);
+      this._handlePollMessages(res, sessionId);
+      return;
+    }
+
+    this._sendJson(res, 404, { error: 'Not Found', message: `${method} ${pathname} not found` });
+  }
+
+  /**
+   * Handle an inbound POST /messages request
+   *
+   * Parses the JSON body and dispatches to the registered message handler.
+   * Expected body: { sessionId, text, userId? }
+   *
+   * @param {import('http').IncomingMessage} req - HTTP request
+   * @param {import('http').ServerResponse} res - HTTP response
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _handleInboundMessage(req, res) {
+    let body;
+    try {
+      body = await this._parseJsonBody(req);
+    } catch (_err) {
+      this._sendJson(res, 400, { error: 'Bad Request', message: 'Invalid JSON body' });
+      return;
+    }
+
+    if (!body.sessionId || typeof body.sessionId !== 'string') {
+      this._sendJson(res, 400, {
+        error: 'Bad Request',
+        message: 'sessionId is required and must be a string',
+      });
+      return;
+    }
+
+    if (!body.text || typeof body.text !== 'string') {
+      this._sendJson(res, 400, {
+        error: 'Bad Request',
+        message: 'text is required and must be a string',
+      });
+      return;
+    }
+
+    const message = {
+      type: 'rest',
+      userId: body.userId || 'anonymous',
+      channelId: body.sessionId,
+      text: body.text,
+      isDM: true,
+      metadata: body.metadata || {},
+    };
+
+    if (this.messageHandler) {
+      try {
+        await this.messageHandler(message);
+      } catch (err) {
+        this._sendJson(res, 500, {
+          error: 'Internal Server Error',
+          message: `Message handler failed: ${err.message}`,
+        });
+        return;
+      }
+    }
+
+    this._sendJson(res, 200, {
+      ok: true,
+      sessionId: body.sessionId,
+      message: 'Message received',
+    });
+  }
+
+  /**
+   * Handle a GET /messages/:sessionId polling request
+   *
+   * Returns and drains all buffered messages for the given session.
+   *
+   * @param {import('http').ServerResponse} res - HTTP response
+   * @param {string} sessionId - Session to poll messages for
+   * @private
+   */
+  _handlePollMessages(res, sessionId) {
+    const messages = this.responseBuffers.get(sessionId) || [];
+    this.responseBuffers.set(sessionId, []);
+
+    this._sendJson(res, 200, {
+      ok: true,
+      sessionId,
+      messages,
+    });
+  }
+
+  /**
+   * Parse the JSON body from an incoming request
+   *
+   * @param {import('http').IncomingMessage} req - HTTP request
+   * @returns {Promise<Object>} Parsed JSON body
+   * @private
+   */
+  _parseJsonBody(req) {
+    return new Promise((resolve, reject) => {
+      const chunks = [];
+      let size = 0;
+      const maxSize = 1024 * 1024; // 1MB limit
+
+      req.on('data', chunk => {
+        size += chunk.length;
+        if (size > maxSize) {
+          reject(
+            new RESTAdapterError('Request body too large', {
+              operation: 'parseBody',
+              reason: 'Exceeded 1MB limit',
+            })
+          );
+          req.destroy();
+          return;
+        }
+        chunks.push(chunk);
+      });
+
+      req.on('end', () => {
+        const raw = Buffer.concat(chunks).toString('utf-8');
+        if (!raw || raw.trim().length === 0) {
+          resolve({});
+          return;
+        }
+        try {
+          resolve(JSON.parse(raw));
+        } catch (err) {
+          reject(err);
+        }
+      });
+
+      req.on('error', reject);
+    });
+  }
+
+  /**
+   * Send a JSON response
+   *
+   * @param {import('http').ServerResponse} res - HTTP response
+   * @param {number} statusCode - HTTP status code
+   * @param {Object} body - Response body
+   * @private
+   */
+  _sendJson(res, statusCode, body) {
+    const json = JSON.stringify(body);
+    res.writeHead(statusCode, {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(json),
+    });
+    res.end(json);
+  }
+
+  /**
+   * Extract a bearer token from the Authorization header
+   *
+   * @param {string} [authHeader] - Authorization header value
+   * @returns {string|null} Token or null if not present
+   * @private
+   */
+  _extractBearerToken(authHeader) {
+    if (!authHeader || typeof authHeader !== 'string') return null;
+    const match = authHeader.match(/^Bearer\s+(.+)$/i);
+    return match ? match[1] : null;
+  }
+
+  /**
+   * Escape special regex characters in a string
+   *
+   * @param {string} str - String to escape
+   * @returns {string} Escaped string safe for RegExp
+   * @private
+   */
+  _escapeRegExp(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 }
+
+export default RESTAdapter;
