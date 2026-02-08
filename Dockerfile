@@ -82,4 +82,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
 ENTRYPOINT ["/sbin/tini", "--"]
 
 # Start the application
-CMD ["node", "src/index.js"]
+CMD ["node", "bin/cli.js", "start"]
