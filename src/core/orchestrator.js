@@ -39,6 +39,10 @@ import { ChannelManager } from './channel-manager.js';
 import { WorkerRegistry, WORKER_TYPES } from './worker-registry.js';
 import { WorkerAssigner } from './worker-assigner.js';
 import { SSHTunnelManager } from '../worker/ssh-tunnel.js';
+import { HealthMonitor } from '../monitoring/HealthMonitor.js';
+import { registerBuiltInChecks } from '../monitoring/health-checks.js';
+import { MetricsCollector } from '../monitoring/MetricsCollector.js';
+import { Alerter } from '../monitoring/Alerter.js';
 
 /**
  * Orchestrator lifecycle states
@@ -130,6 +134,12 @@ export class Orchestrator {
    * @param {Object} [options.channelManager] - Pre-configured ChannelManager instance (for DI/testing)
    * @param {Function} [options.channelManagerFactory] - Factory (opts) => ChannelManager
    * @param {number} [options.healthCheckInterval=30000] - Interval in ms between channel health checks (0 to disable)
+   * @param {Object} [options.healthMonitor] - Pre-configured HealthMonitor instance (for DI/testing)
+   * @param {Object} [options.metricsCollector] - Pre-configured MetricsCollector instance (for DI/testing)
+   * @param {Object} [options.alerter] - Pre-configured Alerter instance (for DI/testing)
+   * @param {Function} [options.healthMonitorFactory] - Factory (opts) => HealthMonitor
+   * @param {Function} [options.metricsCollectorFactory] - Factory (opts) => MetricsCollector
+   * @param {Function} [options.alerterFactory] - Factory (opts) => Alerter
    * @param {Object} [options.workerRegistry] - Pre-configured WorkerRegistry instance (for DI/testing)
    * @param {Function} [options.workerRegistryFactory] - Factory (storage, opts) => WorkerRegistry
    * @param {Object} [options.workerAssigner] - Pre-configured WorkerAssigner instance (for DI/testing)
@@ -207,6 +217,12 @@ export class Orchestrator {
     // Health monitoring
     this.healthCheckInterval = options.healthCheckInterval ?? 30000;
     this._healthCheckTimer = null;
+    this.healthMonitor = options.healthMonitor || null;
+    this.metricsCollector = options.metricsCollector || null;
+    this.alerter = options.alerter || null;
+    this.healthMonitorFactory = options.healthMonitorFactory || null;
+    this.metricsCollectorFactory = options.metricsCollectorFactory || null;
+    this.alerterFactory = options.alerterFactory || null;
 
     // Worker distribution system
     this.workerRegistry = options.workerRegistry || null;
@@ -307,6 +323,9 @@ export class Orchestrator {
       // Step 10: Start webhook worker (if webhooks are configured)
       await this._startWebhookWorker();
 
+      // Step 11: Initialize pluggable health monitoring
+      await this._initializeHealthMonitoring();
+
       this.state = ORCHESTRATOR_STATES.RUNNING;
       this.startedAt = new Date();
 
@@ -366,6 +385,13 @@ export class Orchestrator {
     this._log('🛑 Stopping orchestrator...');
 
     const errors = [];
+
+    // Step 0: Stop health monitoring
+    try {
+      this._stopHealthMonitoring();
+    } catch (err) {
+      errors.push({ component: 'healthMonitor', error: err });
+    }
 
     // Step 1: Stop webhook worker
     try {
@@ -612,6 +638,7 @@ export class Orchestrator {
         ? this.webhookWorker.getState() === 'running'
         : false,
       healthMonitorActive: this._healthCheckTimer !== null,
+      healthMonitorRunning: this.healthMonitor ? this.healthMonitor.isRunning() : false,
       workerRegistryReady: !!this.workerRegistry,
       workerAssignerReady: !!this.workerAssigner,
       sshTunnelManagerReady: !!this.sshTunnelManager,
@@ -1916,6 +1943,126 @@ export class Orchestrator {
       }
     }
     this.channels.clear();
+  }
+
+  // ==========================================================================
+  // Private: Pluggable Health Monitoring (HealthMonitor, MetricsCollector, Alerter)
+  // ==========================================================================
+
+  /**
+   * Initialize the pluggable health monitoring system
+   *
+   * Creates HealthMonitor, MetricsCollector, and Alerter instances
+   * (unless injected), registers built-in health checks, and starts
+   * periodic monitoring. Health monitoring initialization failure
+   * is non-fatal — the system continues without monitoring.
+   *
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _initializeHealthMonitoring() {
+    const monitoringConfig = this.config.monitoring || {};
+
+    // Skip if monitoring is explicitly disabled
+    if (monitoringConfig.enabled === false) {
+      this._log('⏭️ Health monitoring disabled in config');
+      return;
+    }
+
+    this._log('💓 Initializing health monitoring...');
+
+    try {
+      // Create HealthMonitor if not injected
+      if (!this.healthMonitor) {
+        if (this.healthMonitorFactory) {
+          this.healthMonitor = this.healthMonitorFactory({ logger: this.logger });
+        } else {
+          this.healthMonitor = new HealthMonitor({ logger: this.logger });
+        }
+      }
+
+      // Register built-in health checks based on available components
+      const checkOptions = monitoringConfig.checks || {};
+      const registeredChecks = registerBuiltInChecks(
+        this.healthMonitor,
+        {
+          storage: this.storage,
+          botManager: this.botManager,
+          channelManager: this.channelManager,
+          workerRegistry: this.workerRegistry,
+          mcpManager: this.mcpManager,
+        },
+        {
+          databaseInterval: checkOptions.database?.interval || 15_000,
+          botsInterval: checkOptions.bots?.interval || 30_000,
+          channelsInterval: checkOptions.channels?.interval || 30_000,
+          workersInterval: checkOptions.workers?.interval || 30_000,
+          mcpInterval: checkOptions.mcp?.interval || 60_000,
+        }
+      );
+
+      this._log(
+        `  💓 Registered ${registeredChecks.length} health check(s): ${registeredChecks.join(', ')}`
+      );
+
+      // Create MetricsCollector if storage is available
+      if (this.storage && !this.metricsCollector) {
+        if (this.metricsCollectorFactory) {
+          this.metricsCollector = this.metricsCollectorFactory({
+            storage: this.storage,
+            logger: this.logger,
+          });
+        } else {
+          this.metricsCollector = new MetricsCollector({
+            storage: this.storage,
+            logger: this.logger,
+          });
+        }
+      }
+
+      // Create Alerter if alert configuration exists
+      const alertsConfig = monitoringConfig.alerts || {};
+      if (!this.alerter && (alertsConfig.slack || alertsConfig.channels?.slack)) {
+        const slackConfig = alertsConfig.slack || alertsConfig.channels?.slack || {};
+        if (this.alerterFactory) {
+          this.alerter = this.alerterFactory({
+            logger: this.logger,
+            slack: slackConfig,
+            threshold: alertsConfig.thresholds?.consecutiveFailures ?? 2,
+            cooldownMs: alertsConfig.cooldownMs ?? 5 * 60 * 1000,
+          });
+        } else {
+          this.alerter = new Alerter({
+            logger: this.logger,
+            slack: slackConfig,
+            threshold: alertsConfig.thresholds?.consecutiveFailures ?? 2,
+            cooldownMs: alertsConfig.cooldownMs ?? 5 * 60 * 1000,
+          });
+        }
+        this._log('  🔔 Alerter initialized with Slack webhook');
+      }
+
+      // Start the health monitor
+      await this.healthMonitor.start();
+      this._log('💓 Health monitoring started');
+    } catch (err) {
+      // Health monitoring failure is non-fatal
+      this._log(`⚠️ Health monitoring initialization failed: ${err.message}`);
+    }
+  }
+
+  /**
+   * Stop the pluggable health monitoring system
+   *
+   * Stops the HealthMonitor and cleans up resources.
+   *
+   * @private
+   */
+  _stopHealthMonitoring() {
+    if (this.healthMonitor && this.healthMonitor.isRunning()) {
+      this.healthMonitor.stop();
+      this._log('💓 Health monitoring stopped');
+    }
   }
 
   // ==========================================================================
