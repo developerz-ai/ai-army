@@ -2204,15 +2204,18 @@ export class Orchestrator {
     if (typeof this.logger === 'object' && typeof this.logger.info === 'function') {
       return {
         info: (...args) => this.logger.info(...args),
-        warn: typeof this.logger.warn === 'function'
-          ? (...args) => this.logger.warn(...args)
-          : (...args) => this.logger.info(...args),
-        error: typeof this.logger.error === 'function'
-          ? (...args) => this.logger.error(...args)
-          : (...args) => this.logger.info(...args),
-        debug: typeof this.logger.debug === 'function'
-          ? (...args) => this.logger.debug(...args)
-          : () => {},
+        warn:
+          typeof this.logger.warn === 'function'
+            ? (...args) => this.logger.warn(...args)
+            : (...args) => this.logger.info(...args),
+        error:
+          typeof this.logger.error === 'function'
+            ? (...args) => this.logger.error(...args)
+            : (...args) => this.logger.info(...args),
+        debug:
+          typeof this.logger.debug === 'function'
+            ? (...args) => this.logger.debug(...args)
+            : () => {},
       };
     }
 
