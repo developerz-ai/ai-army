@@ -311,11 +311,13 @@ export class WorkerAssigner {
       // Find bots on overloaded workers and move them to underloaded ones
       for (const overWorker of overloaded) {
         const botsOnWorker = this._getBotsOnWorker(overWorker.id);
-        const ratio =
-          overWorker.maxContainers > 0 ? overWorker.currentLoad / overWorker.maxContainers : 1;
 
         // Move bots until this worker is at or below average
         for (const botId of botsOnWorker) {
+          // Recompute ratio each iteration using updated currentLoad
+          const ratio =
+            overWorker.maxContainers > 0 ? overWorker.currentLoad / overWorker.maxContainers : 1;
+
           if (ratio <= avgLoadRatio || underloaded.length === 0) {
             break;
           }
@@ -327,7 +329,7 @@ export class WorkerAssigner {
           }
 
           // Perform the move (decrement source, increment target)
-          await this.workerRegistry.decrementLoad(overWorker.id);
+          const decremented = await this.workerRegistry.decrementLoad(overWorker.id);
           const updated = await this.workerRegistry.incrementLoad(target.id);
 
           if (updated) {
@@ -345,8 +347,8 @@ export class WorkerAssigner {
               `[WorkerAssigner] Rebalance: moved bot '${botId}' ` +
                 `from '${overWorker.id}' to '${target.id}'`
             );
-          } else {
-            // Rollback source decrement if target increment failed
+          } else if (decremented) {
+            // Rollback source decrement only if it actually succeeded
             await this.workerRegistry.incrementLoad(overWorker.id);
           }
         }
@@ -413,6 +415,8 @@ export class WorkerAssigner {
 
       // Reassign each bot to a healthy worker
       for (const botId of affectedBots) {
+        let loadIncremented = false;
+        let targetWorkerId = null;
         try {
           // Remove old assignment
           this.assignments.delete(botId);
@@ -429,6 +433,8 @@ export class WorkerAssigner {
             continue;
           }
 
+          targetWorkerId = newWorker.id;
+
           // Reserve capacity on the new worker
           const updated = await this.workerRegistry.incrementLoad(newWorker.id);
 
@@ -439,6 +445,8 @@ export class WorkerAssigner {
             });
             continue;
           }
+
+          loadIncremented = true;
 
           // Track new assignment
           this.assignments.set(botId, newWorker.id);
@@ -456,6 +464,16 @@ export class WorkerAssigner {
               `from '${failedWorkerId}' to '${newWorker.id}'`
           );
         } catch (err) {
+          // Rollback load increment if it succeeded before the error
+          if (loadIncremented && targetWorkerId) {
+            try {
+              await this.workerRegistry.decrementLoad(targetWorkerId);
+            } catch (_rollbackErr) {
+              this.logger.error(
+                `[WorkerAssigner] Failover: failed to rollback load for worker '${targetWorkerId}'`
+              );
+            }
+          }
           results.failed.push({
             botId,
             reason: err.message,

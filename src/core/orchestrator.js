@@ -1595,7 +1595,7 @@ export class Orchestrator {
       if (!this.sshTunnelManager) {
         if (this.sshTunnelManagerFactory) {
           this.sshTunnelManager = this.sshTunnelManagerFactory({
-            logger: this.logger,
+            logger: workerLogger,
           });
         } else {
           this.sshTunnelManager = new SSHTunnelManager({

@@ -742,16 +742,31 @@ export class SSHTunnelManager {
         return;
       }
 
-      tunnelEntry.server.close(() => {
-        tunnelEntry.server = null;
-        resolve();
-      });
+      const closingServer = tunnelEntry.server;
+      let resolved = false;
 
-      // Force close after 5 seconds
-      setTimeout(() => {
-        tunnelEntry.server = null;
-        resolve();
+      const forceCloseTimer = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          // Only null out if the server hasn't been replaced during reconnect
+          if (tunnelEntry.server === closingServer) {
+            tunnelEntry.server = null;
+          }
+          resolve();
+        }
       }, 5_000);
+
+      closingServer.close(() => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(forceCloseTimer);
+          // Only null out if the server hasn't been replaced during reconnect
+          if (tunnelEntry.server === closingServer) {
+            tunnelEntry.server = null;
+          }
+          resolve();
+        }
+      });
     });
   }
 
