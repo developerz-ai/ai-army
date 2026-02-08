@@ -640,6 +640,198 @@ describe('ToolRegistry', () => {
     });
   });
 
+  describe('skill tool integration', () => {
+    /**
+     * Create a mock SkillRegistry
+     * @param {Object} [tools={}] - Tools to return from getSkillTools
+     * @returns {Object} Mock skill registry
+     */
+    function createMockSkillRegistry(tools = {}) {
+      return {
+        getSkillTools: skillNames => {
+          if (!Array.isArray(skillNames) || skillNames.length === 0) return {};
+          return tools;
+        },
+        hasSkill: _name => true,
+      };
+    }
+
+    test('includes skill tools from skillRegistry', async () => {
+      const skillTools = {
+        lintCode: { description: 'Lint code', execute: async () => ({}) },
+        formatCode: { description: 'Format code', execute: async () => ({}) },
+      };
+      const reg = new ToolRegistry(containerPool, null, {
+        skillRegistry: createMockSkillRegistry(skillTools),
+      });
+
+      const tools = await reg.getToolsForBot({
+        id: 'support',
+        skills: ['code-review'],
+      });
+
+      assert.ok(tools.lintCode);
+      assert.ok(tools.formatCode);
+      assert.equal(tools.lintCode.description, 'Lint code');
+    });
+
+    test('combines built-in and skill tools', async () => {
+      const skillTools = {
+        lintCode: { description: 'Lint code', execute: async () => ({}) },
+      };
+      const reg = new ToolRegistry(containerPool, null, {
+        skillRegistry: createMockSkillRegistry(skillTools),
+      });
+      reg.registerTool('bash', createMockToolFactory('bash'));
+
+      const tools = await reg.getToolsForBot({
+        id: 'support',
+        tools: ['bash'],
+        skills: ['code-review'],
+      });
+
+      assert.ok(tools.bash, 'Should have bash');
+      assert.ok(tools.lintCode, 'Should have lintCode from skill');
+      assert.equal(Object.keys(tools).length, 2);
+    });
+
+    test('built-in tools take precedence over skill tools with same name', async () => {
+      const skillTools = {
+        bash: { description: 'Skill bash', execute: async () => ({}) },
+      };
+      const reg = new ToolRegistry(containerPool, null, {
+        skillRegistry: createMockSkillRegistry(skillTools),
+      });
+      reg.registerTool('bash', createMockToolFactory('bash'));
+
+      const tools = await reg.getToolsForBot({
+        id: 'support',
+        tools: ['bash'],
+        skills: ['code-review'],
+      });
+
+      // Built-in bash should take precedence
+      assert.equal(tools.bash.description, 'Mock bash tool');
+    });
+
+    test('MCP tools take precedence over skill tools with same name', async () => {
+      const mcpTools = [
+        {
+          name: 'sharedTool',
+          description: 'MCP version',
+          execute: async () => ({}),
+        },
+      ];
+      const skillTools = {
+        sharedTool: { description: 'Skill version', execute: async () => ({}) },
+      };
+      const reg = new ToolRegistry(containerPool, createMockMcpManager(mcpTools), {
+        skillRegistry: createMockSkillRegistry(skillTools),
+      });
+
+      const tools = await reg.getToolsForBot({
+        id: 'support',
+        mcpServers: ['github'],
+        skills: ['code-review'],
+      });
+
+      assert.equal(tools.sharedTool.description, 'MCP version');
+    });
+
+    test('skips skill resolution when skillRegistry is null', async () => {
+      const reg = new ToolRegistry(containerPool, null);
+      reg.registerTool('bash', createMockToolFactory('bash'));
+
+      const tools = await reg.getToolsForBot({
+        id: 'support',
+        tools: ['bash'],
+        skills: ['code-review'],
+      });
+
+      assert.ok(tools.bash);
+      assert.equal(Object.keys(tools).length, 1);
+    });
+
+    test('skips skill resolution when skills array is empty', async () => {
+      let skillsCalled = false;
+      const reg = new ToolRegistry(containerPool, null, {
+        skillRegistry: {
+          getSkillTools: () => {
+            skillsCalled = true;
+            return {};
+          },
+        },
+      });
+
+      await reg.getToolsForBot({
+        id: 'support',
+        skills: [],
+      });
+
+      assert.equal(skillsCalled, false, 'getSkillTools should not be called');
+    });
+
+    test('skips skill resolution when skills is undefined', async () => {
+      let skillsCalled = false;
+      const reg = new ToolRegistry(containerPool, null, {
+        skillRegistry: {
+          getSkillTools: () => {
+            skillsCalled = true;
+            return {};
+          },
+        },
+      });
+
+      await reg.getToolsForBot({ id: 'support' });
+
+      assert.equal(skillsCalled, false, 'getSkillTools should not be called');
+    });
+
+    test('wraps skill tool errors with context', async () => {
+      const reg = new ToolRegistry(containerPool, null, {
+        skillRegistry: {
+          getSkillTools: () => {
+            throw new Error('skill loading failed');
+          },
+        },
+      });
+
+      await assert.rejects(
+        () => reg.getToolsForBot({ id: 'bot-1', skills: ['broken-skill'] }),
+        err => {
+          assert.ok(err instanceof ToolRegistryError);
+          assert.match(err.message, /Failed to get skill tools for bot "bot-1"/);
+          assert.match(err.message, /skill loading failed/);
+          assert.equal(err.operation, 'getToolsForBot');
+          assert.equal(err.botId, 'bot-1');
+          assert.ok(err.cause instanceof Error);
+          return true;
+        }
+      );
+    });
+  });
+
+  describe('constructor with options', () => {
+    test('accepts skillRegistry via options', () => {
+      const mockSkillReg = { getSkillTools: () => ({}) };
+      const reg = new ToolRegistry(containerPool, null, { skillRegistry: mockSkillReg });
+
+      assert.equal(reg.skillRegistry, mockSkillReg);
+    });
+
+    test('defaults skillRegistry to null when not provided', () => {
+      const reg = new ToolRegistry(containerPool);
+
+      assert.equal(reg.skillRegistry, null);
+    });
+
+    test('accepts empty options object', () => {
+      const reg = new ToolRegistry(containerPool, null, {});
+
+      assert.equal(reg.skillRegistry, null);
+    });
+  });
+
   describe('getBuiltinToolNames() (static)', () => {
     test('returns array of known built-in tool names', () => {
       const names = ToolRegistry.getBuiltinToolNames();

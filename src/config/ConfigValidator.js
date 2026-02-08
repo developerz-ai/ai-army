@@ -709,6 +709,41 @@ export class ConfigValidator {
   }
 
   /**
+   * Validate that bot skill references exist in a SkillRegistry
+   *
+   * Checks each bot's `skills` array and verifies every referenced
+   * skill name is present in the provided registry. Returns an array
+   * of error objects for any missing skills.
+   *
+   * @param {Object<string, Object>} botConfigs - Map of bot ID to bot config
+   * @param {Object} skillRegistry - SkillRegistry instance with a `hasSkill(name)` method
+   * @returns {Array<Object>} - Array of validation error objects
+   */
+  validateBotSkills(botConfigs, skillRegistry) {
+    const errors = [];
+
+    if (!skillRegistry || typeof skillRegistry.hasSkill !== 'function') {
+      return errors;
+    }
+
+    for (const [botId, botConfig] of Object.entries(botConfigs)) {
+      const skills = botConfig.skills || [];
+      for (const skillName of skills) {
+        if (!skillRegistry.hasSkill(skillName)) {
+          errors.push({
+            path: 'skills',
+            message: `Skill '${skillName}' not found in skill registry`,
+            code: 'invalid_reference',
+            context: `bots/${botId}/config.json`,
+          });
+        }
+      }
+    }
+
+    return errors;
+  }
+
+  /**
    * Validate cross-references between main config and bot configs
    *
    * @private

@@ -1244,4 +1244,133 @@ describe('Zod Schemas', () => {
       assert.equal(result.data.queue, undefined);
     });
   });
+
+  describe('validateBotSkills()', () => {
+    /**
+     * Create a mock SkillRegistry with hasSkill()
+     * @param {string[]} knownSkills - Skill names to recognize
+     * @returns {Object} Mock skill registry
+     */
+    function createMockSkillRegistry(knownSkills = []) {
+      return {
+        hasSkill: name => knownSkills.includes(name),
+      };
+    }
+
+    test('returns no errors when all skills exist in registry', () => {
+      const validator = new ConfigValidator();
+      const registry = createMockSkillRegistry(['code-review', 'deploy']);
+
+      const errors = validator.validateBotSkills(
+        {
+          'work-bot': { skills: ['code-review', 'deploy'] },
+        },
+        registry
+      );
+
+      assert.equal(errors.length, 0);
+    });
+
+    test('returns errors for skills not found in registry', () => {
+      const validator = new ConfigValidator();
+      const registry = createMockSkillRegistry(['code-review']);
+
+      const errors = validator.validateBotSkills(
+        {
+          'work-bot': { skills: ['code-review', 'deploy', 'triage'] },
+        },
+        registry
+      );
+
+      assert.equal(errors.length, 2);
+      assert.ok(errors.some(e => e.message.includes('deploy')));
+      assert.ok(errors.some(e => e.message.includes('triage')));
+      assert.equal(errors[0].code, 'invalid_reference');
+      assert.equal(errors[0].path, 'skills');
+      assert.ok(errors[0].context.includes('work-bot'));
+    });
+
+    test('validates skills across multiple bots', () => {
+      const validator = new ConfigValidator();
+      const registry = createMockSkillRegistry(['code-review']);
+
+      const errors = validator.validateBotSkills(
+        {
+          'bot-a': { skills: ['code-review'] },
+          'bot-b': { skills: ['nonexistent'] },
+        },
+        registry
+      );
+
+      assert.equal(errors.length, 1);
+      assert.ok(errors[0].context.includes('bot-b'));
+    });
+
+    test('returns no errors when bot has no skills', () => {
+      const validator = new ConfigValidator();
+      const registry = createMockSkillRegistry(['code-review']);
+
+      const errors = validator.validateBotSkills(
+        {
+          'work-bot': {},
+        },
+        registry
+      );
+
+      assert.equal(errors.length, 0);
+    });
+
+    test('returns no errors when bot skills is empty array', () => {
+      const validator = new ConfigValidator();
+      const registry = createMockSkillRegistry(['code-review']);
+
+      const errors = validator.validateBotSkills(
+        {
+          'work-bot': { skills: [] },
+        },
+        registry
+      );
+
+      assert.equal(errors.length, 0);
+    });
+
+    test('returns no errors when skillRegistry is null', () => {
+      const validator = new ConfigValidator();
+
+      const errors = validator.validateBotSkills(
+        {
+          'work-bot': { skills: ['code-review'] },
+        },
+        null
+      );
+
+      assert.equal(errors.length, 0);
+    });
+
+    test('returns no errors when skillRegistry is undefined', () => {
+      const validator = new ConfigValidator();
+
+      const errors = validator.validateBotSkills(
+        {
+          'work-bot': { skills: ['code-review'] },
+        },
+        undefined
+      );
+
+      assert.equal(errors.length, 0);
+    });
+
+    test('returns no errors when skillRegistry lacks hasSkill method', () => {
+      const validator = new ConfigValidator();
+
+      const errors = validator.validateBotSkills(
+        {
+          'work-bot': { skills: ['code-review'] },
+        },
+        {}
+      );
+
+      assert.equal(errors.length, 0);
+    });
+  });
 });

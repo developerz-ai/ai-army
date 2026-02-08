@@ -4,6 +4,7 @@
  * Handles:
  * - Loading Markdown soul files from the filesystem
  * - Interpolating template variables ({botName}, {teamName}, etc.)
+ * - Enhancing souls with skill instructions
  *
  * Soul files define a bot's personality, values, and instructions.
  * They are injected as the system prompt when talking to the LLM.
@@ -128,6 +129,61 @@ export class SoulLoader {
   async load(filePath, variables = {}) {
     const content = await this.loadSoulFile(filePath);
     return this.interpolateVariables(content, variables);
+  }
+
+  /**
+   * Enhance a base soul with skill instructions
+   *
+   * Merges skill instruction text into the base soul content by appending
+   * a "## Skills" section. If no skill instructions are provided (empty
+   * string or empty array), the base soul is returned unchanged.
+   *
+   * Accepts either a pre-joined instruction string or an array of
+   * skill objects with `instructions` and optionally `name` properties.
+   *
+   * @param {string} baseSoul - Base soul content (already loaded and interpolated)
+   * @param {string|Array<{name?: string, instructions: string}>} skills -
+   *   Skill instructions as a string or array of skill objects
+   * @returns {string} Enhanced soul content with skill instructions appended
+   * @throws {SoulLoaderError} If baseSoul is not a string
+   */
+  enhanceSoul(baseSoul, skills) {
+    if (typeof baseSoul !== 'string') {
+      throw new SoulLoaderError('Base soul content must be a string');
+    }
+
+    // Handle string input — already-merged instructions
+    if (typeof skills === 'string') {
+      if (!skills.trim()) {
+        return baseSoul;
+      }
+      return `${baseSoul}\n\n## Skills\n\n${skills}`;
+    }
+
+    // Handle array input — array of skill objects
+    if (Array.isArray(skills)) {
+      const parts = [];
+      for (const skill of skills) {
+        if (!skill || typeof skill !== 'object') {
+          continue;
+        }
+        if (typeof skill.instructions === 'string' && skill.instructions.trim()) {
+          if (skill.name) {
+            parts.push(`### ${skill.name}\n\n${skill.instructions}`);
+          } else {
+            parts.push(skill.instructions);
+          }
+        }
+      }
+
+      if (parts.length === 0) {
+        return baseSoul;
+      }
+      return `${baseSoul}\n\n## Skills\n\n${parts.join('\n\n')}`;
+    }
+
+    // No skills or invalid type — return base soul unchanged
+    return baseSoul;
   }
 }
 

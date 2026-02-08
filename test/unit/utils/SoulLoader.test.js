@@ -596,6 +596,205 @@ describe('SoulLoader', () => {
       assert.ok(!result.includes('{teamName}'));
     });
   });
+
+  describe('enhanceSoul()', () => {
+    test('appends skill instructions as string', () => {
+      const loader = new SoulLoader();
+      const baseSoul = '# Bot\n\nYou are a helpful bot.';
+      const skills = 'Review code carefully.';
+
+      const result = loader.enhanceSoul(baseSoul, skills);
+
+      assert.equal(
+        result,
+        '# Bot\n\nYou are a helpful bot.\n\n## Skills\n\nReview code carefully.'
+      );
+    });
+
+    test('returns base soul when skill string is empty', () => {
+      const loader = new SoulLoader();
+      const baseSoul = '# Bot\n\nYou are a helpful bot.';
+
+      assert.equal(loader.enhanceSoul(baseSoul, ''), baseSoul);
+    });
+
+    test('returns base soul when skill string is whitespace only', () => {
+      const loader = new SoulLoader();
+      const baseSoul = '# Bot';
+
+      assert.equal(loader.enhanceSoul(baseSoul, '   \n  '), baseSoul);
+    });
+
+    test('appends skill objects array with names', () => {
+      const loader = new SoulLoader();
+      const baseSoul = '# Bot';
+      const skills = [
+        { name: 'code-review', instructions: 'Review code carefully.' },
+        { name: 'deploy', instructions: 'Deploy safely.' },
+      ];
+
+      const result = loader.enhanceSoul(baseSoul, skills);
+
+      assert.ok(result.includes('## Skills'));
+      assert.ok(result.includes('### code-review'));
+      assert.ok(result.includes('Review code carefully.'));
+      assert.ok(result.includes('### deploy'));
+      assert.ok(result.includes('Deploy safely.'));
+    });
+
+    test('appends skill objects without names', () => {
+      const loader = new SoulLoader();
+      const baseSoul = '# Bot';
+      const skills = [{ instructions: 'Review code carefully.' }];
+
+      const result = loader.enhanceSoul(baseSoul, skills);
+
+      assert.ok(result.includes('## Skills'));
+      assert.ok(result.includes('Review code carefully.'));
+      assert.ok(!result.includes('###'));
+    });
+
+    test('returns base soul for empty skills array', () => {
+      const loader = new SoulLoader();
+      const baseSoul = '# Bot';
+
+      assert.equal(loader.enhanceSoul(baseSoul, []), baseSoul);
+    });
+
+    test('skips skills with empty instructions', () => {
+      const loader = new SoulLoader();
+      const baseSoul = '# Bot';
+      const skills = [
+        { name: 'empty', instructions: '' },
+        { name: 'valid', instructions: 'Do things.' },
+      ];
+
+      const result = loader.enhanceSoul(baseSoul, skills);
+
+      assert.ok(result.includes('### valid'));
+      assert.ok(!result.includes('### empty'));
+    });
+
+    test('skips null entries in skills array', () => {
+      const loader = new SoulLoader();
+      const baseSoul = '# Bot';
+      const skills = [null, { name: 'valid', instructions: 'Do things.' }];
+
+      const result = loader.enhanceSoul(baseSoul, skills);
+
+      assert.ok(result.includes('### valid'));
+    });
+
+    test('skips non-object entries in skills array', () => {
+      const loader = new SoulLoader();
+      const baseSoul = '# Bot';
+      const skills = ['not-an-object', { name: 'valid', instructions: 'Do things.' }];
+
+      const result = loader.enhanceSoul(baseSoul, skills);
+
+      assert.ok(result.includes('### valid'));
+      assert.ok(!result.includes('not-an-object'));
+    });
+
+    test('returns base soul for null skills', () => {
+      const loader = new SoulLoader();
+      const baseSoul = '# Bot';
+
+      assert.equal(loader.enhanceSoul(baseSoul, null), baseSoul);
+    });
+
+    test('returns base soul for undefined skills', () => {
+      const loader = new SoulLoader();
+      const baseSoul = '# Bot';
+
+      assert.equal(loader.enhanceSoul(baseSoul, undefined), baseSoul);
+    });
+
+    test('returns base soul for number skills', () => {
+      const loader = new SoulLoader();
+      const baseSoul = '# Bot';
+
+      assert.equal(loader.enhanceSoul(baseSoul, 42), baseSoul);
+    });
+
+    test('throws for non-string baseSoul', () => {
+      const loader = new SoulLoader();
+
+      assert.throws(
+        () => loader.enhanceSoul(null, 'skills'),
+        err => {
+          assert.equal(err.name, 'SoulLoaderError');
+          assert.match(err.message, /Base soul content must be a string/);
+          return true;
+        }
+      );
+    });
+
+    test('throws for undefined baseSoul', () => {
+      const loader = new SoulLoader();
+
+      assert.throws(
+        () => loader.enhanceSoul(undefined, 'skills'),
+        err => {
+          assert.equal(err.name, 'SoulLoaderError');
+          assert.match(err.message, /Base soul content must be a string/);
+          return true;
+        }
+      );
+    });
+
+    test('handles empty baseSoul with skills', () => {
+      const loader = new SoulLoader();
+
+      const result = loader.enhanceSoul('', 'Review code.');
+
+      assert.equal(result, '\n\n## Skills\n\nReview code.');
+    });
+
+    test('preserves markdown formatting in skills', () => {
+      const loader = new SoulLoader();
+      const baseSoul = '# Bot';
+      const skills = [
+        {
+          name: 'code-review',
+          instructions:
+            '# Code Review\n\n- Check bugs\n- Check style\n\n```js\nconsole.log();\n```',
+        },
+      ];
+
+      const result = loader.enhanceSoul(baseSoul, skills);
+
+      assert.ok(result.includes('```js'));
+      assert.ok(result.includes('- Check bugs'));
+    });
+
+    test('handles multiple skills separated by double newlines', () => {
+      const loader = new SoulLoader();
+      const baseSoul = '# Bot';
+      const skills = [
+        { name: 'a', instructions: 'Skill A instructions' },
+        { name: 'b', instructions: 'Skill B instructions' },
+        { name: 'c', instructions: 'Skill C instructions' },
+      ];
+
+      const result = loader.enhanceSoul(baseSoul, skills);
+
+      // Each skill section should be separated by double newlines
+      assert.ok(result.includes('### a\n\nSkill A instructions\n\n### b'));
+      assert.ok(result.includes('### b\n\nSkill B instructions\n\n### c'));
+    });
+
+    test('returns base soul when all skills in array have empty instructions', () => {
+      const loader = new SoulLoader();
+      const baseSoul = '# Bot';
+      const skills = [
+        { name: 'empty1', instructions: '' },
+        { name: 'empty2', instructions: '   ' },
+      ];
+
+      assert.equal(loader.enhanceSoul(baseSoul, skills), baseSoul);
+    });
+  });
 });
 
 describe('SoulLoaderError', () => {
