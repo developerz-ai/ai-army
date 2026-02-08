@@ -1,5 +1,15 @@
 - [Home](/)
 
+- **Getting Started**
+  - [Installation](getting-started/installation.md)
+  - [First Bot Tutorial](getting-started/first-bot.md)
+  - [Configuration Reference](getting-started/configuration.md)
+
+- **API Reference**
+  - [Orchestrator API](api/orchestrator.md)
+  - [BotManager API](api/bot-manager.md)
+  - [REST API](api/rest-api.md)
+
 - **Core Docs**
   - [Architecture](architecture.md)
   - [Configuration](configuration.md)
