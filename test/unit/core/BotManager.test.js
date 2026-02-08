@@ -1084,6 +1084,139 @@ describe('BotManager', () => {
     });
   });
 
+  describe('toolRegistry integration', () => {
+    test('resolves tools via toolRegistry during loadBot', async () => {
+      const mockToolRegistry = {
+        getToolsForBot: mock.fn(async () => ({
+          bash: { description: 'Bash tool', execute: async () => ({}) },
+          github__list_repos: { description: 'List repos', execute: async () => ({}) },
+        })),
+      };
+
+      const manager = new BotManager(mockStorage, mockContainerPool, mockSoulLoader, {
+        configValidator: mockValidator,
+        toolRegistry: mockToolRegistry,
+      });
+
+      const bot = await manager.loadBot('test-bot', createBotConfig({ mcpServers: ['github'] }));
+
+      assert.ok(bot.tools);
+      assert.ok(bot.tools.bash);
+      assert.ok(bot.tools['github__list_repos']);
+      assert.equal(mockToolRegistry.getToolsForBot.mock.calls.length, 1);
+    });
+
+    test('passes validated config to toolRegistry.getToolsForBot', async () => {
+      const mockToolRegistry = {
+        getToolsForBot: mock.fn(async () => ({})),
+      };
+
+      const manager = new BotManager(mockStorage, mockContainerPool, mockSoulLoader, {
+        configValidator: mockValidator,
+        toolRegistry: mockToolRegistry,
+      });
+
+      await manager.loadBot(
+        'test-bot',
+        createBotConfig({
+          tools: ['bash', 'readFile'],
+          mcpServers: ['github'],
+        })
+      );
+
+      const passedConfig = mockToolRegistry.getToolsForBot.mock.calls[0].arguments[0];
+      assert.equal(passedConfig.id, 'test-bot');
+      assert.ok(passedConfig.tools.includes('bash'));
+      assert.ok(passedConfig.mcpServers.includes('github'));
+    });
+
+    test('bot.tools is empty object when no toolRegistry provided', async () => {
+      const bot = await botManager.loadBot('test-bot', createBotConfig());
+
+      assert.deepEqual(bot.tools, {});
+    });
+
+    test('throws BotManagerError when toolRegistry.getToolsForBot fails', async () => {
+      const mockToolRegistry = {
+        getToolsForBot: mock.fn(async () => {
+          throw new Error('MCP connection failed');
+        }),
+      };
+
+      const manager = new BotManager(mockStorage, mockContainerPool, mockSoulLoader, {
+        configValidator: mockValidator,
+        toolRegistry: mockToolRegistry,
+      });
+
+      await assert.rejects(
+        () => manager.loadBot('test-bot', createBotConfig({ mcpServers: ['github'] })),
+        err => {
+          assert.equal(err.name, 'BotManagerError');
+          assert.match(err.message, /Failed to resolve tools/);
+          assert.equal(err.operation, 'loadBot');
+          assert.equal(err.botId, 'test-bot');
+          assert.ok(err.cause);
+          return true;
+        }
+      );
+    });
+
+    test('re-resolves tools during reloadBot', async () => {
+      const mockToolRegistry = {
+        getToolsForBot: mock.fn(async () => ({
+          bash: { description: 'Bash tool', execute: async () => ({}) },
+        })),
+      };
+
+      const manager = new BotManager(mockStorage, mockContainerPool, mockSoulLoader, {
+        configValidator: mockValidator,
+        toolRegistry: mockToolRegistry,
+      });
+
+      await manager.loadBot('test-bot', createBotConfig());
+      mockToolRegistry.getToolsForBot.mock.resetCalls();
+
+      // Now reload with new config that includes MCP servers
+      mockToolRegistry.getToolsForBot = mock.fn(async () => ({
+        bash: { description: 'Bash tool', execute: async () => ({}) },
+        github__list_repos: { description: 'List repos', execute: async () => ({}) },
+      }));
+
+      await manager.reloadBot('test-bot', createBotConfig({ mcpServers: ['github'] }));
+
+      const bot = manager.getBot('test-bot');
+      assert.ok(bot.tools['github__list_repos']);
+    });
+
+    test('throws BotManagerError when toolRegistry fails during reloadBot', async () => {
+      const mockToolRegistry = {
+        getToolsForBot: mock.fn(async () => ({})),
+      };
+
+      const manager = new BotManager(mockStorage, mockContainerPool, mockSoulLoader, {
+        configValidator: mockValidator,
+        toolRegistry: mockToolRegistry,
+      });
+
+      await manager.loadBot('test-bot', createBotConfig());
+
+      mockToolRegistry.getToolsForBot = mock.fn(async () => {
+        throw new Error('MCP server crashed');
+      });
+
+      await assert.rejects(
+        () => manager.reloadBot('test-bot', createBotConfig({ mcpServers: ['github'] })),
+        err => {
+          assert.equal(err.name, 'BotManagerError');
+          assert.match(err.message, /Failed to resolve tools/);
+          assert.equal(err.operation, 'reloadBot');
+          assert.equal(err.botId, 'test-bot');
+          return true;
+        }
+      );
+    });
+  });
+
   describe('full lifecycle', () => {
     test('load → start → stop → restart flow', async () => {
       const config = createBotConfig();

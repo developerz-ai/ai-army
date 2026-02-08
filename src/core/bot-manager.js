@@ -60,6 +60,7 @@ export class BotManager {
    * @param {Object} soulLoader - SoulLoader instance for loading soul.md files
    * @param {Object} [options={}] - Configuration options
    * @param {Object} [options.configValidator] - ConfigValidator instance (created if not provided)
+   * @param {Object} [options.toolRegistry] - ToolRegistry instance for resolving tools (including MCP)
    */
   constructor(storage, containerPool, soulLoader, options = {}) {
     if (!storage) {
@@ -82,6 +83,9 @@ export class BotManager {
     this.containerPool = containerPool;
     this.soulLoader = soulLoader;
     this.configValidator = options.configValidator || new ConfigValidator();
+
+    /** @type {Object|null} ToolRegistry for resolving built-in and MCP tools */
+    this.toolRegistry = options.toolRegistry || null;
 
     /** @type {Map<string, Object>} In-memory store of bot objects */
     this.bots = new Map();
@@ -148,12 +152,27 @@ export class BotManager {
         }
       }
 
+      // Resolve tools (built-in + MCP) via ToolRegistry
+      let resolvedTools = {};
+      if (this.toolRegistry) {
+        try {
+          resolvedTools = await this.toolRegistry.getToolsForBot(validatedConfig);
+        } catch (err) {
+          throw new BotManagerError(`Failed to resolve tools for bot '${botId}': ${err.message}`, {
+            cause: err,
+            operation: 'loadBot',
+            botId,
+          });
+        }
+      }
+
       // Create bot object
       const now = new Date();
       const bot = {
         id: botId,
         config: validatedConfig,
         soulContent,
+        tools: resolvedTools,
         container: null,
         status: BOT_STATUSES.LOADED,
         createdAt: now,
@@ -348,6 +367,20 @@ export class BotManager {
         }
       }
 
+      // Re-resolve tools via ToolRegistry
+      let resolvedTools = bot.tools || {};
+      if (this.toolRegistry) {
+        try {
+          resolvedTools = await this.toolRegistry.getToolsForBot(validatedConfig);
+        } catch (err) {
+          throw new BotManagerError(`Failed to resolve tools for bot '${botId}': ${err.message}`, {
+            cause: err,
+            operation: 'reloadBot',
+            botId,
+          });
+        }
+      }
+
       // Check if sandbox config changed (requires container recreation)
       const sandboxChanged = this._hasSandboxChanged(bot.config.sandbox, validatedConfig.sandbox);
 
@@ -355,6 +388,7 @@ export class BotManager {
       const oldConfig = bot.config;
       bot.config = validatedConfig;
       bot.soulContent = soulContent;
+      bot.tools = resolvedTools;
       bot.lastActiveAt = new Date();
 
       // Recreate container if sandbox changed and bot was running
