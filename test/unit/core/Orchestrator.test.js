@@ -2405,7 +2405,7 @@ describe('Orchestrator', () => {
     test('stops MCP servers during shutdown', async () => {
       const mockMcp = {
         startServer: mock.fn(async () => ({ tools: [] })),
-        stopAll: mock.fn(async () => ({ stopped: ['github'], failed: [] })),
+        stopAll: mock.fn(async () => ({ stopped: [{ id: 'github' }], failed: [] })),
         getServerCount: mock.fn(() => 1),
       };
 

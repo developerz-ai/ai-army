@@ -279,7 +279,7 @@ export class MCPManager {
     for (const [id] of this.servers) {
       try {
         await this._stopServer(id);
-        results.stopped.push(id);
+        results.stopped.push({ id });
       } catch (err) {
         results.failed.push({ id, error: err.message });
       }
@@ -435,6 +435,9 @@ export class MCPManager {
 
     setTimeout(async () => {
       try {
+        // Clean up old client/transport before reconnecting to prevent process leaks
+        await this._cleanupServerResources(server);
+
         await this._connectServer(server);
         server.status = SERVER_STATUSES.RUNNING;
         this._log(
@@ -454,6 +457,38 @@ export class MCPManager {
         }
       }
     }, this.restartDelayMs);
+  }
+
+  /**
+   * Clean up a server's client and transport resources without removing from map
+   *
+   * Used before reconnecting during auto-restart to prevent process/resource leaks.
+   * Silently ignores errors since the resources may already be in a broken state.
+   *
+   * @param {Object} server - Server entry from the registry
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _cleanupServerResources(server) {
+    if (server.client) {
+      try {
+        await server.client.close();
+      } catch (_err) {
+        // Client may already be disconnected
+      }
+      server.client = null;
+    }
+
+    if (server.transport) {
+      try {
+        await server.transport.close();
+      } catch (_err) {
+        // Transport may already be closed
+      }
+      server.transport = null;
+    }
+
+    server.tools = [];
   }
 
   /**

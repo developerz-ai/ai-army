@@ -677,8 +677,8 @@ describe('MCPManager', () => {
 
       assert.equal(results.stopped.length, 2);
       assert.equal(results.failed.length, 0);
-      assert.ok(results.stopped.includes('server-1'));
-      assert.ok(results.stopped.includes('server-2'));
+      assert.ok(results.stopped.some(s => s.id === 'server-1'));
+      assert.ok(results.stopped.some(s => s.id === 'server-2'));
     });
 
     test('clears server registry after stopping', async () => {
@@ -715,7 +715,7 @@ describe('MCPManager', () => {
 
       assert.equal(results.stopped.length, 1);
       assert.equal(results.failed.length, 1);
-      assert.ok(results.stopped.includes('server-1'));
+      assert.ok(results.stopped.some(s => s.id === 'server-1'));
       assert.equal(results.failed[0].id, 'server-2');
       assert.ok(results.failed[0].error);
     });
