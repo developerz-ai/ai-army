@@ -168,7 +168,7 @@ export function createProgram() {
     .command('status')
     .description('Show system status')
     .option('-c, --config <path>', 'Config file path', './config.json')
-    .action(async () => {
+    .action(async options => {
       const { PostgresStorage } = await import('../src/adapters/storage/postgres.js');
       const databaseUrl = process.env.DATABASE_URL;
       if (!databaseUrl) {
@@ -180,6 +180,7 @@ export function createProgram() {
       try {
         await storage.connect();
         const result = await runStatus({
+          configPath: options.config,
           storage,
           output: process.stdout,
         });

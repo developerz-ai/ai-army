@@ -371,6 +371,7 @@ export async function showStatus({
  * for the full system view.
  *
  * @param {Object} options - Status command options
+ * @param {string} [options.configPath='./config.json'] - Path to config file
  * @param {Object} [options.storage] - PostgresStorage instance (connected)
  * @param {Object} [options.botManager] - BotManager instance (optional from CLI)
  * @param {Object} [options.channelManager] - ChannelManager instance (optional from CLI)
@@ -379,6 +380,7 @@ export async function showStatus({
  * @returns {Promise<{ success: boolean }>} Result indicating success
  */
 export async function runStatus({
+  configPath = './config.json',
   storage,
   botManager,
   channelManager,
@@ -400,6 +402,7 @@ export async function runStatus({
 
   // CLI-only mode: show database status when managers aren't available
   write('\n🤖 AI Army Status\n');
+  write(`  Config: ${configPath}\n`);
 
   write('\nDatabase:\n');
   try {
