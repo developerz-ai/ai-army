@@ -1111,6 +1111,73 @@ describe('Orchestrator', () => {
 
       assert.deepEqual(results, { reloaded: [], failed: [] });
     });
+
+    test('updates botConfigs map when bot configs change', async () => {
+      // Initial config with two bots
+      const initialConfig = createMainConfig({
+        bots: {
+          'bot-a': { soul: './a.md', provider: 'anthropic', model: 'original-model' },
+          'bot-b': { soul: './b.md', provider: 'anthropic', model: 'model-b' },
+        },
+      });
+      opts.configLoader.load = mock.fn(async () => initialConfig);
+
+      await orchestrator.start();
+
+      // Verify initial botConfigs map
+      assert.equal(orchestrator.botConfigs.size, 2);
+      assert.ok(orchestrator.botConfigs.has('bot-a'));
+      assert.ok(orchestrator.botConfigs.has('bot-b'));
+      const initialBotAConfig = orchestrator.botConfigs.get('bot-a');
+      assert.equal(initialBotAConfig.model, 'original-model');
+
+      // Prepare reload config: add bot-c, modify bot-a, remove bot-b
+      const reloadedConfig = createMainConfig({
+        bots: {
+          'bot-a': { soul: './a.md', provider: 'anthropic', model: 'updated-model' },
+          'bot-c': { soul: './c.md', provider: 'anthropic', model: 'model-c' },
+        },
+      });
+      opts.configLoader.load = mock.fn(async () => reloadedConfig);
+
+      const results = await orchestrator.reload();
+
+      // Verify reload results
+      assert.equal(results.reloaded.length, 2);
+      assert.ok(results.reloaded.includes('bot-a'));
+      assert.ok(results.reloaded.includes('bot-c'));
+      assert.equal(results.failed.length, 0);
+
+      // Verify botConfigs map updated correctly
+      assert.equal(orchestrator.botConfigs.size, 2, 'Should have 2 bots after reload');
+      assert.ok(orchestrator.botConfigs.has('bot-a'), 'bot-a should still exist');
+      assert.ok(orchestrator.botConfigs.has('bot-c'), 'bot-c should be added');
+      assert.ok(!orchestrator.botConfigs.has('bot-b'), 'bot-b should be removed');
+
+      // Verify bot-a config was updated
+      const updatedBotAConfig = orchestrator.botConfigs.get('bot-a');
+      assert.equal(updatedBotAConfig.model, 'updated-model', 'bot-a model should be updated');
+
+      // Verify bot-c config was added
+      const botCConfig = orchestrator.botConfigs.get('bot-c');
+      assert.equal(botCConfig.model, 'model-c', 'bot-c should have correct model');
+      assert.equal(botCConfig.soul, './c.md', 'bot-c should have correct soul path');
+
+      // Verify reloadBot was called once for existing bot (bot-a)
+      assert.equal(opts.botManager.reloadBot.mock.calls.length, 1);
+      assert.equal(opts.botManager.reloadBot.mock.calls[0].arguments[0], 'bot-a');
+
+      // Verify loadBot was called once for new bot (bot-c)
+      // Note: loadBot is called during initial start (2 times) + reload (1 time) = 3 total
+      const loadBotCalls = opts.botManager.loadBot.mock.calls;
+      const bot_c_load_calls = loadBotCalls.filter(call => call.arguments[0] === 'bot-c');
+      assert.equal(bot_c_load_calls.length, 1, 'bot-c should be loaded once during reload');
+
+      // Verify startBot was called for bot-c (new bot gets started after loading)
+      const startBotCalls = opts.botManager.startBot.mock.calls;
+      const bot_c_start_calls = startBotCalls.filter(call => call.arguments[0] === 'bot-c');
+      assert.equal(bot_c_start_calls.length, 1, 'bot-c should be started once during reload');
+    });
   });
 
   // ===========================================================================

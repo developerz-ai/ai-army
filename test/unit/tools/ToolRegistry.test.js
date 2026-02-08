@@ -368,6 +368,38 @@ describe('ToolRegistry', () => {
       assert.equal(Object.keys(tools).length, 1, 'Should only have 1 tool');
     });
 
+    test('handles tools array with null and undefined values', async () => {
+      registry.registerTool('bash', createMockToolFactory('bash'));
+
+      const tools = await registry.getToolsForBot({
+        id: 'support',
+        tools: ['bash', null, undefined, ''],
+      });
+
+      // Only bash should be present
+      assert.ok(tools.bash);
+      assert.equal(Object.keys(tools).length, 1);
+    });
+
+    test('handles toolConfig with nested objects', async () => {
+      const factory = createConfigAwareFactory();
+      registry.registerTool('advancedTool', factory);
+
+      const complexConfig = {
+        timeout: 5000,
+        options: { retry: true, maxRetries: 3 },
+        headers: { 'X-Custom': 'value' },
+      };
+
+      const tools = await registry.getToolsForBot({
+        id: 'support',
+        tools: ['advancedTool'],
+        toolConfig: { advancedTool: complexConfig },
+      });
+
+      assert.deepEqual(tools.advancedTool.config, complexConfig);
+    });
+
     test('passes toolConfig to factory function', async () => {
       const factory = createConfigAwareFactory();
       registry.registerTool('customTool', factory);
@@ -637,6 +669,152 @@ describe('ToolRegistry', () => {
           }
         );
       });
+
+      test('handles MCP tools with duplicate names', async () => {
+        const mcpTools = [
+          { name: 'sharedTool', description: 'First', execute: async () => ({}) },
+          { name: 'sharedTool', description: 'Second', execute: async () => ({}) },
+        ];
+        const reg = new ToolRegistry(containerPool, createMockMcpManager(mcpTools));
+
+        const tools = await reg.getToolsForBot({
+          id: 'support',
+          mcpServers: ['github'],
+        });
+
+        // Last one wins
+        assert.equal(tools.sharedTool.description, 'Second');
+      });
+
+      test('handles empty MCP tools array', async () => {
+        const reg = new ToolRegistry(containerPool, createMockMcpManager([]));
+
+        const tools = await reg.getToolsForBot({
+          id: 'support',
+          mcpServers: ['github'],
+        });
+
+        assert.deepEqual(tools, {});
+      });
+    });
+
+    describe('event emission', () => {
+      test('emits toolError event when factory fails', async () => {
+        let emittedEvent = null;
+        const mockEmitter = {
+          emitToolError: (botId, details) => {
+            emittedEvent = { botId, details };
+          },
+        };
+        const reg = new ToolRegistry(containerPool, null, { eventEmitter: mockEmitter });
+
+        const failingFactory = () => {
+          throw new Error('factory failed');
+        };
+        reg.registerTool('badTool', failingFactory);
+
+        await assert.rejects(() => reg.getToolsForBot({ id: 'bot-1', tools: ['badTool'] }));
+
+        assert.ok(emittedEvent, 'Event should be emitted');
+        assert.equal(emittedEvent.botId, 'bot-1');
+        assert.equal(emittedEvent.details.toolName, 'badTool');
+        assert.ok(emittedEvent.details.error instanceof Error);
+      });
+
+      test('emits toolError event when MCP fails', async () => {
+        let emittedEvent = null;
+        const mockEmitter = {
+          emitToolError: (botId, details) => {
+            emittedEvent = { botId, details };
+          },
+        };
+        const failingMcp = {
+          getToolsForBot: async () => {
+            throw new Error('MCP failed');
+          },
+        };
+        const reg = new ToolRegistry(containerPool, failingMcp, { eventEmitter: mockEmitter });
+
+        await assert.rejects(() => reg.getToolsForBot({ id: 'bot-1', mcpServers: ['github'] }));
+
+        assert.ok(emittedEvent, 'Event should be emitted');
+        assert.equal(emittedEvent.botId, 'bot-1');
+        assert.equal(emittedEvent.details.toolName, 'mcp');
+        assert.ok(emittedEvent.details.error instanceof Error);
+      });
+
+      test('emits toolError event when skill tools fail', async () => {
+        let emittedEvent = null;
+        const mockEmitter = {
+          emitToolError: (botId, details) => {
+            emittedEvent = { botId, details };
+          },
+        };
+        const failingSkillReg = {
+          getSkillTools: () => {
+            throw new Error('skill failed');
+          },
+        };
+        const reg = new ToolRegistry(containerPool, null, {
+          eventEmitter: mockEmitter,
+          skillRegistry: failingSkillReg,
+        });
+
+        await assert.rejects(() => reg.getToolsForBot({ id: 'bot-1', skills: ['broken'] }));
+
+        assert.ok(emittedEvent, 'Event should be emitted');
+        assert.equal(emittedEvent.botId, 'bot-1');
+        assert.equal(emittedEvent.details.toolName, 'skills');
+        assert.ok(emittedEvent.details.error instanceof Error);
+      });
+
+      test('continues when eventEmitter throws during emission', async () => {
+        const mockEmitter = {
+          emitToolError: () => {
+            throw new Error('emitter broken');
+          },
+        };
+        const reg = new ToolRegistry(containerPool, null, { eventEmitter: mockEmitter });
+
+        const failingFactory = () => {
+          throw new Error('factory failed');
+        };
+        reg.registerTool('badTool', failingFactory);
+
+        // Should still throw the factory error, not the emitter error
+        await assert.rejects(
+          () => reg.getToolsForBot({ id: 'bot-1', tools: ['badTool'] }),
+          err => {
+            assert.match(err.message, /Failed to create tool/);
+            return true;
+          }
+        );
+      });
+
+      test('does not emit events when eventEmitter is null', async () => {
+        const reg = new ToolRegistry(containerPool, null, { eventEmitter: null });
+
+        const failingFactory = () => {
+          throw new Error('factory failed');
+        };
+        reg.registerTool('badTool', failingFactory);
+
+        // Should throw without attempting to emit
+        await assert.rejects(() => reg.getToolsForBot({ id: 'bot-1', tools: ['badTool'] }));
+      });
+
+      test('does not emit when eventEmitter lacks the method', async () => {
+        const mockEmitter = {}; // Missing emitToolError method
+        const reg = new ToolRegistry(containerPool, null, { eventEmitter: mockEmitter });
+
+        const failingFactory = () => {
+          throw new Error('factory failed');
+        };
+        reg.registerTool('badTool', failingFactory);
+
+        // Should throw without attempting to emit
+        await assert.rejects(() => reg.getToolsForBot({ id: 'bot-1', tools: ['badTool'] }));
+      });
     });
   });
 
@@ -738,6 +916,54 @@ describe('ToolRegistry', () => {
       assert.equal(tools.sharedTool.description, 'MCP version');
     });
 
+    test('combines all three tool sources (builtin, MCP, skill)', async () => {
+      const mcpTools = [
+        { name: 'github__list_repos', description: 'MCP tool', execute: async () => ({}) },
+      ];
+      const skillTools = {
+        lintCode: { description: 'Skill tool', execute: async () => ({}) },
+      };
+      const reg = new ToolRegistry(containerPool, createMockMcpManager(mcpTools), {
+        skillRegistry: createMockSkillRegistry(skillTools),
+      });
+      reg.registerTool('bash', createMockToolFactory('bash'));
+
+      const tools = await reg.getToolsForBot({
+        id: 'support',
+        tools: ['bash'],
+        mcpServers: ['github'],
+        skills: ['code-review'],
+      });
+
+      assert.ok(tools.bash, 'Should have builtin tool');
+      assert.ok(tools['github__list_repos'], 'Should have MCP tool');
+      assert.ok(tools.lintCode, 'Should have skill tool');
+      assert.equal(Object.keys(tools).length, 3);
+    });
+
+    test('precedence: MCP > builtin > skill (all three have same name)', async () => {
+      const mcpTools = [
+        { name: 'conflictTool', description: 'MCP version', execute: async () => ({}) },
+      ];
+      const skillTools = {
+        conflictTool: { description: 'Skill version', execute: async () => ({}) },
+      };
+      const reg = new ToolRegistry(containerPool, createMockMcpManager(mcpTools), {
+        skillRegistry: createMockSkillRegistry(skillTools),
+      });
+      reg.registerTool('conflictTool', createMockToolFactory('builtin'));
+
+      const tools = await reg.getToolsForBot({
+        id: 'support',
+        tools: ['conflictTool'],
+        mcpServers: ['mcp-server'],
+        skills: ['code-review'],
+      });
+
+      // MCP should win (overwrites builtin, which overwrites skill)
+      assert.equal(tools.conflictTool.description, 'MCP version');
+    });
+
     test('skips skill resolution when skillRegistry is null', async () => {
       const reg = new ToolRegistry(containerPool, null);
       reg.registerTool('bash', createMockToolFactory('bash'));
@@ -830,6 +1056,19 @@ describe('ToolRegistry', () => {
 
       assert.equal(reg.skillRegistry, null);
     });
+
+    test('accepts eventEmitter via options', () => {
+      const mockEmitter = { emitToolError: () => {} };
+      const reg = new ToolRegistry(containerPool, null, { eventEmitter: mockEmitter });
+
+      assert.equal(reg.eventEmitter, mockEmitter);
+    });
+
+    test('defaults eventEmitter to null when not provided', () => {
+      const reg = new ToolRegistry(containerPool);
+
+      assert.equal(reg.eventEmitter, null);
+    });
   });
 
   describe('getBuiltinToolNames() (static)', () => {
@@ -893,6 +1132,23 @@ describe('ToolRegistry', () => {
       assert.equal(err.cause, original);
     });
 
+    test('cause property is properly set via Error constructor', () => {
+      const rootCause = new TypeError('root cause error');
+      const err = new ToolRegistryError('wrapper error', { cause: rootCause });
+
+      // Verify cause is accessible via standard Error API
+      assert.ok(err.cause instanceof TypeError);
+      assert.equal(err.cause.message, 'root cause error');
+      assert.equal(err.cause, rootCause);
+    });
+
+    test('cause property works with non-Error objects', () => {
+      const causeObj = { code: 'ECONNREFUSED', details: 'Connection refused' };
+      const err = new ToolRegistryError('connection failed', { cause: causeObj });
+
+      assert.deepEqual(err.cause, causeObj);
+    });
+
     test('defaults optional fields to undefined', () => {
       const err = new ToolRegistryError('test');
 
@@ -900,6 +1156,13 @@ describe('ToolRegistry', () => {
       assert.equal(err.toolName, undefined);
       assert.equal(err.botId, undefined);
       assert.equal(err.cause, undefined);
+    });
+
+    test('stack trace includes error name and message', () => {
+      const err = new ToolRegistryError('test error');
+
+      assert.ok(err.stack);
+      assert.match(err.stack, /ToolRegistryError: test error/);
     });
   });
 });
