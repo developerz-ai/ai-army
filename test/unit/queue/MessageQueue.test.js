@@ -126,13 +126,22 @@ describe('MessageQueue', () => {
   describe('enqueue()', () => {
     test('inserts message into database with correct parameters', async () => {
       const mockRow = createMockRow();
-      mockStorage.query = mock.fn(async () => ({ rows: [mockRow], rowCount: 1 }));
+      mockStorage.query = mock.fn(async sql => {
+        if (sql.includes('information_schema')) {
+          return {
+            rows: [{ column_name: 'channel_name' }, { column_name: 'thread_ts' }],
+            rowCount: 2,
+          };
+        }
+        return { rows: [mockRow], rowCount: 1 };
+      });
 
       const message = createTestMessage();
       await queue.enqueue('test-bot', message, 5);
 
-      assert.equal(mockStorage.query.mock.callCount(), 1);
-      const [sql, params] = mockStorage.query.mock.calls[0].arguments;
+      // First call is schema detection, second is the INSERT
+      assert.equal(mockStorage.query.mock.callCount(), 2);
+      const [sql, params] = mockStorage.query.mock.calls[1].arguments;
       assert.ok(sql.includes('INSERT INTO message_queue'));
       assert.deepStrictEqual(params, [
         'test-bot',
@@ -164,11 +173,20 @@ describe('MessageQueue', () => {
 
     test('defaults priority to 0', async () => {
       const mockRow = createMockRow();
-      mockStorage.query = mock.fn(async () => ({ rows: [mockRow], rowCount: 1 }));
+      mockStorage.query = mock.fn(async sql => {
+        if (sql.includes('information_schema')) {
+          return {
+            rows: [{ column_name: 'channel_name' }, { column_name: 'thread_ts' }],
+            rowCount: 2,
+          };
+        }
+        return { rows: [mockRow], rowCount: 1 };
+      });
 
       await queue.enqueue('test-bot', createTestMessage());
 
-      const [, params] = mockStorage.query.mock.calls[0].arguments;
+      // Second call is the INSERT (first is schema detection)
+      const [, params] = mockStorage.query.mock.calls[1].arguments;
       assert.equal(params[5], 0);
     });
 

@@ -94,6 +94,7 @@ export class QueueWorker {
    * @param {number} [options.retryDelay=5000] - Base retry delay in milliseconds
    * @param {Function} [options.logger] - Optional logging function
    * @param {Function} [options.getBotConfig] - Function to get bot config by ID (botId => config)
+   * @param {string} [options.channel='message_queue'] - PostgreSQL LISTEN/NOTIFY channel name
    * @param {Function} [options.getChannelAdapter] - Function to resolve a channel adapter by name
    *   (channelName => adapter). Used to send responses back to originating channels.
    */
@@ -133,6 +134,9 @@ export class QueueWorker {
 
     /** @type {number} Base retry delay in ms */
     this.retryDelay = options.retryDelay ?? DEFAULTS.retryDelay;
+
+    /** @type {string} PostgreSQL LISTEN/NOTIFY channel name */
+    this.channel = options.channel ?? DEFAULTS.channel;
 
     /** @type {Function|null} Optional logger */
     this.logger = options.logger || null;
@@ -389,8 +393,8 @@ export class QueueWorker {
       });
 
       // Start listening
-      await this._listenClient.query(`LISTEN ${DEFAULTS.channel}`);
-      this._log(`Listening on PostgreSQL channel "${DEFAULTS.channel}"`);
+      await this._listenClient.query(`LISTEN ${this.channel}`);
+      this._log(`Listening on PostgreSQL channel "${this.channel}"`);
     } catch (err) {
       // Release client if acquired but LISTEN failed
       if (this._listenClient) {
@@ -420,7 +424,7 @@ export class QueueWorker {
     }
 
     try {
-      await this._listenClient.query(`UNLISTEN ${DEFAULTS.channel}`);
+      await this._listenClient.query(`UNLISTEN ${this.channel}`);
     } catch (_err) {
       // Ignore UNLISTEN errors during shutdown
     }
@@ -453,7 +457,7 @@ export class QueueWorker {
    * @private
    */
   _handleNotification(msg) {
-    if (msg.channel !== DEFAULTS.channel) {
+    if (msg.channel !== this.channel) {
       return;
     }
 

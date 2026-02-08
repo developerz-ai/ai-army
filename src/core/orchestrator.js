@@ -965,24 +965,33 @@ export class Orchestrator {
         // Queue-based processing: enqueue and let QueueWorker handle it.
         // Include channelName and threadTs so the worker can route responses
         // back to the originating adapter after processing.
-        const priority = this.config.queue?.defaultPriority ?? 0;
-        await this.messageQueue.enqueue(
-          bot.id,
-          {
-            channelType: message.type,
-            channelId: message.channelId,
-            userId: message.userId,
-            text: message.text,
-            channelName,
-            threadTs: message.threadTs || null,
-          },
-          priority
-        );
-        this._log(`📥 Enqueued message for bot '${bot.id}' on channel '${channelName}'`);
-        return;
+        try {
+          const priority = this.config.queue?.defaultPriority ?? 0;
+          await this.messageQueue.enqueue(
+            bot.id,
+            {
+              channelType: message.type,
+              channelId: message.channelId,
+              userId: message.userId,
+              text: message.text,
+              channelName,
+              threadTs: message.threadTs || null,
+            },
+            priority
+          );
+          this._log(`📥 Enqueued message for bot '${bot.id}' on channel '${channelName}'`);
+          return;
+        } catch (enqueueErr) {
+          // Enqueue failed (DB error / migration mismatch) — fall back to direct processing
+          // so the user still gets a response instead of silently dropping the message.
+          this._log(
+            `⚠️ Enqueue failed for bot '${bot.id}' on channel '${channelName}', ` +
+              `falling back to direct processing: ${enqueueErr.message}`
+          );
+        }
       }
 
-      // Direct processing (queue disabled)
+      // Direct processing (queue disabled or enqueue failed)
       const result = await this.messageProcessor.processMessage(bot.config, message);
 
       // Step 3: Send response back via channel adapter

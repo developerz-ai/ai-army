@@ -62,6 +62,15 @@ export class MessageQueue {
 
     this.storage = storage;
     this.logger = options.logger || null;
+
+    /**
+     * Whether the message_queue table has the reply routing columns
+     * (channel_name, thread_ts) from migration 003. Detected lazily
+     * on the first enqueue and cached for subsequent calls.
+     * @type {boolean|null}
+     * @private
+     */
+    this._hasReplyRoutingColumns = null;
   }
 
   /**
@@ -84,21 +93,40 @@ export class MessageQueue {
     this._validatePriority(priority);
 
     try {
-      const { rows } = await this.storage.query(
-        `INSERT INTO message_queue (bot_id, channel_type, channel_id, user_id, message_text, priority, channel_name, thread_ts)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         RETURNING id, bot_id, channel_type, channel_id, user_id, message_text, priority, status, enqueued_at, channel_name, thread_ts`,
-        [
-          botId,
-          message.channelType,
-          message.channelId,
-          message.userId,
-          message.text,
-          priority,
-          message.channelName || null,
-          message.threadTs || null,
-        ]
-      );
+      const hasRouting = await this._detectReplyRoutingColumns();
+
+      let rows;
+      if (hasRouting) {
+        ({ rows } = await this.storage.query(
+          `INSERT INTO message_queue (bot_id, channel_type, channel_id, user_id, message_text, priority, channel_name, thread_ts)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           RETURNING id, bot_id, channel_type, channel_id, user_id, message_text, priority, status, enqueued_at, channel_name, thread_ts`,
+          [
+            botId,
+            message.channelType,
+            message.channelId,
+            message.userId,
+            message.text,
+            priority,
+            message.channelName || null,
+            message.threadTs || null,
+          ]
+        ));
+      } else {
+        ({ rows } = await this.storage.query(
+          `INSERT INTO message_queue (bot_id, channel_type, channel_id, user_id, message_text, priority)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING id, bot_id, channel_type, channel_id, user_id, message_text, priority, status, enqueued_at`,
+          [
+            botId,
+            message.channelType,
+            message.channelId,
+            message.userId,
+            message.text,
+            priority,
+          ]
+        ));
+      }
 
       const record = this._transformRow(rows[0]);
       this._log(`Enqueued message ${record.id} for bot ${botId} with priority ${priority}`);
@@ -414,6 +442,33 @@ export class MessageQueue {
   // ============================================================================
   // Internal Helpers
   // ============================================================================
+
+  /**
+   * Detect whether the message_queue table has the reply routing columns
+   * (channel_name, thread_ts) added by migration 003. The result is cached
+   * after the first successful check to avoid repeated introspection queries.
+   *
+   * @returns {Promise<boolean>} True if both channel_name and thread_ts columns exist
+   * @private
+   */
+  async _detectReplyRoutingColumns() {
+    if (this._hasReplyRoutingColumns !== null) {
+      return this._hasReplyRoutingColumns;
+    }
+
+    try {
+      const { rows } = await this.storage.query(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_name = 'message_queue' AND column_name IN ('channel_name', 'thread_ts')`
+      );
+      this._hasReplyRoutingColumns = rows.length >= 2;
+    } catch (_err) {
+      // If introspection fails, assume the columns exist (newer schema is the common case)
+      this._hasReplyRoutingColumns = true;
+    }
+
+    return this._hasReplyRoutingColumns;
+  }
 
   /**
    * Transform a database row to a camelCase record
