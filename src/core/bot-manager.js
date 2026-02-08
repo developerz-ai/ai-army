@@ -273,7 +273,7 @@ export class BotManager {
       bot.status = BOT_STATUSES.RUNNING;
       bot.lastActiveAt = new Date();
 
-      this._emitEvent('emitBotStarted', botId, {
+      this._emitEvent('botStarted', botId, {
         name: bot.config.name || botId,
       });
     } catch (err) {
@@ -288,7 +288,7 @@ export class BotManager {
               botId,
             });
 
-      this._emitEvent('emitBotError', botId, wrappedErr, {
+      this._emitEvent('botError', botId, wrappedErr, {
         name: bot.config.name || botId,
         operation: 'startBot',
       });
@@ -335,7 +335,7 @@ export class BotManager {
       bot.status = BOT_STATUSES.STOPPED;
       bot.lastActiveAt = new Date();
 
-      this._emitEvent('emitBotStopped', botId, {
+      this._emitEvent('botStopped', botId, {
         name: bot.config.name || botId,
       });
     } catch (err) {
@@ -350,7 +350,7 @@ export class BotManager {
               botId,
             });
 
-      this._emitEvent('emitBotError', botId, wrappedErr, {
+      this._emitEvent('botError', botId, wrappedErr, {
         name: bot.config.name || botId,
         operation: 'stopBot',
       });
@@ -610,7 +610,8 @@ export class BotManager {
    * @param {...*} args - Arguments to pass to the emitter method
    * @private
    */
-  _emitEvent(method, ...args) {
+  _emitEvent(event, ...args) {
+    const method = `emit${event.charAt(0).toUpperCase()}${event.slice(1)}`;
     if (this.eventEmitter && typeof this.eventEmitter[method] === 'function') {
       try {
         this.eventEmitter[method](...args);

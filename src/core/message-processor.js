@@ -142,7 +142,7 @@ export class MessageProcessor {
       this._log(`Processing message for bot "${botConfig.id}" ` + `session "${sessionId}"`);
 
       // Emit message.received event
-      this._emitEvent('emitMessageReceived', botConfig.id, {
+      this._emitEvent('messageReceived', botConfig.id, {
         userId: message.userId,
         channelId: message.channelId,
         text: message.text,
@@ -182,7 +182,7 @@ export class MessageProcessor {
       await this.sessionManager.appendMessage(session, 'assistant', result.text, appendOptions);
 
       // Emit message.sent event
-      this._emitEvent('emitMessageSent', botConfig.id, {
+      this._emitEvent('messageSent', botConfig.id, {
         userId: message.userId,
         channelId: message.channelId,
         text: result.text,
@@ -200,7 +200,7 @@ export class MessageProcessor {
       };
     } catch (err) {
       // Emit message.error event
-      this._emitEvent('emitMessageError', botConfig.id, err, {
+      this._emitEvent('messageError', botConfig.id, err, {
         userId: message.userId,
         channelId: message.channelId,
         sessionId,
@@ -436,14 +436,14 @@ export class MessageProcessor {
           const isError = matchingResult?.isError === true;
 
           if (isError) {
-            this._emitEvent('emitToolError', botId, {
+            this._emitEvent('toolError', botId, {
               toolName: toolCall.toolName,
               args: toolCall.args || null,
               error: matchingResult?.result || 'Unknown tool error',
               sessionId,
             });
           } else {
-            this._emitEvent('emitToolCalled', botId, {
+            this._emitEvent('toolCalled', botId, {
               toolName: toolCall.toolName,
               args: toolCall.args || null,
               result: matchingResult?.result || null,
@@ -457,7 +457,7 @@ export class MessageProcessor {
     // Emit events from top-level tool calls if no steps were processed
     if (Array.isArray(topLevelToolCalls) && (!Array.isArray(steps) || steps.length === 0)) {
       for (const toolCall of topLevelToolCalls) {
-        this._emitEvent('emitToolCalled', botId, {
+        this._emitEvent('toolCalled', botId, {
           toolName: toolCall.toolName,
           args: toolCall.args || null,
           sessionId,
@@ -476,7 +476,8 @@ export class MessageProcessor {
    * @param {...*} args - Arguments to pass to the emitter method
    * @private
    */
-  _emitEvent(method, ...args) {
+  _emitEvent(event, ...args) {
+    const method = `emit${event.charAt(0).toUpperCase()}${event.slice(1)}`;
     if (this.eventEmitter && typeof this.eventEmitter[method] === 'function') {
       try {
         this.eventEmitter[method](...args);

@@ -236,7 +236,7 @@ export class ToolRegistry {
         const toolConfig = botConfig.toolConfig?.[toolName];
         tools[toolName] = factory(this.containerPool, botId, toolConfig);
       } catch (err) {
-        this._emitEvent('emitToolError', botId, {
+        this._emitEvent('toolError', botId, {
           toolName,
           error: err,
         });
@@ -260,7 +260,7 @@ export class ToolRegistry {
           tools[tool.name] = tool;
         }
       } catch (err) {
-        this._emitEvent('emitToolError', botId, {
+        this._emitEvent('toolError', botId, {
           toolName: 'mcp',
           error: err,
         });
@@ -283,7 +283,7 @@ export class ToolRegistry {
           }
         }
       } catch (err) {
-        this._emitEvent('emitToolError', botId, {
+        this._emitEvent('toolError', botId, {
           toolName: 'skills',
           error: err,
         });
@@ -327,7 +327,8 @@ export class ToolRegistry {
    * @param {...*} args - Arguments to pass to the emitter method
    * @private
    */
-  _emitEvent(method, ...args) {
+  _emitEvent(event, ...args) {
+    const method = `emit${event.charAt(0).toUpperCase()}${event.slice(1)}`;
     if (this.eventEmitter && typeof this.eventEmitter[method] === 'function') {
       try {
         this.eventEmitter[method](...args);
