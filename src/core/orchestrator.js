@@ -27,6 +27,8 @@ import { EnvAdapter } from '../adapters/secrets/env.js';
 import { MessageQueue } from '../queue/message-queue.js';
 import { QueueWorker } from '../queue/queue-worker.js';
 import { ConcurrencyController } from '../queue/concurrency-controller.js';
+import { SkillRegistry } from '../skills/skill-registry.js';
+import { SkillLoader } from '../skills/skill-loader.js';
 
 /**
  * Orchestrator lifecycle states
@@ -102,12 +104,16 @@ export class Orchestrator {
    * @param {Function} [options.messageQueueFactory] - Factory (storage, config) => MessageQueue
    * @param {Function} [options.queueWorkerFactory] - Factory (queue, processor, cc, storage, opts) => QueueWorker
    * @param {Function} [options.concurrencyControllerFactory] - Factory (config) => ConcurrencyController
+   * @param {string} [options.skillsPath='./skills'] - Path to skills directory
+   * @param {Object} [options.skillRegistry] - Pre-configured SkillRegistry instance (for DI/testing)
+   * @param {Object} [options.skillLoader] - Pre-configured SkillLoader instance (for DI/testing)
    */
   constructor(options = {}) {
     this.configPath = options.configPath || './config.json';
     this.botsPath = options.botsPath || './bots';
     this.dataPath = options.dataPath || './data';
     this.migrationsPath = options.migrationsPath || './migrations';
+    this.skillsPath = options.skillsPath || './skills';
     this.logger = options.logger !== undefined ? options.logger : console.log;
 
     // Dependency injection support
@@ -131,6 +137,10 @@ export class Orchestrator {
     this.messageQueue = options.messageQueue || null;
     this.queueWorker = options.queueWorker || null;
     this.concurrencyController = options.concurrencyController || null;
+
+    // Skills system
+    this.skillRegistry = options.skillRegistry || null;
+    this.skillLoader = options.skillLoader || null;
 
     // Factories for creating components when not injected
     this.storageFactory = options.storageFactory || null;
@@ -202,6 +212,9 @@ export class Orchestrator {
 
       // Step 4b: Start MCP servers
       await this._startMCPServers();
+
+      // Step 4c: Load skills into SkillRegistry
+      await this._loadSkills();
 
       // Step 5: Discover and load bots
       const { discovered: discoveredCount, loaded: loadedCount } = await this._loadBots();
@@ -505,6 +518,7 @@ export class Orchestrator {
       messageRouterReady: !!this.messageRouter,
       queueEnabled: this._isQueueEnabled(),
       queueWorkerRunning: this.queueWorker ? this.queueWorker.getState() === 'running' : false,
+      skillCount: this.skillRegistry ? this.skillRegistry.getSkillCount() : 0,
     };
   }
 
@@ -743,6 +757,58 @@ export class Orchestrator {
     this.secretsManager = manager;
     this.configLoader.secretsManager = manager;
     this._log('🔐 SecretsManager created and wired to ConfigLoader');
+  }
+
+  /**
+   * Step 4c: Load skills from the skills directory into the SkillRegistry
+   *
+   * Creates a SkillRegistry and SkillLoader if not injected, then scans
+   * the skills directory for SKILL.md files and registers each found skill.
+   * Skill loading failures are logged but do not prevent startup.
+   *
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _loadSkills() {
+    // Create SkillRegistry if not injected
+    if (!this.skillRegistry) {
+      this.skillRegistry = new SkillRegistry({ logger: this.logger });
+    }
+
+    // Create SkillLoader if not injected
+    if (!this.skillLoader) {
+      this.skillLoader = new SkillLoader();
+    }
+
+    const skillsDir = path.resolve(this.skillsPath);
+
+    // Check if skills directory exists
+    try {
+      await fs.access(skillsDir);
+    } catch {
+      this._log('⏭️ No skills directory found, skipping skill loading');
+      return;
+    }
+
+    this._log('🎯 Loading skills...');
+
+    try {
+      const skills = await this.skillLoader.loadFromDirectory(skillsDir);
+
+      for (const skill of skills) {
+        try {
+          this.skillRegistry.registerSkill(skill);
+        } catch (err) {
+          this._log(`  ⚠️ Failed to register skill '${skill.name}': ${err.message}`);
+        }
+      }
+
+      const count = this.skillRegistry.getSkillCount();
+      this._log(`🎯 ${count} skill(s) loaded`);
+    } catch (err) {
+      // Skill loading failure is non-fatal
+      this._log(`⚠️ Failed to load skills: ${err.message}`);
+    }
   }
 
   /**
