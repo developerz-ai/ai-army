@@ -13,7 +13,7 @@
  * - `op item list` - List available items in a vault
  * - Service account token authentication via `OP_SERVICE_ACCOUNT_TOKEN`
  *
- * @module OnePasswordAdapter
+ * @module adapters/secrets/onepassword
  */
 
 /**

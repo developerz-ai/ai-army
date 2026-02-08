@@ -12,7 +12,7 @@
  * - `bws secret list` - List available secrets in a project
  * - Service account token authentication via `BWS_ACCESS_TOKEN`
  *
- * @module BitwardenAdapter
+ * @module adapters/secrets/bitwarden
  */
 
 /**

@@ -12,7 +12,7 @@
  * - GET  /messages/:sessionId - Poll for responses
  * - POST /messages/:sessionId/send - Send a message to a session
  *
- * @module RESTAdapter
+ * @module adapters/channels/rest
  */
 
 /**
