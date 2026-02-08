@@ -946,10 +946,7 @@ describe('MCPManager', () => {
       const realManager = new MCPManager({ connectTimeoutMs: 50 });
 
       // Stub _connectWithTimeout to verify it's called
-      let connectWithTimeoutCalled = false;
-      realManager._connectWithTimeout = mock.fn(async () => {
-        connectWithTimeoutCalled = true;
-      });
+      realManager._connectWithTimeout = mock.fn(async () => {});
 
       // We need to stub the MCP SDK constructors, which is complex,
       // so instead verify the integration via startServer with a timeout

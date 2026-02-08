@@ -397,10 +397,9 @@ export class MCPManager {
     const timeoutPromise = new Promise((_resolve, reject) => {
       timer = setTimeout(() => {
         reject(
-          new MCPManagerError(
-            `Connection timed out after ${this.connectTimeoutMs}ms`,
-            { operation: 'connect' }
-          )
+          new MCPManagerError(`Connection timed out after ${this.connectTimeoutMs}ms`, {
+            operation: 'connect',
+          })
         );
       }, this.connectTimeoutMs);
     });
