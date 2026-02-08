@@ -84,6 +84,15 @@ function createMockBotReloader() {
  */
 function createMockOrchestrator(overrides = {}) {
   const botManager = overrides.botManager || createMockBotManager();
+
+  // Build a config map from botManager's bots for _discoverBotConfigs
+  const botConfigs = new Map();
+  if (botManager && typeof botManager.listBots === 'function') {
+    for (const bot of botManager.listBots()) {
+      botConfigs.set(bot.id, bot.config);
+    }
+  }
+
   return {
     state: 'running',
     startedAt: new Date('2025-06-01T00:00:00Z'),
@@ -105,6 +114,7 @@ function createMockOrchestrator(overrides = {}) {
       ...overrides.status,
     })),
     reload: mock.fn(async () => overrides.reloadResult || { reloaded: [], failed: [] }),
+    _discoverBotConfigs: mock.fn(async () => botConfigs),
     ...overrides,
   };
 }
