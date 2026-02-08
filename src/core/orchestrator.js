@@ -29,6 +29,7 @@ import { QueueWorker } from '../queue/queue-worker.js';
 import { ConcurrencyController } from '../queue/concurrency-controller.js';
 import { SkillRegistry } from '../skills/skill-registry.js';
 import { SkillLoader } from '../skills/skill-loader.js';
+import { TemplateManager } from './template-manager.js';
 
 /**
  * Orchestrator lifecycle states
@@ -107,6 +108,8 @@ export class Orchestrator {
    * @param {string} [options.skillsPath='./skills'] - Path to skills directory
    * @param {Object} [options.skillRegistry] - Pre-configured SkillRegistry instance (for DI/testing)
    * @param {Object} [options.skillLoader] - Pre-configured SkillLoader instance (for DI/testing)
+   * @param {Object} [options.templateManager] - Pre-configured TemplateManager instance (for DI/testing)
+   * @param {Function} [options.templateManagerFactory] - Factory (storage) => TemplateManager
    */
   constructor(options = {}) {
     this.configPath = options.configPath || './config.json';
@@ -141,6 +144,10 @@ export class Orchestrator {
     // Skills system
     this.skillRegistry = options.skillRegistry || null;
     this.skillLoader = options.skillLoader || null;
+
+    // Template & instance system
+    this.templateManager = options.templateManager || null;
+    this.templateManagerFactory = options.templateManagerFactory || null;
 
     // Factories for creating components when not injected
     this.storageFactory = options.storageFactory || null;
@@ -519,6 +526,7 @@ export class Orchestrator {
       queueEnabled: this._isQueueEnabled(),
       queueWorkerRunning: this.queueWorker ? this.queueWorker.getState() === 'running' : false,
       skillCount: this.skillRegistry ? this.skillRegistry.getSkillCount() : 0,
+      templateManagerReady: !!this.templateManager,
     };
   }
 
@@ -663,6 +671,15 @@ export class Orchestrator {
         this.storage,
         this.config
       );
+    }
+
+    // Create TemplateManager if not injected and storage is available
+    if (!this.templateManager && this.storage) {
+      if (this.templateManagerFactory) {
+        this.templateManager = this.templateManagerFactory(this.storage);
+      } else {
+        this.templateManager = new TemplateManager(this.storage);
+      }
     }
 
     // Create BotReloader if dependencies are available.
@@ -833,7 +850,7 @@ export class Orchestrator {
 
     try {
       const botConfigs = await this._discoverBotConfigs();
-      const discoveredCount = botConfigs.size;
+      let discoveredCount = botConfigs.size;
       let loadedCount = 0;
 
       for (const [botId, botConfig] of botConfigs) {
@@ -850,6 +867,11 @@ export class Orchestrator {
         }
       }
 
+      // Load template instances from database
+      const instanceResults = await this._loadInstances();
+      discoveredCount += instanceResults.discovered;
+      loadedCount += instanceResults.loaded;
+
       this._log(`🤖 ${loadedCount}/${discoveredCount} bot(s) loaded`);
       return { discovered: discoveredCount, loaded: loadedCount };
     } catch (err) {
@@ -862,6 +884,62 @@ export class Orchestrator {
         component: 'bots',
       });
     }
+  }
+
+  /**
+   * Load template instances from the database and register them as bots
+   *
+   * For each instance with status != 'stopped', resolves the full config
+   * (template config + instance overrides + variable substitution) and loads
+   * it into the BotManager. Instance loading failures are logged but do not
+   * prevent startup.
+   *
+   * @returns {Promise<{discovered: number, loaded: number}>} Count of discovered and loaded instances
+   * @private
+   */
+  async _loadInstances() {
+    if (!this.templateManager || !this.botManager) {
+      return { discovered: 0, loaded: 0 };
+    }
+
+    let instances;
+    try {
+      instances = await this.templateManager.listInstances();
+    } catch (err) {
+      this._log(`⚠️ Failed to load instances from database: ${err.message}`);
+      return { discovered: 0, loaded: 0 };
+    }
+
+    if (instances.length === 0) {
+      return { discovered: 0, loaded: 0 };
+    }
+
+    this._log(`📦 Loading ${instances.length} template instance(s)...`);
+    let loadedCount = 0;
+
+    for (const instance of instances) {
+      try {
+        const resolved = await this.templateManager.resolveInstance(instance.id);
+        const botConfig = {
+          ...resolved.resolvedConfig,
+          id: instance.id,
+          soul: resolved.resolvedSoul,
+        };
+
+        // Merge with defaults
+        const mergedConfig = this.configLoader.deepMerge(this.config.defaults || {}, botConfig);
+
+        await this.botManager.loadBot(instance.id, mergedConfig);
+        this.botConfigs.set(instance.id, mergedConfig);
+        loadedCount++;
+        this._log(`  ✅ Loaded instance: ${instance.id}`);
+      } catch (err) {
+        this._log(`  ❌ Failed to load instance '${instance.id}': ${err.message}`);
+      }
+    }
+
+    this._log(`📦 ${loadedCount}/${instances.length} instance(s) loaded`);
+    return { discovered: instances.length, loaded: loadedCount };
   }
 
   /**

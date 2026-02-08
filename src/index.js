@@ -7,6 +7,10 @@ export { Orchestrator } from './core/orchestrator.js';
 export { BotManager } from './core/bot-manager.js';
 export { BotReloader } from './core/BotReloader.js';
 export { SessionManager } from './core/session-manager.js';
+export { TemplateManager } from './core/template-manager.js';
+
+// Utils
+export { VariableSubstitutor } from './utils/VariableSubstitutor.js';
 
 // Adapters
 export { SlackAdapter } from './adapters/channels/slack.js';
