@@ -63,6 +63,7 @@ export class BotManager {
    * @param {Object} [options.configValidator] - ConfigValidator instance (created if not provided)
    * @param {Object} [options.toolRegistry] - ToolRegistry instance for resolving tools (including MCP)
    * @param {Object} [options.skillRegistry] - SkillRegistry instance for resolving bot skills
+   * @param {Object} [options.eventEmitter] - BotEventEmitter instance for emitting lifecycle events
    */
   constructor(storage, containerPool, soulLoader, options = {}) {
     if (!storage) {
@@ -91,6 +92,9 @@ export class BotManager {
 
     /** @type {Object|null} SkillRegistry for resolving bot skills */
     this.skillRegistry = options.skillRegistry || null;
+
+    /** @type {Object|null} BotEventEmitter for emitting lifecycle events */
+    this.eventEmitter = options.eventEmitter || null;
 
     /** @type {Map<string, Object>} In-memory store of bot objects */
     this.bots = new Map();
@@ -268,16 +272,28 @@ export class BotManager {
       bot.container = container;
       bot.status = BOT_STATUSES.RUNNING;
       bot.lastActiveAt = new Date();
+
+      this._emitEvent('emitBotStarted', botId, {
+        name: bot.config.name || botId,
+      });
     } catch (err) {
       bot.status = BOT_STATUSES.ERROR;
-      if (err instanceof BotManagerError) {
-        throw err;
-      }
-      throw new BotManagerError(`Failed to start bot '${botId}': ${err.message}`, {
-        cause: err,
+
+      const wrappedErr =
+        err instanceof BotManagerError
+          ? err
+          : new BotManagerError(`Failed to start bot '${botId}': ${err.message}`, {
+              cause: err,
+              operation: 'startBot',
+              botId,
+            });
+
+      this._emitEvent('emitBotError', botId, wrappedErr, {
+        name: bot.config.name || botId,
         operation: 'startBot',
-        botId,
       });
+
+      throw wrappedErr;
     }
   }
 
@@ -318,16 +334,28 @@ export class BotManager {
       bot.container = null;
       bot.status = BOT_STATUSES.STOPPED;
       bot.lastActiveAt = new Date();
+
+      this._emitEvent('emitBotStopped', botId, {
+        name: bot.config.name || botId,
+      });
     } catch (err) {
       bot.status = BOT_STATUSES.ERROR;
-      if (err instanceof BotManagerError) {
-        throw err;
-      }
-      throw new BotManagerError(`Failed to stop bot '${botId}': ${err.message}`, {
-        cause: err,
+
+      const wrappedErr =
+        err instanceof BotManagerError
+          ? err
+          : new BotManagerError(`Failed to stop bot '${botId}': ${err.message}`, {
+              cause: err,
+              operation: 'stopBot',
+              botId,
+            });
+
+      this._emitEvent('emitBotError', botId, wrappedErr, {
+        name: bot.config.name || botId,
         operation: 'stopBot',
-        botId,
       });
+
+      throw wrappedErr;
     }
   }
 
@@ -570,6 +598,26 @@ export class BotManager {
     }
 
     return results;
+  }
+
+  /**
+   * Emit an event via the event emitter if available
+   *
+   * Safely calls the event emitter method, catching any errors to prevent
+   * event emission from breaking the main flow.
+   *
+   * @param {string} method - Event emitter method name (e.g., 'emitBotStarted')
+   * @param {...*} args - Arguments to pass to the emitter method
+   * @private
+   */
+  _emitEvent(method, ...args) {
+    if (this.eventEmitter && typeof this.eventEmitter[method] === 'function') {
+      try {
+        this.eventEmitter[method](...args);
+      } catch (_err) {
+        // Event emission should never break the main flow
+      }
+    }
   }
 
   /**
