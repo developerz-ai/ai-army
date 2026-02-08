@@ -404,6 +404,7 @@ export async function runStatus({
   write('\n🤖 AI Army Status\n');
   write(`  Config: ${configPath}\n`);
 
+  let dbHealthy = false;
   write('\nDatabase:\n');
   try {
     const dbInfo = await collectDatabaseStatus(storage);
@@ -411,6 +412,7 @@ export async function runStatus({
     if (!dbInfo.connected) {
       write('  ❌ Not connected\n');
     } else {
+      dbHealthy = true;
       const versionLabel = dbInfo.version ? `PostgreSQL ${dbInfo.version}` : 'PostgreSQL';
       write(`  ✅ Connected to ${versionLabel}\n`);
       write(`  📊 ${formatNumber(dbInfo.totalSessions)} total sessions\n`);
@@ -423,7 +425,7 @@ export async function runStatus({
   write('\nℹ️  Run with a running system (ai-army start) for full bot and channel status.\n');
   write('\n');
 
-  return { success: true };
+  return { success: dbHealthy };
 }
 
 export default showStatus;

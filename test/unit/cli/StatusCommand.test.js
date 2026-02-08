@@ -315,23 +315,23 @@ describe('StatusCommand - runStatus()', () => {
       assert.ok(text.includes('42 messages processed'), 'Should show message count');
     });
 
-    test('returns success with disconnected storage', async () => {
+    test('returns failure with disconnected storage', async () => {
       const output = createMockOutput();
       const storage = createMockStorage({ connected: false });
 
       const result = await runStatus({ storage, output });
 
-      assert.deepStrictEqual(result, { success: true });
+      assert.deepStrictEqual(result, { success: false });
       const text = output.getOutput();
       assert.ok(text.includes('Not connected'), 'Should show not connected');
     });
 
-    test('returns success with null storage', async () => {
+    test('returns failure with null storage', async () => {
       const output = createMockOutput();
 
       const result = await runStatus({ storage: null, output });
 
-      assert.deepStrictEqual(result, { success: true });
+      assert.deepStrictEqual(result, { success: false });
       const text = output.getOutput();
       assert.ok(text.includes('Not connected'), 'Should show not connected');
     });
@@ -349,7 +349,7 @@ describe('StatusCommand - runStatus()', () => {
       );
     });
 
-    test('handles storage query errors gracefully', async () => {
+    test('returns success when storage is connected but queries fail', async () => {
       const output = createMockOutput();
       const errorStorage = {
         connected: true,
@@ -366,9 +366,30 @@ describe('StatusCommand - runStatus()', () => {
 
       const result = await runStatus({ storage: errorStorage, output });
 
+      // Storage reports itself as connected; individual query failures are
+      // handled internally by collectDatabaseStatus as best-effort, so
+      // the overall status check still succeeds.
       assert.deepStrictEqual(result, { success: true });
       const text = output.getOutput();
       assert.ok(text.includes('Database:'), 'Should still show database section');
+    });
+
+    test('returns failure when collectDatabaseStatus throws', async () => {
+      const output = createMockOutput();
+      // This storage causes collectDatabaseStatus to throw by making
+      // isConnected() itself throw (bypasses internal try/catch)
+      const brokenStorage = {
+        isConnected() {
+          throw new Error('Storage driver crashed');
+        },
+      };
+
+      const result = await runStatus({ storage: brokenStorage, output });
+
+      assert.deepStrictEqual(result, { success: false });
+      const text = output.getOutput();
+      assert.ok(text.includes('Database:'), 'Should still show database section');
+      assert.ok(text.includes('Error checking database'), 'Should show error message');
     });
 
     test('shows PostgreSQL version when available', async () => {
@@ -469,12 +490,12 @@ describe('StatusCommand - runStatus()', () => {
   });
 
   describe('defaults', () => {
-    test('returns success when called with no arguments', async () => {
+    test('returns failure when called with no arguments', async () => {
       const output = createMockOutput();
 
       const result = await runStatus({ output });
 
-      assert.deepStrictEqual(result, { success: true });
+      assert.deepStrictEqual(result, { success: false });
       const text = output.getOutput();
       assert.ok(text.includes('Not connected'), 'Should show not connected for undefined storage');
     });
