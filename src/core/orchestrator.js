@@ -20,6 +20,8 @@ import path from 'path';
 import { ConfigLoader } from '../config/ConfigLoader.js';
 import { ConfigValidator } from '../config/ConfigValidator.js';
 import { MigrationRunner } from '../database/MigrationRunner.js';
+import { SecretsManager } from '../secrets/secrets-manager.js';
+import { EnvAdapter } from '../adapters/secrets/env.js';
 
 /**
  * Orchestrator lifecycle states
@@ -74,6 +76,10 @@ export class Orchestrator {
    * @param {Object} [options.configLoader] - Pre-configured ConfigLoader (for DI/testing)
    * @param {Object} [options.configValidator] - Pre-configured ConfigValidator (for DI/testing)
    * @param {Object} [options.migrationRunner] - Pre-configured MigrationRunner (for DI/testing)
+   * @param {import('../secrets/secrets-manager.js').SecretsManager} [options.secretsManager] -
+   *   Pre-configured SecretsManager instance (for DI/testing). If not provided and the loaded
+   *   config has a `secrets` section, one is created automatically in _createComponents().
+   * @param {Function} [options.secretsManagerFactory] - Factory (config) => SecretsManager
    * @param {Function} [options.storageFactory] - Factory to create storage (for DI/testing)
    * @param {Function} [options.botManagerFactory] - Factory to create BotManager (for DI/testing)
    * @param {Function} [options.sessionManagerFactory] - Factory to create SessionManager (for DI)
@@ -100,6 +106,7 @@ export class Orchestrator {
     this.configLoader = options.configLoader || new ConfigLoader();
     this.configValidator = options.configValidator || new ConfigValidator();
     this.migrationRunner = options.migrationRunner || null;
+    this.secretsManager = options.secretsManager || null;
 
     // BotReloader for granular hot-reload
     this.botReloader = options.botReloader || null;
@@ -112,6 +119,7 @@ export class Orchestrator {
     this.messageProcessorFactory = options.messageProcessorFactory || null;
     this.messageRouterFactory = options.messageRouterFactory || null;
     this.botReloaderFactory = options.botReloaderFactory || null;
+    this.secretsManagerFactory = options.secretsManagerFactory || null;
 
     // Adapter registries
     this.channelAdapters = new Map();
@@ -164,8 +172,8 @@ export class Orchestrator {
       // Step 3: Run migrations
       await this._runMigrations();
 
-      // Step 4: Create component instances (BotManager, SessionManager)
-      this._createComponents();
+      // Step 4: Create component instances (BotManager, SessionManager, SecretsManager)
+      await this._createComponents();
 
       // Step 5: Discover and load bots
       const { discovered: discoveredCount, loaded: loadedCount } = await this._loadBots();
@@ -569,8 +577,12 @@ export class Orchestrator {
    * Create component instances that weren't injected
    *
    * @private
+   * @returns {Promise<void>}
    */
-  _createComponents() {
+  async _createComponents() {
+    // Create SecretsManager if not injected and secrets config exists
+    await this._createSecretsManager();
+
     if (!this.botManager && this.botManagerFactory) {
       this.botManager = this.botManagerFactory(this.storage, this.config);
     }
@@ -604,6 +616,85 @@ export class Orchestrator {
       }
       this.botReloader = reloader;
     }
+  }
+
+  /**
+   * Create and configure SecretsManager from config
+   *
+   * If a SecretsManager is already injected, wires it into the ConfigLoader.
+   * Otherwise, if the loaded config has a `secrets` section or a factory is
+   * provided, creates a SecretsManager with the configured adapters and
+   * attaches it to the ConfigLoader for subsequent config loads (e.g., bot configs).
+   *
+   * Always registers an EnvAdapter as the 'env' adapter so plain ${VAR}
+   * references continue to work.
+   *
+   * @private
+   * @returns {Promise<void>}
+   */
+  async _createSecretsManager() {
+    if (this.secretsManager) {
+      // Wire an already-injected SecretsManager into ConfigLoader
+      this.configLoader.secretsManager = this.secretsManager;
+      this._log('🔐 SecretsManager injected and wired to ConfigLoader');
+      return;
+    }
+
+    if (this.secretsManagerFactory) {
+      this.secretsManager = this.secretsManagerFactory(this.config);
+      this.configLoader.secretsManager = this.secretsManager;
+      this._log('🔐 SecretsManager created via factory');
+      return;
+    }
+
+    const secretsConfig = this.config.secrets;
+
+    // If no secrets config and no registered secret adapters, skip creation
+    if (!secretsConfig && this.secretAdapters.size === 0) {
+      return;
+    }
+
+    // Determine cache settings
+    const cacheConfig = secretsConfig?.cache;
+    const cacheEnabled = cacheConfig?.enabled !== false;
+    const cacheTtl = cacheConfig?.ttl;
+
+    const manager = new SecretsManager({
+      cacheEnabled,
+      cacheTtl,
+    });
+
+    // Always register the env adapter
+    const envAdapter = new EnvAdapter();
+    manager.registerAdapter('env', envAdapter);
+
+    // Collect adapter configs for initialization
+    const adapterConfigs = {};
+
+    // Register adapters from the secretAdapters registry (registered via registerSecretAdapter)
+    for (const [name, AdapterClass] of this.secretAdapters) {
+      try {
+        const adapterConfig = secretsConfig?.adapters?.[name] || {};
+        const adapter = new AdapterClass();
+        manager.registerAdapter(name, adapter);
+        adapterConfigs[name] = adapterConfig;
+        this._log(`  🔐 Registered secret adapter: ${name}`);
+      } catch (err) {
+        this._log(`  ⚠️ Failed to register secret adapter '${name}': ${err.message}`);
+      }
+    }
+
+    // Initialize all adapters (env adapter needs initialization too)
+    try {
+      await manager.initialize(adapterConfigs);
+    } catch (err) {
+      // Log but don't fail — some adapters may have initialized successfully
+      this._log(`  ⚠️ SecretsManager initialization warning: ${err.message}`);
+    }
+
+    this.secretsManager = manager;
+    this.configLoader.secretsManager = manager;
+    this._log('🔐 SecretsManager created and wired to ConfigLoader');
   }
 
   /**

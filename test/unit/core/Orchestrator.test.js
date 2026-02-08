@@ -2071,6 +2071,161 @@ describe('Orchestrator', () => {
       await orch.stop();
     });
   });
+
+  // ===========================================================================
+  // SecretsManager Integration
+  // ===========================================================================
+
+  describe('secretsManager', () => {
+    test('constructor accepts secretsManager option', () => {
+      const mockManager = {
+        resolveAll: mock.fn(),
+        registerAdapter: mock.fn(),
+        initialize: mock.fn(),
+      };
+      const orch = new Orchestrator({ ...opts, secretsManager: mockManager });
+      assert.equal(orch.secretsManager, mockManager);
+    });
+
+    test('constructor defaults secretsManager to null', () => {
+      const orch = new Orchestrator({ logger: null });
+      assert.equal(orch.secretsManager, null);
+    });
+
+    test('constructor accepts secretsManagerFactory option', () => {
+      const factory = mock.fn();
+      const orch = new Orchestrator({ ...opts, secretsManagerFactory: factory });
+      assert.equal(orch.secretsManagerFactory, factory);
+    });
+
+    test('wires injected secretsManager to configLoader on start', async () => {
+      const mockManager = {
+        resolveAll: mock.fn(async c => c),
+        registerAdapter: mock.fn(),
+        initialize: mock.fn(async () => {}),
+        initialized: true,
+      };
+      const orch = new Orchestrator({ ...opts, secretsManager: mockManager });
+
+      await orch.start();
+
+      assert.equal(orch.configLoader.secretsManager, mockManager);
+      assert.equal(orch.secretsManager, mockManager);
+
+      await orch.stop();
+    });
+
+    test('creates secretsManager via factory when provided', async () => {
+      const mockManager = {
+        resolveAll: mock.fn(async c => c),
+        registerAdapter: mock.fn(),
+        initialize: mock.fn(async () => {}),
+        initialized: true,
+      };
+      const factory = mock.fn(() => mockManager);
+
+      const orch = new Orchestrator({ ...opts, secretsManagerFactory: factory });
+
+      await orch.start();
+
+      assert.equal(factory.mock.callCount(), 1);
+      assert.equal(orch.secretsManager, mockManager);
+      assert.equal(orch.configLoader.secretsManager, mockManager);
+
+      await orch.stop();
+    });
+
+    test('auto-creates secretsManager when secrets config section exists', async () => {
+      const mainConfigWithSecrets = createMainConfig({
+        secrets: {
+          provider: 'env',
+          cache: { enabled: true, ttl: 60000 },
+        },
+      });
+
+      const configLoader = createMockConfigLoader({
+        mainConfig: mainConfigWithSecrets,
+      });
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader,
+      });
+
+      await orch.start();
+
+      // SecretsManager should have been created automatically
+      assert.ok(orch.secretsManager);
+      assert.equal(orch.configLoader.secretsManager, orch.secretsManager);
+
+      // env adapter should be registered
+      const adapterNames = orch.secretsManager.getAdapterNames();
+      assert.ok(adapterNames.includes('env'));
+
+      await orch.stop();
+    });
+
+    test('does not create secretsManager when no secrets config and no adapters', async () => {
+      // Default config has no secrets section
+      const orch = new Orchestrator(opts);
+
+      await orch.start();
+
+      assert.equal(orch.secretsManager, null);
+
+      await orch.stop();
+    });
+
+    test('creates secretsManager when secret adapters are registered', async () => {
+      const orch = new Orchestrator(opts);
+
+      // Register a mock secret adapter
+      class MockAdapter {
+        async initialize() {
+          this.initialized = true;
+        }
+        async getSecret(key) {
+          return `resolved-${key}`;
+        }
+      }
+      orch.registerSecretAdapter('mock-vault', MockAdapter);
+
+      await orch.start();
+
+      assert.ok(orch.secretsManager);
+      const adapterNames = orch.secretsManager.getAdapterNames();
+      assert.ok(adapterNames.includes('env'));
+      assert.ok(adapterNames.includes('mock-vault'));
+
+      await orch.stop();
+    });
+
+    test('secretsManager uses cache config from secrets section', async () => {
+      const mainConfigWithCache = createMainConfig({
+        secrets: {
+          provider: 'env',
+          cache: { enabled: true, ttl: 120000 },
+        },
+      });
+
+      const configLoader = createMockConfigLoader({
+        mainConfig: mainConfigWithCache,
+      });
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader,
+      });
+
+      await orch.start();
+
+      const stats = orch.secretsManager.getCacheStats();
+      assert.ok(stats);
+      assert.equal(stats.ttl, 120000);
+
+      await orch.stop();
+    });
+  });
 });
 
 // =============================================================================

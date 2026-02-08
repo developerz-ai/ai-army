@@ -388,4 +388,296 @@ describe('ModelFactory', () => {
       assert.equal(err.cause, undefined);
     });
   });
+
+  describe('createModelWithFallback()', () => {
+    test('creates primary model when it succeeds', () => {
+      const result = ModelFactory.createModelWithFallback({
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        apiKey: 'sk-ant-test',
+      });
+
+      assert.ok(result.model);
+      assert.equal(result.provider, 'anthropic');
+      assert.equal(result.modelName, 'claude-sonnet-4-5');
+      assert.equal(result.fallbackUsed, false);
+      assert.equal(result.attempts, 1);
+    });
+
+    test('falls back to second provider when primary fails', () => {
+      const result = ModelFactory.createModelWithFallback({
+        provider: 'nonexistent',
+        model: 'some-model',
+        fallbacks: [{ provider: 'anthropic', model: 'claude-sonnet-4-5', apiKey: 'test-key' }],
+      });
+
+      assert.ok(result.model);
+      assert.equal(result.provider, 'anthropic');
+      assert.equal(result.modelName, 'claude-sonnet-4-5');
+      assert.equal(result.fallbackUsed, true);
+      assert.equal(result.attempts, 2);
+    });
+
+    test('falls back through multiple providers', () => {
+      const result = ModelFactory.createModelWithFallback({
+        provider: 'nonexistent1',
+        model: 'model1',
+        fallbacks: [
+          { provider: 'nonexistent2', model: 'model2' },
+          { provider: 'anthropic', model: 'claude-haiku-4-5', apiKey: 'test' },
+        ],
+      });
+
+      assert.ok(result.model);
+      assert.equal(result.provider, 'anthropic');
+      assert.equal(result.modelName, 'claude-haiku-4-5');
+      assert.equal(result.fallbackUsed, true);
+      assert.equal(result.attempts, 3);
+    });
+
+    test('throws when all attempts fail', () => {
+      assert.throws(
+        () =>
+          ModelFactory.createModelWithFallback({
+            provider: 'nonexistent1',
+            model: 'model1',
+            fallbacks: [{ provider: 'nonexistent2', model: 'model2' }],
+          }),
+        err => {
+          assert.ok(err instanceof ModelFactoryError);
+          assert.match(err.message, /All model creation attempts failed/);
+          assert.match(err.message, /2 tried/);
+          assert.equal(err.provider, 'nonexistent1');
+          assert.equal(err.modelName, 'model1');
+          assert.ok(err.cause);
+          return true;
+        }
+      );
+    });
+
+    test('calls onFallback callback when fallback is used', () => {
+      let fallbackInfo = null;
+
+      ModelFactory.createModelWithFallback({
+        provider: 'nonexistent',
+        model: 'bad-model',
+        fallbacks: [{ provider: 'openai', model: 'gpt-4o', apiKey: 'test' }],
+        onFallback: info => {
+          fallbackInfo = info;
+        },
+      });
+
+      assert.ok(fallbackInfo);
+      assert.equal(fallbackInfo.originalProvider, 'nonexistent');
+      assert.equal(fallbackInfo.originalModel, 'bad-model');
+      assert.equal(fallbackInfo.fallbackProvider, 'openai');
+      assert.equal(fallbackInfo.fallbackModel, 'gpt-4o');
+      assert.equal(fallbackInfo.attemptIndex, 1);
+      assert.ok(Array.isArray(fallbackInfo.errors));
+      assert.equal(fallbackInfo.errors.length, 1);
+    });
+
+    test('does not call onFallback when primary succeeds', () => {
+      let called = false;
+
+      ModelFactory.createModelWithFallback({
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        apiKey: 'test',
+        fallbacks: [{ provider: 'openai', model: 'gpt-4o', apiKey: 'test' }],
+        onFallback: () => {
+          called = true;
+        },
+      });
+
+      assert.equal(called, false);
+    });
+
+    test('works with empty fallbacks array', () => {
+      const result = ModelFactory.createModelWithFallback({
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        apiKey: 'test',
+        fallbacks: [],
+      });
+
+      assert.ok(result.model);
+      assert.equal(result.fallbackUsed, false);
+    });
+
+    test('works without fallbacks property', () => {
+      const result = ModelFactory.createModelWithFallback({
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        apiKey: 'test',
+      });
+
+      assert.ok(result.model);
+      assert.equal(result.fallbackUsed, false);
+    });
+
+    test('throws on null config', () => {
+      assert.throws(
+        () => ModelFactory.createModelWithFallback(null),
+        err => {
+          assert.ok(err instanceof ModelFactoryError);
+          assert.match(err.message, /Configuration object is required/);
+          return true;
+        }
+      );
+    });
+
+    test('throws on non-object config', () => {
+      assert.throws(
+        () => ModelFactory.createModelWithFallback('not-object'),
+        err => {
+          assert.ok(err instanceof ModelFactoryError);
+          return true;
+        }
+      );
+    });
+
+    test('throws on missing provider', () => {
+      assert.throws(
+        () => ModelFactory.createModelWithFallback({ model: 'test' }),
+        err => {
+          assert.ok(err instanceof ModelFactoryError);
+          assert.match(err.message, /Primary provider and model are required/);
+          return true;
+        }
+      );
+    });
+
+    test('throws on missing model', () => {
+      assert.throws(
+        () => ModelFactory.createModelWithFallback({ provider: 'anthropic' }),
+        err => {
+          assert.ok(err instanceof ModelFactoryError);
+          assert.match(err.message, /Primary provider and model are required/);
+          return true;
+        }
+      );
+    });
+
+    test('respects max fallback attempts limit', () => {
+      assert.throws(
+        () =>
+          ModelFactory.createModelWithFallback({
+            provider: 'bad1',
+            model: 'model',
+            fallbacks: [
+              { provider: 'bad2', model: 'model' },
+              { provider: 'bad3', model: 'model' },
+              { provider: 'bad4', model: 'model' },
+              { provider: 'anthropic', model: 'claude-sonnet-4-5', apiKey: 'test' },
+            ],
+          }),
+        err => {
+          assert.ok(err instanceof ModelFactoryError);
+          // Should only try max attempts (primary + 3 fallbacks = 4)
+          // bad1, bad2, bad3, bad4 — the 5th (anthropic) should not be tried
+          return true;
+        }
+      );
+    });
+
+    test('passes options through to underlying createModel', () => {
+      const result = ModelFactory.createModelWithFallback({
+        provider: 'openai',
+        model: 'gpt-4o',
+        apiKey: 'test',
+        options: { baseUrl: 'https://custom.example.com/v1' },
+      });
+
+      assert.ok(result.model);
+      assert.equal(result.provider, 'openai');
+    });
+  });
+
+  describe('isFallbackEligible()', () => {
+    test('returns true for 429 status code', () => {
+      assert.equal(ModelFactory.isFallbackEligible({ statusCode: 429 }), true);
+    });
+
+    test('returns true for 500 status code', () => {
+      assert.equal(ModelFactory.isFallbackEligible({ statusCode: 500 }), true);
+    });
+
+    test('returns true for 502 status code', () => {
+      assert.equal(ModelFactory.isFallbackEligible({ statusCode: 502 }), true);
+    });
+
+    test('returns true for 503 status code', () => {
+      assert.equal(ModelFactory.isFallbackEligible({ statusCode: 503 }), true);
+    });
+
+    test('returns true for 504 status code', () => {
+      assert.equal(ModelFactory.isFallbackEligible({ statusCode: 504 }), true);
+    });
+
+    test('returns true for status property (alternative)', () => {
+      assert.equal(ModelFactory.isFallbackEligible({ status: 429 }), true);
+    });
+
+    test('returns false for 400 status code', () => {
+      assert.equal(ModelFactory.isFallbackEligible({ statusCode: 400 }), false);
+    });
+
+    test('returns false for 401 status code', () => {
+      assert.equal(ModelFactory.isFallbackEligible({ statusCode: 401 }), false);
+    });
+
+    test('returns false for null error', () => {
+      assert.equal(ModelFactory.isFallbackEligible(null), false);
+    });
+
+    test('returns false for undefined error', () => {
+      assert.equal(ModelFactory.isFallbackEligible(undefined), false);
+    });
+
+    test('returns true for rate limit message', () => {
+      const err = new Error('Rate limit exceeded');
+      assert.equal(ModelFactory.isFallbackEligible(err), true);
+    });
+
+    test('returns true for too many requests message', () => {
+      const err = new Error('Too many requests');
+      assert.equal(ModelFactory.isFallbackEligible(err), true);
+    });
+
+    test('returns true for service unavailable message', () => {
+      const err = new Error('Service unavailable');
+      assert.equal(ModelFactory.isFallbackEligible(err), true);
+    });
+
+    test('returns true for timeout message', () => {
+      const err = new Error('Request timeout');
+      assert.equal(ModelFactory.isFallbackEligible(err), true);
+    });
+
+    test('returns true for ECONNREFUSED message', () => {
+      const err = new Error('connect ECONNREFUSED 127.0.0.1:11434');
+      assert.equal(ModelFactory.isFallbackEligible(err), true);
+    });
+
+    test('returns true for ECONNRESET message', () => {
+      const err = new Error('socket hang up ECONNRESET');
+      assert.equal(ModelFactory.isFallbackEligible(err), true);
+    });
+
+    test('returns true for network error message', () => {
+      const err = new Error('Network error occurred');
+      assert.equal(ModelFactory.isFallbackEligible(err), true);
+    });
+
+    test('returns false for authentication error message', () => {
+      const err = new Error('Invalid API key');
+      assert.equal(ModelFactory.isFallbackEligible(err), false);
+    });
+
+    test('returns false for generic error', () => {
+      const err = new Error('Something went wrong');
+      assert.equal(ModelFactory.isFallbackEligible(err), false);
+    });
+  });
 });

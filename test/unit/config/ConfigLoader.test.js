@@ -5,7 +5,7 @@
  * and deep merging of configuration objects.
  */
 
-import { test, describe, beforeEach, afterEach } from 'node:test';
+import { test, describe, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs/promises';
 import path from 'path';
@@ -421,6 +421,188 @@ describe('ConfigLoader', () => {
       } finally {
         await cleanupTempConfig(configPath);
       }
+    });
+  });
+
+  describe('constructor with secretsManager', () => {
+    test('stores secretsManager when provided', () => {
+      const mockManager = { resolveAll: mock.fn() };
+      const loaderWithSecrets = new ConfigLoader({ secretsManager: mockManager });
+      assert.equal(loaderWithSecrets.secretsManager, mockManager);
+    });
+
+    test('defaults secretsManager to null', () => {
+      const loaderNoSecrets = new ConfigLoader();
+      assert.equal(loaderNoSecrets.secretsManager, null);
+    });
+  });
+
+  describe('load() with SecretsManager', () => {
+    /**
+     * Create a mock SecretsManager
+     * @param {Object} [overrides] - Override mock methods
+     * @returns {Object} Mock SecretsManager
+     */
+    function createMockSecretsManager(overrides = {}) {
+      return {
+        resolveAll: mock.fn(async config => config),
+        resolve: mock.fn(async ref => ref),
+        ...overrides,
+      };
+    }
+
+    test('uses SecretsManager when set on instance', async () => {
+      const mockManager = createMockSecretsManager({
+        resolveAll: mock.fn(async () => ({
+          apiKey: 'resolved-secret',
+        })),
+      });
+
+      const loaderWithSecrets = new ConfigLoader({ secretsManager: mockManager });
+      const config = { apiKey: '${bw:vault/api-key}' };
+      const configPath = await createTempConfig(config);
+
+      try {
+        const result = await loaderWithSecrets.load(configPath);
+        assert.equal(result.apiKey, 'resolved-secret');
+        assert.equal(mockManager.resolveAll.mock.callCount(), 1);
+      } finally {
+        await cleanupTempConfig(configPath);
+      }
+    });
+
+    test('uses per-call secretsManager over instance-level', async () => {
+      const instanceManager = createMockSecretsManager({
+        resolveAll: mock.fn(async () => ({ source: 'instance' })),
+      });
+      const callManager = createMockSecretsManager({
+        resolveAll: mock.fn(async () => ({ source: 'call' })),
+      });
+
+      const loaderWithSecrets = new ConfigLoader({ secretsManager: instanceManager });
+      const config = { key: '${SECRET}' };
+      const configPath = await createTempConfig(config);
+
+      try {
+        const result = await loaderWithSecrets.load(configPath, { secretsManager: callManager });
+        assert.equal(result.source, 'call');
+        assert.equal(callManager.resolveAll.mock.callCount(), 1);
+        assert.equal(instanceManager.resolveAll.mock.callCount(), 0);
+      } finally {
+        await cleanupTempConfig(configPath);
+      }
+    });
+
+    test('falls back to env interpolation when no secretsManager', async () => {
+      process.env.TEST_FALLBACK_VAR = 'fallback-value';
+
+      const config = { key: '${TEST_FALLBACK_VAR}' };
+      const configPath = await createTempConfig(config);
+
+      try {
+        const result = await loader.load(configPath);
+        assert.equal(result.key, 'fallback-value');
+      } finally {
+        await cleanupTempConfig(configPath);
+        delete process.env.TEST_FALLBACK_VAR;
+      }
+    });
+
+    test('wraps SecretsManager errors in ConfigError', async () => {
+      const failingManager = createMockSecretsManager({
+        resolveAll: mock.fn(async () => {
+          throw new Error('Adapter connection failed');
+        }),
+      });
+
+      const loaderWithSecrets = new ConfigLoader({ secretsManager: failingManager });
+      const config = { key: '${bw:vault/missing}' };
+      const configPath = await createTempConfig(config);
+
+      try {
+        await assert.rejects(
+          () => loaderWithSecrets.load(configPath),
+          err => {
+            assert.equal(err.name, 'ConfigError');
+            assert.match(err.message, /Failed to resolve secrets/);
+            assert.match(err.message, /Adapter connection failed/);
+            assert.ok(err.cause);
+            return true;
+          }
+        );
+      } finally {
+        await cleanupTempConfig(configPath);
+      }
+    });
+
+    test('resolves nested objects via SecretsManager', async () => {
+      const mockManager = createMockSecretsManager({
+        resolveAll: mock.fn(async config => {
+          // Simulate resolving all strings in the config
+          const resolve = obj => {
+            if (typeof obj === 'string' && obj.startsWith('${')) {
+              return 'resolved';
+            }
+            if (Array.isArray(obj)) return obj.map(resolve);
+            if (obj !== null && typeof obj === 'object') {
+              return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, resolve(v)]));
+            }
+            return obj;
+          };
+          return resolve(config);
+        }),
+      });
+
+      const loaderWithSecrets = new ConfigLoader({ secretsManager: mockManager });
+      const config = {
+        providers: {
+          anthropic: { apiKey: '${ANTHROPIC_KEY}' },
+        },
+        channels: {
+          slack: { botToken: '${bw:prod/slack-token}' },
+        },
+        debug: true,
+      };
+      const configPath = await createTempConfig(config);
+
+      try {
+        const result = await loaderWithSecrets.load(configPath);
+        assert.equal(result.providers.anthropic.apiKey, 'resolved');
+        assert.equal(result.channels.slack.botToken, 'resolved');
+        assert.equal(result.debug, true);
+      } finally {
+        await cleanupTempConfig(configPath);
+      }
+    });
+  });
+
+  describe('hasSecretReferences()', () => {
+    test('returns true for adapter-prefixed references', () => {
+      assert.equal(loader.hasSecretReferences({ key: '${bw:vault/item}' }), true);
+      assert.equal(loader.hasSecretReferences({ key: '${1p:vault/item}' }), true);
+    });
+
+    test('returns false for plain env var references', () => {
+      assert.equal(loader.hasSecretReferences({ key: '${MY_VAR}' }), false);
+      assert.equal(loader.hasSecretReferences({ key: '${VAR:-default}' }), false);
+    });
+
+    test('returns false for no references', () => {
+      assert.equal(loader.hasSecretReferences({ key: 'plain-value' }), false);
+      assert.equal(loader.hasSecretReferences({ num: 42 }), false);
+    });
+
+    test('detects references in nested objects', () => {
+      assert.equal(
+        loader.hasSecretReferences({
+          level1: { level2: { key: '${bw:vault/secret}' } },
+        }),
+        true
+      );
+    });
+
+    test('detects references in arrays', () => {
+      assert.equal(loader.hasSecretReferences({ items: ['${1p:vault/secret}', 'plain'] }), true);
     });
   });
 });

@@ -12,6 +12,16 @@ import {
   ConfigValidationError,
   MainConfigSchema,
   BotConfigSchema,
+  ProviderSpecificSchemas,
+  AnthropicProviderSchema,
+  OpenAIProviderSchema,
+  OpenRouterProviderSchema,
+  OllamaProviderSchema,
+  GoogleProviderSchema,
+  CustomProviderSchema,
+  SecretsConfigSchema,
+  SecretAdapterConfigSchema,
+  SecretCacheConfigSchema,
 } from '../../../src/config/ConfigValidator.js';
 
 describe('ConfigValidator', () => {
@@ -815,6 +825,329 @@ describe('Zod Schemas', () => {
 
       const result = BotConfigSchema.safeParse(fullConfig);
       assert.ok(result.success, `Failed: ${JSON.stringify(result.error?.issues)}`);
+    });
+  });
+
+  describe('SecretsConfigSchema', () => {
+    test('accepts minimal secrets config', () => {
+      const result = SecretsConfigSchema.safeParse({});
+      assert.ok(result.success, `Failed: ${JSON.stringify(result.error?.issues)}`);
+      assert.equal(result.data.provider, 'env');
+    });
+
+    test('accepts simple provider-only config', () => {
+      const result = SecretsConfigSchema.safeParse({
+        provider: 'bitwarden',
+        config: { sessionToken: 'abc' },
+      });
+      assert.ok(result.success, `Failed: ${JSON.stringify(result.error?.issues)}`);
+      assert.equal(result.data.provider, 'bitwarden');
+    });
+
+    test('accepts extended config with adapters map', () => {
+      const result = SecretsConfigSchema.safeParse({
+        provider: 'env',
+        default: 'env',
+        adapters: {
+          bitwarden: {
+            type: 'bitwarden',
+            sessionToken: 'bw-session',
+          },
+          onepassword: {
+            type: '1password',
+            account: 'company.1password.com',
+            token: 'op-token',
+          },
+        },
+        cache: {
+          enabled: true,
+          ttl: 120000,
+        },
+      });
+      assert.ok(result.success, `Failed: ${JSON.stringify(result.error?.issues)}`);
+      assert.equal(Object.keys(result.data.adapters).length, 2);
+      assert.equal(result.data.cache.ttl, 120000);
+    });
+
+    test('rejects invalid provider type', () => {
+      const result = SecretsConfigSchema.safeParse({
+        provider: 'invalid-provider',
+      });
+      assert.ok(!result.success);
+    });
+
+    test('rejects invalid adapter type', () => {
+      const result = SecretAdapterConfigSchema.safeParse({
+        type: 'invalid',
+      });
+      assert.ok(!result.success);
+    });
+
+    test('validates cache config with defaults', () => {
+      const result = SecretCacheConfigSchema.safeParse({});
+      assert.ok(result.success, `Failed: ${JSON.stringify(result.error?.issues)}`);
+      assert.equal(result.data.enabled, true);
+      assert.equal(result.data.ttl, 300000);
+    });
+
+    test('rejects negative cache TTL', () => {
+      const result = SecretCacheConfigSchema.safeParse({
+        ttl: -1000,
+      });
+      assert.ok(!result.success);
+    });
+
+    test('allows adapter-specific passthrough fields', () => {
+      const result = SecretAdapterConfigSchema.safeParse({
+        type: 'bitwarden',
+        sessionToken: 'bw-session-123',
+        extraField: 'allowed-by-passthrough',
+      });
+      assert.ok(result.success, `Failed: ${JSON.stringify(result.error?.issues)}`);
+      assert.equal(result.data.sessionToken, 'bw-session-123');
+      assert.equal(result.data.extraField, 'allowed-by-passthrough');
+    });
+
+    test('main config accepts secrets with adapters', () => {
+      const validator = new ConfigValidator();
+      const config = {
+        providers: {},
+        channels: {},
+        secrets: {
+          provider: 'env',
+          default: 'bitwarden',
+          adapters: {
+            bitwarden: {
+              type: 'bitwarden',
+              sessionToken: 'bw-session',
+            },
+          },
+          cache: {
+            enabled: true,
+            ttl: 60000,
+          },
+        },
+      };
+
+      const result = validator.validateMainConfig(config);
+      assert.ok(result.valid, `Should be valid: ${JSON.stringify(result.errors)}`);
+      assert.ok(result.data.secrets);
+      assert.equal(result.data.secrets.default, 'bitwarden');
+    });
+  });
+
+  describe('ProviderSpecificSchemas', () => {
+    test('is a frozen object', () => {
+      assert.ok(Object.isFrozen(ProviderSpecificSchemas));
+    });
+
+    test('has schemas for all provider types', () => {
+      const expectedTypes = ['anthropic', 'openai', 'openrouter', 'ollama', 'google', 'custom'];
+      for (const type of expectedTypes) {
+        assert.ok(ProviderSpecificSchemas[type], `Should have schema for ${type}`);
+      }
+    });
+
+    describe('AnthropicProviderSchema', () => {
+      test('accepts valid anthropic config', () => {
+        const result = AnthropicProviderSchema.safeParse({
+          type: 'anthropic',
+          apiKey: 'sk-ant-test',
+        });
+        assert.ok(result.success);
+      });
+
+      test('accepts config with baseUrl', () => {
+        const result = AnthropicProviderSchema.safeParse({
+          type: 'anthropic',
+          baseUrl: 'https://custom-api.example.com',
+        });
+        assert.ok(result.success);
+      });
+
+      test('rejects wrong type literal', () => {
+        const result = AnthropicProviderSchema.safeParse({
+          type: 'openai',
+          apiKey: 'key',
+        });
+        assert.ok(!result.success);
+      });
+    });
+
+    describe('OpenAIProviderSchema', () => {
+      test('accepts valid openai config', () => {
+        const result = OpenAIProviderSchema.safeParse({
+          type: 'openai',
+          apiKey: 'sk-test',
+        });
+        assert.ok(result.success);
+      });
+
+      test('accepts organization field', () => {
+        const result = OpenAIProviderSchema.safeParse({
+          type: 'openai',
+          apiKey: 'sk-test',
+          organization: 'org-123',
+        });
+        assert.ok(result.success);
+        assert.equal(result.data.organization, 'org-123');
+      });
+
+      test('rejects invalid baseUrl', () => {
+        const result = OpenAIProviderSchema.safeParse({
+          type: 'openai',
+          baseUrl: 'not-a-url',
+        });
+        assert.ok(!result.success);
+      });
+    });
+
+    describe('OpenRouterProviderSchema', () => {
+      test('accepts valid openrouter config', () => {
+        const result = OpenRouterProviderSchema.safeParse({
+          type: 'openrouter',
+          apiKey: 'sk-or-test',
+        });
+        assert.ok(result.success);
+      });
+
+      test('accepts siteUrl and siteName', () => {
+        const result = OpenRouterProviderSchema.safeParse({
+          type: 'openrouter',
+          apiKey: 'sk-or-test',
+          siteUrl: 'https://mysite.com',
+          siteName: 'My App',
+        });
+        assert.ok(result.success);
+        assert.equal(result.data.siteName, 'My App');
+      });
+    });
+
+    describe('OllamaProviderSchema', () => {
+      test('accepts ollama config without apiKey', () => {
+        const result = OllamaProviderSchema.safeParse({
+          type: 'ollama',
+          baseUrl: 'http://localhost:11434',
+        });
+        assert.ok(result.success);
+      });
+
+      test('accepts minimal ollama config', () => {
+        const result = OllamaProviderSchema.safeParse({
+          type: 'ollama',
+        });
+        assert.ok(result.success);
+      });
+    });
+
+    describe('GoogleProviderSchema', () => {
+      test('accepts valid google config', () => {
+        const result = GoogleProviderSchema.safeParse({
+          type: 'google',
+          apiKey: 'google-key',
+        });
+        assert.ok(result.success);
+      });
+    });
+
+    describe('CustomProviderSchema', () => {
+      test('accepts custom config with extra fields', () => {
+        const result = CustomProviderSchema.safeParse({
+          type: 'custom',
+          apiKey: 'key',
+          customField: 'value',
+          anotherField: 42,
+        });
+        assert.ok(result.success);
+        assert.equal(result.data.customField, 'value');
+      });
+    });
+  });
+
+  describe('validateProviderConfig()', () => {
+    const validator = new ConfigValidator();
+
+    test('validates anthropic provider config', () => {
+      const result = validator.validateProviderConfig({
+        type: 'anthropic',
+        apiKey: 'sk-ant-test',
+      });
+      assert.equal(result.valid, true);
+      assert.deepEqual(result.errors, []);
+      assert.ok(result.data);
+    });
+
+    test('validates openai provider config', () => {
+      const result = validator.validateProviderConfig({
+        type: 'openai',
+        apiKey: 'sk-test',
+        organization: 'org-123',
+      });
+      assert.equal(result.valid, true);
+    });
+
+    test('validates ollama provider config without apiKey', () => {
+      const result = validator.validateProviderConfig({
+        type: 'ollama',
+        baseUrl: 'http://localhost:11434',
+      });
+      assert.equal(result.valid, true);
+    });
+
+    test('validates openrouter provider config', () => {
+      const result = validator.validateProviderConfig({
+        type: 'openrouter',
+        apiKey: 'sk-or-test',
+        baseURL: 'https://openrouter.ai/api/v1',
+      });
+      assert.equal(result.valid, true);
+    });
+
+    test('validates custom provider with extra fields', () => {
+      const result = validator.validateProviderConfig({
+        type: 'custom',
+        customEndpoint: 'https://my-api.com',
+        customHeader: 'x-api-key',
+      });
+      assert.equal(result.valid, true);
+    });
+
+    test('returns invalid for null config', () => {
+      const result = validator.validateProviderConfig(null);
+      assert.equal(result.valid, false);
+      assert.ok(result.errors.length > 0);
+      assert.equal(result.data, null);
+    });
+
+    test('returns invalid for non-object config', () => {
+      const result = validator.validateProviderConfig('string');
+      assert.equal(result.valid, false);
+    });
+
+    test('returns invalid for config with invalid baseUrl', () => {
+      const result = validator.validateProviderConfig({
+        type: 'openai',
+        baseUrl: 'not-a-url',
+      });
+      assert.equal(result.valid, false);
+      assert.ok(result.errors.length > 0);
+    });
+
+    test('falls back to general schema for unknown type', () => {
+      // When the type doesn't match a specific schema, it uses ProviderConfigSchema
+      // which will reject unknown types via the ProviderTypeSchema enum
+      const result = validator.validateProviderConfig({
+        type: 'bedrock',
+      });
+      assert.equal(result.valid, false);
+    });
+
+    test('validates config without type field', () => {
+      const result = validator.validateProviderConfig({
+        apiKey: 'key',
+      });
+      // Should fall back to general ProviderConfigSchema which requires type
+      assert.equal(result.valid, false);
     });
   });
 });

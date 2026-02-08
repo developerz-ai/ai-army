@@ -4,6 +4,7 @@
  * Handles:
  * - Loading JSON configuration files
  * - Environment variable interpolation (${VAR}, ${VAR:-default}, ${VAR:+value})
+ * - Secret resolution via SecretsManager (${bw:vault/item}, ${1p:vault/item})
  * - Deep merging of configuration objects
  *
  * @module ConfigLoader
@@ -11,6 +12,7 @@
 
 import fs from 'fs/promises';
 import deepmerge from 'deepmerge';
+import { ReferenceParser } from '../secrets/reference-parser.js';
 
 /**
  * Custom error for configuration-related failures
@@ -37,13 +39,38 @@ export class ConfigError extends Error {
  */
 export class ConfigLoader {
   /**
-   * Load a configuration file, parse JSON, and interpolate environment variables
+   * Create a ConfigLoader instance
+   *
+   * @param {Object} [options] - Loader options
+   * @param {import('../secrets/secrets-manager.js').SecretsManager} [options.secretsManager] -
+   *   Optional SecretsManager for resolving secret references (${bw:...}, ${1p:...}).
+   *   When provided, secret resolution runs after JSON parsing, replacing the default
+   *   env-only interpolation for strings that contain adapter-prefixed references.
+   *   Plain ${VAR} references are still routed through the SecretsManager's env adapter.
+   */
+  constructor(options = {}) {
+    /** @type {import('../secrets/secrets-manager.js').SecretsManager|null} */
+    this.secretsManager = options.secretsManager || null;
+
+    /** @type {ReferenceParser} */
+    this._refParser = new ReferenceParser();
+  }
+
+  /**
+   * Load a configuration file, parse JSON, and resolve secrets / interpolate env vars
+   *
+   * When a SecretsManager is configured, all ${...} references (including adapter-prefixed
+   * ones like ${bw:vault/item}) are resolved via the SecretsManager. Otherwise, falls back
+   * to the legacy env-only interpolation.
    *
    * @param {string} configPath - Path to the configuration file
+   * @param {Object} [options] - Load options
+   * @param {import('../secrets/secrets-manager.js').SecretsManager} [options.secretsManager] -
+   *   Per-call SecretsManager override. Takes precedence over instance-level secretsManager.
    * @returns {Promise<Object>} - Parsed and interpolated configuration object
    * @throws {ConfigError} - If file doesn't exist, is invalid JSON, or has missing required env vars
    */
-  async load(configPath) {
+  async load(configPath, options = {}) {
     let raw;
 
     try {
@@ -63,6 +90,13 @@ export class ConfigLoader {
         cause: err,
         configPath,
       });
+    }
+
+    // Prefer per-call secretsManager, then instance-level, then fall back to env interpolation
+    const manager = options.secretsManager || this.secretsManager;
+
+    if (manager) {
+      return this._resolveSecrets(config, manager);
     }
 
     return this.interpolateEnvVars(config);
@@ -135,6 +169,44 @@ export class ConfigLoader {
 
       return envValue;
     });
+  }
+
+  /**
+   * Recursively resolve secret references in a configuration object via SecretsManager
+   *
+   * Walks through objects, arrays, and strings, resolving every ${...}
+   * reference using the provided SecretsManager. This supports adapter-prefixed
+   * references (${bw:vault/item}, ${1p:vault/item}) in addition to plain
+   * env var references (${VAR}, ${VAR:-default}, ${VAR:+value}).
+   *
+   * @private
+   * @param {*} obj - Value to process (object, array, string, or primitive)
+   * @param {import('../secrets/secrets-manager.js').SecretsManager} manager - SecretsManager instance
+   * @returns {Promise<*>} - Processed value with secrets resolved
+   * @throws {ConfigError} - If secret resolution fails
+   */
+  async _resolveSecrets(obj, manager) {
+    try {
+      return await manager.resolveAll(obj);
+    } catch (err) {
+      throw new ConfigError(`Failed to resolve secrets: ${err.message}`, {
+        cause: err,
+      });
+    }
+  }
+
+  /**
+   * Check whether a configuration value contains any adapter-prefixed secret references
+   *
+   * This is useful for determining whether a SecretsManager is needed to resolve
+   * a config, or if plain env interpolation would suffice.
+   *
+   * @param {*} obj - Value to check (object, array, string, or primitive)
+   * @returns {boolean} True if any adapter-prefixed references are found
+   */
+  hasSecretReferences(obj) {
+    const refs = this._refParser.extractAllReferences(obj);
+    return refs.some(ref => ref.adapter !== 'env');
   }
 
   /**

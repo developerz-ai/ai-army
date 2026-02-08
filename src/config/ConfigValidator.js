@@ -70,7 +70,73 @@ const BuiltinToolSchema = z.enum(['bash', 'readFile', 'writeFile', 'glob', 'grep
 // =============================================================================
 
 /**
+ * Schema for Anthropic provider configuration
+ */
+const AnthropicProviderSchema = z.object({
+  type: z.literal('anthropic'),
+  apiKey: z.string().optional(),
+  baseUrl: z.string().url().optional(),
+  baseURL: z.string().url().optional(),
+});
+
+/**
+ * Schema for OpenAI provider configuration
+ */
+const OpenAIProviderSchema = z.object({
+  type: z.literal('openai'),
+  apiKey: z.string().optional(),
+  baseUrl: z.string().url().optional(),
+  baseURL: z.string().url().optional(),
+  organization: z.string().optional(),
+});
+
+/**
+ * Schema for OpenRouter provider configuration
+ */
+const OpenRouterProviderSchema = z.object({
+  type: z.literal('openrouter'),
+  apiKey: z.string().optional(),
+  baseUrl: z.string().url().optional(),
+  baseURL: z.string().url().optional(),
+  siteUrl: z.string().url().optional(),
+  siteName: z.string().optional(),
+});
+
+/**
+ * Schema for Ollama provider configuration
+ */
+const OllamaProviderSchema = z.object({
+  type: z.literal('ollama'),
+  baseUrl: z.string().url().optional(),
+  baseURL: z.string().url().optional(),
+  apiKey: z.string().optional(),
+});
+
+/**
+ * Schema for Google provider configuration
+ */
+const GoogleProviderSchema = z.object({
+  type: z.literal('google'),
+  apiKey: z.string().optional(),
+  baseUrl: z.string().url().optional(),
+  baseURL: z.string().url().optional(),
+});
+
+/**
+ * Schema for custom provider configuration
+ */
+const CustomProviderSchema = z
+  .object({
+    type: z.literal('custom'),
+    apiKey: z.string().optional(),
+    baseUrl: z.string().url().optional(),
+    baseURL: z.string().url().optional(),
+  })
+  .passthrough(); // Custom providers may have arbitrary fields
+
+/**
  * Schema for provider configuration
+ * Validates base fields and allows provider-specific fields via passthrough.
  */
 const ProviderConfigSchema = z
   .object({
@@ -80,6 +146,20 @@ const ProviderConfigSchema = z
     baseURL: z.string().url().optional(), // Alternative naming
   })
   .passthrough(); // Allow additional provider-specific fields
+
+/**
+ * Provider-specific schemas indexed by provider type
+ * Used for stricter validation when the type is known.
+ * @type {Readonly<Object>}
+ */
+const ProviderSpecificSchemas = Object.freeze({
+  anthropic: AnthropicProviderSchema,
+  openai: OpenAIProviderSchema,
+  openrouter: OpenRouterProviderSchema,
+  ollama: OllamaProviderSchema,
+  google: GoogleProviderSchema,
+  custom: CustomProviderSchema,
+});
 
 // =============================================================================
 // Channel Configuration Schemas
@@ -216,11 +296,35 @@ const DefaultsConfigSchema = z
 // =============================================================================
 
 /**
+ * Schema for a single secret adapter configuration
+ */
+const SecretAdapterConfigSchema = z
+  .object({
+    type: z.enum(['bitwarden', '1password', 'env']),
+  })
+  .passthrough(); // Allow adapter-specific fields (sessionToken, account, token, etc.)
+
+/**
+ * Schema for secret cache configuration
+ */
+const SecretCacheConfigSchema = z.object({
+  enabled: z.boolean().optional().default(true),
+  ttl: z.number().int().positive().optional().default(300000),
+});
+
+/**
  * Schema for secrets provider configuration
+ *
+ * Supports two levels:
+ * - Simple: just `provider` and optional `config` (backward-compatible)
+ * - Extended: `default` adapter, `adapters` map, and `cache` settings
  */
 const SecretsConfigSchema = z.object({
   provider: z.enum(['bitwarden', '1password', 'env']).optional().default('env'),
   config: z.record(z.string()).optional(),
+  default: z.enum(['bitwarden', '1password', 'env']).optional(),
+  adapters: z.record(SecretAdapterConfigSchema).optional(),
+  cache: SecretCacheConfigSchema.optional(),
 });
 
 // =============================================================================
@@ -388,6 +492,58 @@ export class ConfigValidator {
     throw new ConfigValidationError(`Bot configuration invalid:\n  ${errorMessages.join('\n  ')}`, {
       errors,
     });
+  }
+
+  /**
+   * Validate a single provider configuration with provider-specific rules
+   *
+   * Uses the provider-specific schema if the type is known, otherwise falls
+   * back to the general ProviderConfigSchema.
+   *
+   * @param {Object} providerConfig - Provider configuration object
+   * @returns {Object} - { valid: boolean, errors: Array, data?: Object }
+   *
+   * @example
+   * const result = validator.validateProviderConfig({
+   *   type: 'anthropic',
+   *   apiKey: '${ANTHROPIC_API_KEY}',
+   * });
+   */
+  validateProviderConfig(providerConfig) {
+    if (!providerConfig || typeof providerConfig !== 'object') {
+      return {
+        valid: false,
+        errors: [
+          {
+            path: '(root)',
+            message: 'Provider configuration must be an object',
+            code: 'invalid_type',
+          },
+        ],
+        data: null,
+      };
+    }
+
+    // Try provider-specific schema first
+    const { type } = providerConfig;
+    const specificSchema = type ? ProviderSpecificSchemas[type] : null;
+    const schema = specificSchema || ProviderConfigSchema;
+
+    const result = schema.safeParse(providerConfig);
+
+    if (result.success) {
+      return {
+        valid: true,
+        errors: [],
+        data: result.data,
+      };
+    }
+
+    return {
+      valid: false,
+      errors: this._formatZodErrors(result.error),
+      data: null,
+    };
   }
 
   /**
@@ -597,11 +753,21 @@ export {
   ChannelTypeSchema,
   BuiltinToolSchema,
   ProviderConfigSchema,
+  ProviderSpecificSchemas,
+  AnthropicProviderSchema,
+  OpenAIProviderSchema,
+  OpenRouterProviderSchema,
+  OllamaProviderSchema,
+  GoogleProviderSchema,
+  CustomProviderSchema,
   ChannelConfigSchema,
   McpServerConfigSchema,
   SandboxConfigSchema,
   RestrictionsConfigSchema,
   DefaultsConfigSchema,
+  SecretsConfigSchema,
+  SecretAdapterConfigSchema,
+  SecretCacheConfigSchema,
   WorkspaceConfigSchema,
   MemoryConfigSchema,
 };
