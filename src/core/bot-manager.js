@@ -64,6 +64,7 @@ export class BotManager {
    * @param {Object} [options.toolRegistry] - ToolRegistry instance for resolving tools (including MCP)
    * @param {Object} [options.skillRegistry] - SkillRegistry instance for resolving bot skills
    * @param {Object} [options.eventEmitter] - BotEventEmitter instance for emitting lifecycle events
+   * @param {Object} [options.workerAssigner] - WorkerAssigner instance for distributed worker assignment
    */
   constructor(storage, containerPool, soulLoader, options = {}) {
     if (!storage) {
@@ -95,6 +96,9 @@ export class BotManager {
 
     /** @type {Object|null} BotEventEmitter for emitting lifecycle events */
     this.eventEmitter = options.eventEmitter || null;
+
+    /** @type {Object|null} WorkerAssigner for distributed worker assignment */
+    this.workerAssigner = options.workerAssigner || null;
 
     /** @type {Map<string, Object>} In-memory store of bot objects */
     this.bots = new Map();
@@ -266,8 +270,25 @@ export class BotManager {
       // Determine workspace root
       const workspace = bot.config.workspace || { root: `./data/${botId}` };
 
-      // Create container via ContainerPool
-      const container = await this.containerPool.initializeContainer(botId, bot.config, workspace);
+      // Use WorkerAssigner to pick a worker if available
+      let containerOptions = {};
+      if (this.workerAssigner) {
+        const workerPreference = bot.config.worker ? { workerId: bot.config.worker } : {};
+        const assignment = await this.workerAssigner.assignBot(botId, workerPreference);
+        bot.workerId = assignment.workerId;
+
+        if (assignment.dockerHost) {
+          containerOptions = { dockerHost: assignment.dockerHost };
+        }
+      }
+
+      // Create container via ContainerPool (with optional Docker host override)
+      const container = await this.containerPool.initializeContainer(
+        botId,
+        bot.config,
+        workspace,
+        containerOptions
+      );
 
       bot.container = container;
       bot.status = BOT_STATUSES.RUNNING;
@@ -275,9 +296,20 @@ export class BotManager {
 
       this._emitEvent('botStarted', botId, {
         name: bot.config.name || botId,
+        workerId: bot.workerId,
       });
     } catch (err) {
       bot.status = BOT_STATUSES.ERROR;
+
+      // Release worker assignment on failure
+      if (this.workerAssigner && bot.workerId) {
+        try {
+          await this.workerAssigner.releaseBot(botId);
+        } catch (_releaseErr) {
+          // Don't mask the original error
+        }
+        bot.workerId = undefined;
+      }
 
       const wrappedErr =
         err instanceof BotManagerError
@@ -329,6 +361,16 @@ export class BotManager {
       // Recycle container via ContainerPool
       if (this.containerPool.hasContainer(botId)) {
         await this.containerPool.recycleContainer(botId);
+      }
+
+      // Release worker assignment if applicable
+      if (this.workerAssigner) {
+        try {
+          await this.workerAssigner.releaseBot(botId);
+        } catch (_releaseErr) {
+          // Don't fail the stop operation for assignment cleanup
+        }
+        bot.workerId = undefined;
       }
 
       bot.container = null;
