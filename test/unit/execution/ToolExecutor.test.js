@@ -890,15 +890,32 @@ describe('ToolExecutor', () => {
       assert.equal(err.botId, 'my-bot');
     });
 
-    test('stores cause', () => {
+    test('stores cause via standard Error options', () => {
       const cause = new Error('original');
       const err = new ToolExecutionError('test', { cause });
       assert.equal(err.cause, cause);
+      assert.ok(err.cause instanceof Error);
     });
 
     test('is instanceof Error', () => {
       const err = new ToolExecutionError('test');
       assert.ok(err instanceof Error);
+    });
+
+    test('stores all options together including cause', () => {
+      const cause = new Error('original');
+      const err = new ToolExecutionError('wrapper error', {
+        cause,
+        operation: 'executeTool',
+        toolName: 'bash',
+        botId: 'test-bot',
+      });
+
+      assert.equal(err.cause, cause);
+      assert.ok(err.cause instanceof Error);
+      assert.equal(err.operation, 'executeTool');
+      assert.equal(err.toolName, 'bash');
+      assert.equal(err.botId, 'test-bot');
     });
   });
 
@@ -923,9 +940,30 @@ describe('ToolExecutor', () => {
       assert.equal(err.pattern, 'rm -rf /');
     });
 
+    test('stores cause via standard Error options', () => {
+      const cause = new Error('original');
+      const err = new DangerousCommandError('blocked', { cause });
+      assert.equal(err.cause, cause);
+      assert.ok(err.cause instanceof Error);
+    });
+
     test('is instanceof Error', () => {
       const err = new DangerousCommandError('test');
       assert.ok(err instanceof Error);
+    });
+
+    test('stores all options together including cause', () => {
+      const cause = new Error('original');
+      const err = new DangerousCommandError('blocked command', {
+        cause,
+        command: 'rm -rf /',
+        pattern: 'rm -rf /',
+      });
+
+      assert.equal(err.cause, cause);
+      assert.ok(err.cause instanceof Error);
+      assert.equal(err.command, 'rm -rf /');
+      assert.equal(err.pattern, 'rm -rf /');
     });
   });
 

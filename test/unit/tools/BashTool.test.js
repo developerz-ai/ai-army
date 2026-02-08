@@ -685,11 +685,12 @@ describe('BashTool', () => {
       assert.equal(err.command, 'echo test');
     });
 
-    test('stores cause for error chaining', () => {
+    test('stores cause via standard Error options', () => {
       const original = new Error('original');
       const err = new BashToolError('wrapped', { cause: original });
 
       assert.equal(err.cause, original);
+      assert.ok(err.cause instanceof Error);
     });
 
     test('defaults optional fields to undefined', () => {
@@ -699,6 +700,22 @@ describe('BashTool', () => {
       assert.equal(err.botId, undefined);
       assert.equal(err.command, undefined);
       assert.equal(err.cause, undefined);
+    });
+
+    test('stores all options together including cause', () => {
+      const cause = new Error('original');
+      const err = new BashToolError('wrapper error', {
+        cause,
+        operation: 'execute',
+        botId: 'test-bot',
+        command: 'echo test',
+      });
+
+      assert.equal(err.cause, cause);
+      assert.ok(err.cause instanceof Error);
+      assert.equal(err.operation, 'execute');
+      assert.equal(err.botId, 'test-bot');
+      assert.equal(err.command, 'echo test');
     });
   });
 

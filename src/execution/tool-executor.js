@@ -38,9 +38,10 @@ export class DangerousCommandError extends Error {
    * @param {Object} [options={}] - Error options
    * @param {string} [options.command] - The command that was blocked
    * @param {string} [options.pattern] - The pattern that matched
+   * @param {Error} [options.cause] - Original error that caused this
    */
   constructor(message, options = {}) {
-    super(message);
+    super(message, { cause: options.cause });
     this.name = 'DangerousCommandError';
     this.command = options.command;
     this.pattern = options.pattern;
