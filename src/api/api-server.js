@@ -248,11 +248,12 @@ export class APIServer {
    * Handle an incoming HTTP request
    *
    * Processes the request through the middleware chain:
-   * 1. CORS preflight handling
-   * 2. Rate limiting
-   * 3. Route matching (direct routes)
-   * 4. Router chain delegation
-   * 5. 404 fallback
+   * 1. Defensive URL parsing (handles malformed Host headers)
+   * 2. CORS preflight handling
+   * 3. Route matching (direct routes) with per-route rate limiting and auth
+   * 4. Rate limiting and authentication for router-delegated requests
+   * 5. Router chain delegation
+   * 6. 404 fallback
    *
    * @param {import('http').IncomingMessage} req - HTTP request
    * @param {import('http').ServerResponse} res - HTTP response
@@ -261,8 +262,15 @@ export class APIServer {
    */
   async _handleRequest(req, res) {
     const method = (typeof req.method === 'string' ? req.method : '').toUpperCase();
-    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    const { pathname } = url;
+
+    // Defensively parse the URL to avoid crashes from malformed Host headers
+    let pathname;
+    try {
+      ({ pathname } = new URL(req.url, `http://${req.headers.host || 'localhost'}`));
+    } catch (_err) {
+      // Fallback: use a fixed base URL if Host header is invalid
+      ({ pathname } = new URL(req.url, 'http://localhost'));
+    }
 
     // Set CORS headers
     this._setCorsHeaders(req, res);
@@ -274,11 +282,7 @@ export class APIServer {
       return;
     }
 
-    // Rate limiting (by client IP)
     const clientIp = this._extractIp(req);
-    if (!this.rateLimiter.checkRequest(clientIp, res)) {
-      return;
-    }
 
     // Try directly registered routes first
     for (const route of this.routes) {
@@ -286,6 +290,13 @@ export class APIServer {
 
       const match = pathname.match(route.pattern);
       if (!match) continue;
+
+      // Rate limiting (unless route opts out)
+      if (!route.options.skipRateLimit) {
+        if (!this.rateLimiter.checkRequest(clientIp, res)) {
+          return;
+        }
+      }
 
       // Extract params
       const params = {};
@@ -336,6 +347,21 @@ export class APIServer {
         });
       }
       return;
+    }
+
+    // Apply rate limiting before router delegation
+    if (!this.rateLimiter.checkRequest(clientIp, res)) {
+      return;
+    }
+
+    // Apply authentication before router delegation
+    if (this.auth.isEnabled()) {
+      const user = this.auth.authenticate(req);
+      if (!user) {
+        this.auth.sendUnauthorized(res);
+        return;
+      }
+      req.user = user;
     }
 
     // Delegate to registered routers
