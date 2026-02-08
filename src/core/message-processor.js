@@ -62,6 +62,7 @@ export class MessageProcessor {
    * @param {Object} [options={}] - Configuration options
    * @param {Function|null} [options.logger=null] - Logger function for processing events
    * @param {Object} [options.eventEmitter=null] - BotEventEmitter instance for emitting message events
+   * @param {Object} [options.auditLogger=null] - AuditLogger instance for recording audit events
    */
   constructor(sessionManager, agentRunner, storage, options = {}) {
     if (!sessionManager) {
@@ -94,6 +95,9 @@ export class MessageProcessor {
 
     /** @type {Object|null} BotEventEmitter for emitting message events */
     this.eventEmitter = options.eventEmitter || null;
+
+    /** @type {Object|null} AuditLogger for recording audit events */
+    this.auditLogger = options.auditLogger || null;
   }
 
   /**
@@ -149,6 +153,20 @@ export class MessageProcessor {
         sessionId,
       });
 
+      this._auditLog({
+        type: 'message.received',
+        actor: message.userId,
+        actorType: 'user',
+        resourceType: 'message',
+        resourceId: sessionId,
+        action: 'received',
+        metadata: {
+          botId: botConfig.id,
+          channelId: message.channelId,
+          channelType: message.type,
+        },
+      });
+
       // Step 2: Append user message to session
       await this.sessionManager.appendMessage(session, 'user', message.text);
 
@@ -191,6 +209,22 @@ export class MessageProcessor {
         toolCalls: result.toolCalls,
       });
 
+      this._auditLog({
+        type: 'message.sent',
+        actor: botConfig.id,
+        actorType: 'bot',
+        resourceType: 'message',
+        resourceId: sessionId,
+        action: 'sent',
+        metadata: {
+          botId: botConfig.id,
+          userId: message.userId,
+          channelId: message.channelId,
+          durationMs,
+          toolCallCount: result.toolCalls.length,
+        },
+      });
+
       return {
         text: result.text,
         toolCalls: result.toolCalls,
@@ -204,6 +238,20 @@ export class MessageProcessor {
         userId: message.userId,
         channelId: message.channelId,
         sessionId,
+      });
+
+      this._auditLog({
+        type: 'message.failed',
+        actor: message.userId,
+        actorType: 'user',
+        resourceType: 'message',
+        resourceId: sessionId || null,
+        action: 'failed',
+        metadata: {
+          botId: botConfig.id,
+          channelId: message.channelId,
+          error: err.message,
+        },
       });
 
       if (err instanceof MessageProcessorError) {
@@ -484,6 +532,23 @@ export class MessageProcessor {
       } catch (_err) {
         // Event emission should never break the main flow
       }
+    }
+  }
+
+  /**
+   * Log an audit event if an audit logger is available
+   *
+   * Safely calls the audit logger, catching any errors to prevent
+   * audit logging from breaking the main flow.
+   *
+   * @param {Object} event - Audit event to log
+   * @private
+   */
+  _auditLog(event) {
+    if (this.auditLogger && typeof this.auditLogger.log === 'function') {
+      this.auditLogger.log(event).catch(_err => {
+        // Audit logging should never break the main flow
+      });
     }
   }
 

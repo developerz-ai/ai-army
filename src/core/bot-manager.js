@@ -65,6 +65,7 @@ export class BotManager {
    * @param {Object} [options.skillRegistry] - SkillRegistry instance for resolving bot skills
    * @param {Object} [options.eventEmitter] - BotEventEmitter instance for emitting lifecycle events
    * @param {Object} [options.workerAssigner] - WorkerAssigner instance for distributed worker assignment
+   * @param {Object} [options.auditLogger] - AuditLogger instance for recording audit events
    */
   constructor(storage, containerPool, soulLoader, options = {}) {
     if (!storage) {
@@ -99,6 +100,9 @@ export class BotManager {
 
     /** @type {Object|null} WorkerAssigner for distributed worker assignment */
     this.workerAssigner = options.workerAssigner || null;
+
+    /** @type {Object|null} AuditLogger for recording audit events */
+    this.auditLogger = options.auditLogger || null;
 
     /** @type {Map<string, Object>} In-memory store of bot objects */
     this.bots = new Map();
@@ -222,6 +226,20 @@ export class BotManager {
       // Store in memory
       this.bots.set(botId, bot);
 
+      this._auditLog({
+        type: 'bot.created',
+        actor: 'system',
+        actorType: 'system',
+        resourceType: 'bot',
+        resourceId: botId,
+        action: 'created',
+        metadata: {
+          name: validatedConfig.name || botId,
+          provider: validatedConfig.provider,
+          model: validatedConfig.model,
+        },
+      });
+
       return bot;
     } catch (err) {
       if (err instanceof BotManagerError) {
@@ -297,6 +315,19 @@ export class BotManager {
       this._emitEvent('botStarted', botId, {
         name: bot.config.name || botId,
         workerId: bot.workerId,
+      });
+
+      this._auditLog({
+        type: 'bot.started',
+        actor: 'system',
+        actorType: 'system',
+        resourceType: 'bot',
+        resourceId: botId,
+        action: 'started',
+        metadata: {
+          name: bot.config.name || botId,
+          workerId: bot.workerId || null,
+        },
       });
     } catch (err) {
       bot.status = BOT_STATUSES.ERROR;
@@ -379,6 +410,16 @@ export class BotManager {
 
       this._emitEvent('botStopped', botId, {
         name: bot.config.name || botId,
+      });
+
+      this._auditLog({
+        type: 'bot.stopped',
+        actor: 'system',
+        actorType: 'system',
+        resourceType: 'bot',
+        resourceId: botId,
+        action: 'stopped',
+        metadata: { name: bot.config.name || botId },
       });
     } catch (err) {
       bot.status = BOT_STATUSES.ERROR;
@@ -540,6 +581,19 @@ export class BotManager {
         );
         bot.container = container;
       }
+
+      this._auditLog({
+        type: 'bot.config_updated',
+        actor: 'system',
+        actorType: 'system',
+        resourceType: 'bot',
+        resourceId: botId,
+        action: 'config_updated',
+        metadata: {
+          name: validatedConfig.name || botId,
+          sandboxChanged,
+        },
+      });
     } catch (err) {
       if (err instanceof BotManagerError) {
         throw err;
@@ -598,6 +652,17 @@ export class BotManager {
     }
 
     this.bots.delete(botId);
+
+    this._auditLog({
+      type: 'bot.deleted',
+      actor: 'system',
+      actorType: 'system',
+      resourceType: 'bot',
+      resourceId: botId,
+      action: 'deleted',
+      metadata: { name: bot.config?.name || botId },
+    });
+
     return true;
   }
 
@@ -660,6 +725,23 @@ export class BotManager {
       } catch (_err) {
         // Event emission should never break the main flow
       }
+    }
+  }
+
+  /**
+   * Log an audit event if an audit logger is available
+   *
+   * Safely calls the audit logger, catching any errors to prevent
+   * audit logging from breaking the main flow.
+   *
+   * @param {Object} event - Audit event to log
+   * @private
+   */
+  _auditLog(event) {
+    if (this.auditLogger && typeof this.auditLogger.log === 'function') {
+      this.auditLogger.log(event).catch(_err => {
+        // Audit logging should never break the main flow
+      });
     }
   }
 

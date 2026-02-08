@@ -23,6 +23,9 @@ import {
   SecretAdapterConfigSchema,
   SecretCacheConfigSchema,
   QueueConfigSchema,
+  AuditConfigSchema,
+  AuditEventsConfigSchema,
+  AuditRetentionConfigSchema,
   ChannelRestrictionsSchema,
   BotChannelConfigSchema,
 } from '../../../src/config/ConfigValidator.js';
@@ -1662,6 +1665,223 @@ describe('Zod Schemas', () => {
       };
       const result = validator.validateAll(mainConfig, botConfigs);
       assert.ok(result.valid);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // AuditConfigSchema
+  // --------------------------------------------------------------------------
+
+  describe('AuditConfigSchema', () => {
+    test('validates minimal audit config', () => {
+      const result = AuditConfigSchema.safeParse({});
+      assert.ok(result.success);
+      assert.strictEqual(result.data.enabled, true);
+    });
+
+    test('validates full audit config', () => {
+      const result = AuditConfigSchema.safeParse({
+        enabled: true,
+        retention: { enabled: true, days: 90 },
+        events: { bot: true, message: true, tool: true, admin: true, security: true },
+      });
+      assert.ok(result.success);
+      assert.strictEqual(result.data.enabled, true);
+      assert.strictEqual(result.data.retention.days, 90);
+    });
+
+    test('accepts disabled audit config', () => {
+      const result = AuditConfigSchema.safeParse({ enabled: false });
+      assert.ok(result.success);
+      assert.strictEqual(result.data.enabled, false);
+    });
+
+    test('applies default retention values', () => {
+      const result = AuditConfigSchema.safeParse({ retention: {} });
+      assert.ok(result.success);
+      assert.strictEqual(result.data.retention.enabled, true);
+      assert.strictEqual(result.data.retention.days, 90);
+    });
+
+    test('applies default events values', () => {
+      const result = AuditConfigSchema.safeParse({ events: {} });
+      assert.ok(result.success);
+      assert.strictEqual(result.data.events.bot, true);
+      assert.strictEqual(result.data.events.message, true);
+      assert.strictEqual(result.data.events.tool, true);
+      assert.strictEqual(result.data.events.admin, true);
+      assert.strictEqual(result.data.events.security, true);
+    });
+
+    test('allows disabling specific event categories', () => {
+      const result = AuditConfigSchema.safeParse({
+        events: { bot: true, message: false, tool: false, admin: true, security: true },
+      });
+      assert.ok(result.success);
+      assert.strictEqual(result.data.events.message, false);
+      assert.strictEqual(result.data.events.tool, false);
+    });
+
+    test('rejects non-integer retention days', () => {
+      const result = AuditConfigSchema.safeParse({ retention: { days: 30.5 } });
+      assert.ok(!result.success);
+    });
+
+    test('rejects negative retention days', () => {
+      const result = AuditConfigSchema.safeParse({ retention: { days: -1 } });
+      assert.ok(!result.success);
+    });
+
+    test('rejects zero retention days', () => {
+      const result = AuditConfigSchema.safeParse({ retention: { days: 0 } });
+      assert.ok(!result.success);
+    });
+
+    test('rejects non-boolean enabled field', () => {
+      const result = AuditConfigSchema.safeParse({ enabled: 'yes' });
+      assert.ok(!result.success);
+    });
+
+    test('rejects non-boolean event category values', () => {
+      const result = AuditConfigSchema.safeParse({ events: { bot: 'yes' } });
+      assert.ok(!result.success);
+    });
+
+    test('allows custom retention days', () => {
+      const result = AuditConfigSchema.safeParse({ retention: { days: 365 } });
+      assert.ok(result.success);
+      assert.strictEqual(result.data.retention.days, 365);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // AuditRetentionConfigSchema
+  // --------------------------------------------------------------------------
+
+  describe('AuditRetentionConfigSchema', () => {
+    test('validates correct retention config', () => {
+      const result = AuditRetentionConfigSchema.safeParse({ enabled: true, days: 30 });
+      assert.ok(result.success);
+    });
+
+    test('applies defaults when empty', () => {
+      const result = AuditRetentionConfigSchema.safeParse({});
+      assert.ok(result.success);
+      assert.strictEqual(result.data.enabled, true);
+      assert.strictEqual(result.data.days, 90);
+    });
+
+    test('rejects string days', () => {
+      const result = AuditRetentionConfigSchema.safeParse({ days: '30' });
+      assert.ok(!result.success);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // AuditEventsConfigSchema
+  // --------------------------------------------------------------------------
+
+  describe('AuditEventsConfigSchema', () => {
+    test('validates correct events config', () => {
+      const result = AuditEventsConfigSchema.safeParse({
+        bot: true,
+        message: false,
+        tool: true,
+        admin: false,
+        security: true,
+      });
+      assert.ok(result.success);
+    });
+
+    test('applies all defaults to true', () => {
+      const result = AuditEventsConfigSchema.safeParse({});
+      assert.ok(result.success);
+      assert.strictEqual(result.data.bot, true);
+      assert.strictEqual(result.data.message, true);
+      assert.strictEqual(result.data.tool, true);
+      assert.strictEqual(result.data.admin, true);
+      assert.strictEqual(result.data.security, true);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // validateAuditConfig()
+  // --------------------------------------------------------------------------
+
+  describe('validateAuditConfig()', () => {
+    test('validates correct audit config', () => {
+      const validator = new ConfigValidator();
+      const result = validator.validateAuditConfig({
+        enabled: true,
+        retention: { enabled: true, days: 90 },
+        events: { bot: true, message: true, tool: true, admin: true, security: true },
+      });
+      assert.ok(result.valid);
+      assert.strictEqual(result.errors.length, 0);
+      assert.ok(result.data);
+    });
+
+    test('returns errors for invalid audit config', () => {
+      const validator = new ConfigValidator();
+      const result = validator.validateAuditConfig({ enabled: 'not-a-boolean' });
+      assert.ok(!result.valid);
+      assert.ok(result.errors.length > 0);
+      assert.strictEqual(result.data, null);
+    });
+
+    test('returns error for null input', () => {
+      const validator = new ConfigValidator();
+      const result = validator.validateAuditConfig(null);
+      assert.ok(!result.valid);
+      assert.ok(
+        result.errors.some(e => e.message.includes('Audit configuration must be an object'))
+      );
+    });
+
+    test('returns error for non-object input', () => {
+      const validator = new ConfigValidator();
+      const result = validator.validateAuditConfig('invalid');
+      assert.ok(!result.valid);
+    });
+
+    test('validates audit config with defaults applied', () => {
+      const validator = new ConfigValidator();
+      const result = validator.validateAuditConfig({});
+      assert.ok(result.valid);
+      assert.strictEqual(result.data.enabled, true);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // MainConfigSchema with audit field
+  // --------------------------------------------------------------------------
+
+  describe('MainConfigSchema with audit', () => {
+    test('validates main config with audit section', () => {
+      const result = MainConfigSchema.safeParse({
+        audit: {
+          enabled: true,
+          retention: { days: 30 },
+          events: { bot: true, message: true },
+        },
+      });
+      assert.ok(result.success);
+      assert.ok(result.data.audit);
+      assert.strictEqual(result.data.audit.enabled, true);
+      assert.strictEqual(result.data.audit.retention.days, 30);
+    });
+
+    test('validates main config without audit section', () => {
+      const result = MainConfigSchema.safeParse({});
+      assert.ok(result.success);
+      assert.strictEqual(result.data.audit, undefined);
+    });
+
+    test('rejects main config with invalid audit section', () => {
+      const result = MainConfigSchema.safeParse({
+        audit: { enabled: 'bad' },
+      });
+      assert.ok(!result.success);
     });
   });
 });

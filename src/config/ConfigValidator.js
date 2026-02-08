@@ -362,6 +362,56 @@ const SecretsConfigSchema = z.object({
 });
 
 // =============================================================================
+// Audit Configuration Schema
+// =============================================================================
+
+/**
+ * Schema for audit event category toggles
+ *
+ * Controls which categories of events are recorded in the audit trail.
+ * Each category can be individually enabled or disabled.
+ */
+const AuditEventsConfigSchema = z.object({
+  bot: z.boolean().optional().default(true),
+  message: z.boolean().optional().default(true),
+  tool: z.boolean().optional().default(true),
+  admin: z.boolean().optional().default(true),
+  security: z.boolean().optional().default(true),
+});
+
+/**
+ * Schema for audit retention policy configuration
+ *
+ * Controls automatic cleanup of old audit log entries. When enabled,
+ * entries older than the specified number of days are periodically deleted.
+ */
+const AuditRetentionConfigSchema = z.object({
+  enabled: z.boolean().optional().default(true),
+  days: z.number().int().positive().optional().default(90),
+});
+
+/**
+ * Schema for audit logging configuration
+ *
+ * Controls whether audit logging is enabled, which event categories
+ * are tracked, and the retention policy for old entries.
+ *
+ * @example
+ * {
+ *   "audit": {
+ *     "enabled": true,
+ *     "retention": { "enabled": true, "days": 90 },
+ *     "events": { "bot": true, "message": true, "tool": true, "admin": true, "security": true }
+ *   }
+ * }
+ */
+const AuditConfigSchema = z.object({
+  enabled: z.boolean().optional().default(true),
+  retention: AuditRetentionConfigSchema.optional(),
+  events: AuditEventsConfigSchema.optional(),
+});
+
+// =============================================================================
 // Queue Configuration Schema
 // =============================================================================
 
@@ -459,6 +509,8 @@ export const MainConfigSchema = z
     secrets: SecretsConfigSchema.optional(),
 
     queue: QueueConfigSchema.optional(),
+
+    audit: AuditConfigSchema.optional(),
 
     // Inline bot definitions (alternative to separate files)
     bots: z.record(z.any()).optional(),
@@ -919,6 +971,44 @@ export class ConfigValidator {
   }
 
   /**
+   * Validate an audit configuration
+   *
+   * @param {Object} auditConfig - Audit configuration object
+   * @returns {Object} - { valid: boolean, errors: Array, data?: Object }
+   */
+  validateAuditConfig(auditConfig) {
+    if (!auditConfig || typeof auditConfig !== 'object') {
+      return {
+        valid: false,
+        errors: [
+          {
+            path: '(root)',
+            message: 'Audit configuration must be an object',
+            code: 'invalid_type',
+          },
+        ],
+        data: null,
+      };
+    }
+
+    const result = AuditConfigSchema.safeParse(auditConfig);
+
+    if (result.success) {
+      return {
+        valid: true,
+        errors: [],
+        data: result.data,
+      };
+    }
+
+    return {
+      valid: false,
+      errors: this._formatZodErrors(result.error),
+      data: null,
+    };
+  }
+
+  /**
    * Validate a webhook configuration array
    *
    * @param {Array<Object>} webhookConfigs - Array of webhook subscription objects
@@ -1056,6 +1146,9 @@ export {
   SecretAdapterConfigSchema,
   SecretCacheConfigSchema,
   QueueConfigSchema,
+  AuditConfigSchema,
+  AuditEventsConfigSchema,
+  AuditRetentionConfigSchema,
   WorkspaceConfigSchema,
   MemoryConfigSchema,
   TemplateConfigSchema,

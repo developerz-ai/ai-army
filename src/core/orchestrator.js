@@ -43,6 +43,8 @@ import { HealthMonitor } from '../monitoring/HealthMonitor.js';
 import { registerBuiltInChecks } from '../monitoring/health-checks.js';
 import { MetricsCollector } from '../monitoring/MetricsCollector.js';
 import { Alerter } from '../monitoring/Alerter.js';
+import { AuditLogger } from '../audit/audit-logger.js';
+import { AuditRetention } from '../audit/audit-retention.js';
 
 /**
  * Orchestrator lifecycle states
@@ -147,6 +149,10 @@ export class Orchestrator {
    * @param {Object} [options.sshTunnelManager] - Pre-configured SSHTunnelManager instance (for DI/testing)
    * @param {Function} [options.sshTunnelManagerFactory] - Factory (opts) => SSHTunnelManager
    * @param {string} [options.workersConfigPath] - Path to workers.json config file
+   * @param {Object} [options.auditLogger] - Pre-configured AuditLogger instance (for DI/testing)
+   * @param {Function} [options.auditLoggerFactory] - Factory (storage, opts) => AuditLogger
+   * @param {Object} [options.auditRetention] - Pre-configured AuditRetention instance (for DI/testing)
+   * @param {Function} [options.auditRetentionFactory] - Factory (auditLogger, opts) => AuditRetention
    */
   constructor(options = {}) {
     this.configPath = options.configPath || './config.json';
@@ -232,6 +238,12 @@ export class Orchestrator {
     this.workerAssignerFactory = options.workerAssignerFactory || null;
     this.sshTunnelManagerFactory = options.sshTunnelManagerFactory || null;
     this.workersConfigPath = options.workersConfigPath || null;
+
+    // Audit logging
+    this.auditLogger = options.auditLogger || null;
+    this.auditLoggerFactory = options.auditLoggerFactory || null;
+    this.auditRetention = options.auditRetention || null;
+    this.auditRetentionFactory = options.auditRetentionFactory || null;
 
     // Adapter registries
     this.channelAdapters = new Map();
@@ -326,6 +338,11 @@ export class Orchestrator {
       // Step 11: Initialize pluggable health monitoring
       await this._initializeHealthMonitoring();
 
+      // Step 12: Start audit retention scheduler
+      if (this.auditRetention) {
+        await this.auditRetention.start();
+      }
+
       this.state = ORCHESTRATOR_STATES.RUNNING;
       this.startedAt = new Date();
 
@@ -386,7 +403,16 @@ export class Orchestrator {
 
     const errors = [];
 
-    // Step 0: Stop health monitoring
+    // Step 0: Stop audit retention scheduler
+    try {
+      if (this.auditRetention) {
+        this.auditRetention.stop();
+      }
+    } catch (err) {
+      errors.push({ component: 'auditRetention', error: err });
+    }
+
+    // Step 0b: Stop health monitoring
     try {
       this._stopHealthMonitoring();
     } catch (err) {
@@ -818,6 +844,44 @@ export class Orchestrator {
           eventEmitter: this.eventEmitter,
           logger: this.logger,
         });
+      }
+    }
+
+    // Create AuditLogger if not injected and storage is available
+    if (!this.auditLogger && this.storage) {
+      if (this.auditLoggerFactory) {
+        this.auditLogger = this.auditLoggerFactory(this.storage, {
+          logger: this.logger,
+        });
+      } else {
+        const auditConfig = this.config?.audit || {};
+        const retentionDays = auditConfig.retention?.days || 90;
+        this.auditLogger = new AuditLogger({
+          storage: this.storage,
+          logger: this.logger,
+          retentionDays,
+        });
+      }
+    }
+
+    // Create AuditRetention if not injected and auditLogger is available
+    if (!this.auditRetention && this.auditLogger) {
+      const auditConfig = this.config?.audit || {};
+      const retentionEnabled = auditConfig.retention?.enabled !== false;
+
+      if (retentionEnabled) {
+        if (this.auditRetentionFactory) {
+          this.auditRetention = this.auditRetentionFactory(this.auditLogger, {
+            logger: this.logger,
+          });
+        } else {
+          this.auditRetention = new AuditRetention({
+            auditLogger: this.auditLogger,
+            retentionDays: auditConfig.retention?.days || 90,
+            logger: this.logger,
+            runOnStart: false,
+          });
+        }
       }
     }
 
