@@ -576,6 +576,295 @@ describe('ConfigLoader', () => {
     });
   });
 
+  describe('_resolveSecrets()', () => {
+    /**
+     * Create a mock SecretsManager
+     * @param {Object} [overrides] - Override mock methods
+     * @returns {Object} Mock SecretsManager
+     */
+    function createMockSecretsManager(overrides = {}) {
+      return {
+        resolveAll: mock.fn(async config => config),
+        resolve: mock.fn(async ref => ref),
+        ...overrides,
+      };
+    }
+
+    test('adapter-prefixed references go through SecretsManager', async () => {
+      const mockManager = createMockSecretsManager({
+        resolveAll: mock.fn(async config => {
+          // Simulate adapter resolution: replace ${bw:...} with resolved values
+          const resolve = obj => {
+            if (typeof obj === 'string') {
+              if (obj === '${bw:vault/api-key}') return 'bw-resolved-key';
+              if (obj === '${1p:prod/token}') return '1p-resolved-token';
+              return obj;
+            }
+            if (Array.isArray(obj)) return obj.map(resolve);
+            if (obj !== null && typeof obj === 'object') {
+              return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, resolve(v)]));
+            }
+            return obj;
+          };
+          return resolve(config);
+        }),
+      });
+
+      const loaderWithSecrets = new ConfigLoader({ secretsManager: mockManager });
+      const config = {
+        bitwarden: '${bw:vault/api-key}',
+        onePassword: '${1p:prod/token}',
+      };
+
+      const result = await loaderWithSecrets._resolveSecrets(config, mockManager);
+
+      assert.equal(result.bitwarden, 'bw-resolved-key');
+      assert.equal(result.onePassword, '1p-resolved-token');
+      assert.equal(mockManager.resolveAll.mock.callCount(), 1);
+      assert.deepEqual(mockManager.resolveAll.mock.calls[0].arguments[0], config);
+    });
+
+    test('adapter-prefixed refs bypass env interpolation', async () => {
+      // Set env var that should NOT be used when adapter prefix is present
+      process.env.bw = 'should-not-be-used';
+
+      const mockManager = createMockSecretsManager({
+        resolveAll: mock.fn(async config => {
+          // Adapter resolution happens, not env var lookup
+          const resolve = obj => {
+            if (typeof obj === 'string' && obj.startsWith('${bw:')) {
+              return 'adapter-resolved';
+            }
+            if (Array.isArray(obj)) return obj.map(resolve);
+            if (obj !== null && typeof obj === 'object') {
+              return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, resolve(v)]));
+            }
+            return obj;
+          };
+          return resolve(config);
+        }),
+      });
+
+      const loaderWithSecrets = new ConfigLoader({ secretsManager: mockManager });
+      const config = { key: '${bw:vault/item}' };
+
+      const result = await loaderWithSecrets._resolveSecrets(config, mockManager);
+
+      // Should use adapter resolution, not env var
+      assert.equal(result.key, 'adapter-resolved');
+      assert.notEqual(result.key, 'should-not-be-used');
+
+      delete process.env.bw;
+    });
+
+    test('resolves mixed adapter references and env vars', async () => {
+      process.env.TEST_PLAIN_VAR = 'env-value';
+
+      const mockManager = createMockSecretsManager({
+        resolveAll: mock.fn(async config => {
+          const resolve = obj => {
+            if (typeof obj === 'string') {
+              // Adapter-prefixed go through adapter
+              if (obj.startsWith('${bw:')) return 'bw-adapter-value';
+              if (obj.startsWith('${1p:')) return '1p-adapter-value';
+              // Plain env vars go through env adapter
+              if (obj === '${TEST_PLAIN_VAR}') return 'env-value';
+              return obj;
+            }
+            if (Array.isArray(obj)) return obj.map(resolve);
+            if (obj !== null && typeof obj === 'object') {
+              return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, resolve(v)]));
+            }
+            return obj;
+          };
+          return resolve(config);
+        }),
+      });
+
+      const loaderWithSecrets = new ConfigLoader({ secretsManager: mockManager });
+      const config = {
+        secret: '${bw:vault/secret}',
+        password: '${1p:prod/password}',
+        plainEnv: '${TEST_PLAIN_VAR}',
+        static: 'no-interpolation',
+      };
+
+      const result = await loaderWithSecrets._resolveSecrets(config, mockManager);
+
+      assert.equal(result.secret, 'bw-adapter-value');
+      assert.equal(result.password, '1p-adapter-value');
+      assert.equal(result.plainEnv, 'env-value');
+      assert.equal(result.static, 'no-interpolation');
+
+      delete process.env.TEST_PLAIN_VAR;
+    });
+
+    test('resolves adapter references in nested structures', async () => {
+      const mockManager = createMockSecretsManager({
+        resolveAll: mock.fn(async config => {
+          const resolve = obj => {
+            if (typeof obj === 'string') {
+              if (obj === '${bw:prod/db-password}') return 'secret-db-pass';
+              if (obj === '${1p:prod/api-key}') return 'secret-api-key';
+              return obj;
+            }
+            if (Array.isArray(obj)) return obj.map(resolve);
+            if (obj !== null && typeof obj === 'object') {
+              return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, resolve(v)]));
+            }
+            return obj;
+          };
+          return resolve(config);
+        }),
+      });
+
+      const loaderWithSecrets = new ConfigLoader({ secretsManager: mockManager });
+      const config = {
+        database: {
+          connection: {
+            password: '${bw:prod/db-password}',
+            host: 'localhost',
+          },
+        },
+        providers: {
+          anthropic: {
+            apiKey: '${1p:prod/api-key}',
+          },
+        },
+        tools: ['bash', 'readFile'],
+      };
+
+      const result = await loaderWithSecrets._resolveSecrets(config, mockManager);
+
+      assert.equal(result.database.connection.password, 'secret-db-pass');
+      assert.equal(result.database.connection.host, 'localhost');
+      assert.equal(result.providers.anthropic.apiKey, 'secret-api-key');
+      assert.deepEqual(result.tools, ['bash', 'readFile']);
+    });
+
+    test('resolves adapter references in arrays', async () => {
+      const mockManager = createMockSecretsManager({
+        resolveAll: mock.fn(async config => {
+          const resolve = obj => {
+            if (typeof obj === 'string' && obj.startsWith('${bw:')) {
+              return 'resolved-from-bw';
+            }
+            if (Array.isArray(obj)) return obj.map(resolve);
+            if (obj !== null && typeof obj === 'object') {
+              return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, resolve(v)]));
+            }
+            return obj;
+          };
+          return resolve(config);
+        }),
+      });
+
+      const loaderWithSecrets = new ConfigLoader({ secretsManager: mockManager });
+      const config = {
+        secrets: ['${bw:vault/secret1}', 'static-value', '${bw:vault/secret2}'],
+      };
+
+      const result = await loaderWithSecrets._resolveSecrets(config, mockManager);
+
+      assert.deepEqual(result.secrets, ['resolved-from-bw', 'static-value', 'resolved-from-bw']);
+    });
+
+    test('throws ConfigError when SecretsManager fails', async () => {
+      const failingManager = createMockSecretsManager({
+        resolveAll: mock.fn(async () => {
+          throw new Error('Bitwarden CLI not authenticated');
+        }),
+      });
+
+      const loaderWithSecrets = new ConfigLoader({ secretsManager: failingManager });
+      const config = { key: '${bw:vault/missing}' };
+
+      await assert.rejects(
+        () => loaderWithSecrets._resolveSecrets(config, failingManager),
+        err => {
+          assert.equal(err.name, 'ConfigError');
+          assert.match(err.message, /Failed to resolve secrets/);
+          assert.match(err.message, /Bitwarden CLI not authenticated/);
+          assert.ok(err.cause);
+          assert.equal(err.cause.message, 'Bitwarden CLI not authenticated');
+          return true;
+        }
+      );
+    });
+
+    test('preserves non-string primitives during resolution', async () => {
+      const mockManager = createMockSecretsManager({
+        resolveAll: mock.fn(async config => {
+          const resolve = obj => {
+            if (typeof obj === 'string' && obj.startsWith('${')) return 'resolved';
+            if (Array.isArray(obj)) return obj.map(resolve);
+            if (obj !== null && typeof obj === 'object') {
+              return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, resolve(v)]));
+            }
+            return obj;
+          };
+          return resolve(config);
+        }),
+      });
+
+      const loaderWithSecrets = new ConfigLoader({ secretsManager: mockManager });
+      const config = {
+        secret: '${bw:vault/item}',
+        number: 42,
+        boolean: true,
+        nullValue: null,
+        nested: { num: 123 },
+      };
+
+      const result = await loaderWithSecrets._resolveSecrets(config, mockManager);
+
+      assert.equal(result.secret, 'resolved');
+      assert.equal(result.number, 42);
+      assert.equal(result.boolean, true);
+      assert.equal(result.nullValue, null);
+      assert.equal(result.nested.num, 123);
+    });
+
+    test('adapter reference resolution integrated via load()', async () => {
+      const mockManager = createMockSecretsManager({
+        resolveAll: mock.fn(async config => {
+          const resolve = obj => {
+            if (typeof obj === 'string') {
+              if (obj === '${bw:vault/api-key}') return 'bw-secret-key';
+              return obj;
+            }
+            if (Array.isArray(obj)) return obj.map(resolve);
+            if (obj !== null && typeof obj === 'object') {
+              return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, resolve(v)]));
+            }
+            return obj;
+          };
+          return resolve(config);
+        }),
+      });
+
+      const loaderWithSecrets = new ConfigLoader({ secretsManager: mockManager });
+      const config = {
+        id: 'test-bot',
+        apiKey: '${bw:vault/api-key}',
+        model: 'claude-sonnet-4-5',
+      };
+      const configPath = await createTempConfig(config);
+
+      try {
+        const result = await loaderWithSecrets.load(configPath);
+
+        // Verify adapter resolution happened
+        assert.equal(result.id, 'test-bot');
+        assert.equal(result.apiKey, 'bw-secret-key');
+        assert.equal(result.model, 'claude-sonnet-4-5');
+        assert.equal(mockManager.resolveAll.mock.callCount(), 1);
+      } finally {
+        await cleanupTempConfig(configPath);
+      }
+    });
+  });
+
   describe('hasSecretReferences()', () => {
     test('returns true for adapter-prefixed references', () => {
       assert.equal(loader.hasSecretReferences({ key: '${bw:vault/item}' }), true);
