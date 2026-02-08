@@ -1217,6 +1217,240 @@ describe('BotManager', () => {
     });
   });
 
+  describe('skillRegistry integration', () => {
+    /**
+     * Create a mock SkillRegistry
+     * @param {Object} [overrides={}] - Override mock implementations
+     * @returns {Object} Mock SkillRegistry
+     */
+    function createMockSkillRegistry(overrides = {}) {
+      const attached = new Map();
+      return {
+        attachToBot: mock.fn((botId, skillNames) => {
+          // Validate skill names exist (mimics real SkillRegistry)
+          attached.set(botId, [...skillNames]);
+        }),
+        detachFromBot: mock.fn(botId => {
+          const had = attached.has(botId);
+          attached.delete(botId);
+          return had;
+        }),
+        getAttachedSkills: mock.fn(botId => attached.get(botId) || []),
+        getSkillInstructions: mock.fn(() => '# Code Review\nReview carefully.'),
+        getSkillTools: mock.fn(() => ({})),
+        hasSkill: mock.fn(() => true),
+        _attached: attached,
+        ...overrides,
+      };
+    }
+
+    test('attaches skills and merges instructions into soulContent during loadBot', async () => {
+      const mockSkillRegistry = createMockSkillRegistry({
+        getSkillInstructions: mock.fn(() => '# Code Review\nReview code carefully.'),
+        getSkillTools: mock.fn(() => ({})),
+      });
+
+      const manager = new BotManager(mockStorage, mockContainerPool, mockSoulLoader, {
+        configValidator: mockValidator,
+        skillRegistry: mockSkillRegistry,
+      });
+
+      const config = createBotConfig({ skills: ['code-review'] });
+      const bot = await manager.loadBot('test-bot', config);
+
+      // Verify attachToBot was called
+      assert.equal(mockSkillRegistry.attachToBot.mock.calls.length, 1);
+      const [attachedBotId, attachedSkills] = mockSkillRegistry.attachToBot.mock.calls[0].arguments;
+      assert.equal(attachedBotId, 'test-bot');
+      assert.deepEqual(attachedSkills, ['code-review']);
+
+      // Verify instructions were merged into soulContent
+      assert.ok(bot.soulContent.includes('You are a helpful test bot.'));
+      assert.ok(bot.soulContent.includes('## Skills'));
+      assert.ok(bot.soulContent.includes('Review code carefully.'));
+    });
+
+    test('merges skill tools into resolved tools during loadBot', async () => {
+      const skillTool = { description: 'Lint code', execute: async () => ({}) };
+      const mockSkillRegistry = createMockSkillRegistry({
+        getSkillInstructions: mock.fn(() => ''),
+        getSkillTools: mock.fn(() => ({ lintCode: skillTool })),
+      });
+
+      const manager = new BotManager(mockStorage, mockContainerPool, mockSoulLoader, {
+        configValidator: mockValidator,
+        skillRegistry: mockSkillRegistry,
+      });
+
+      const config = createBotConfig({ skills: ['code-review'] });
+      const bot = await manager.loadBot('test-bot', config);
+
+      assert.ok(bot.tools.lintCode);
+      assert.equal(bot.tools.lintCode, skillTool);
+    });
+
+    test('builtin/MCP tools take precedence over skill tools', async () => {
+      const skillBash = { description: 'Skill bash', execute: async () => ({}) };
+      const mockSkillRegistry = createMockSkillRegistry({
+        getSkillInstructions: mock.fn(() => ''),
+        getSkillTools: mock.fn(() => ({ bash: skillBash })),
+      });
+
+      const registryBash = { description: 'Registry bash', execute: async () => ({}) };
+      const mockToolRegistry = {
+        getToolsForBot: mock.fn(async () => ({ bash: registryBash })),
+      };
+
+      const manager = new BotManager(mockStorage, mockContainerPool, mockSoulLoader, {
+        configValidator: mockValidator,
+        skillRegistry: mockSkillRegistry,
+        toolRegistry: mockToolRegistry,
+      });
+
+      const config = createBotConfig({ skills: ['code-review'], tools: ['bash'] });
+      const bot = await manager.loadBot('test-bot', config);
+
+      // ToolRegistry bash should win over skill bash
+      assert.equal(bot.tools.bash, registryBash);
+    });
+
+    test('does not modify soulContent when skills have no instructions', async () => {
+      const mockSkillRegistry = createMockSkillRegistry({
+        getSkillInstructions: mock.fn(() => ''),
+        getSkillTools: mock.fn(() => ({})),
+      });
+
+      const manager = new BotManager(mockStorage, mockContainerPool, mockSoulLoader, {
+        configValidator: mockValidator,
+        skillRegistry: mockSkillRegistry,
+      });
+
+      const config = createBotConfig({ skills: ['empty-skill'] });
+      const bot = await manager.loadBot('test-bot', config);
+
+      assert.equal(bot.soulContent, 'You are a helpful test bot.');
+    });
+
+    test('skips skill resolution when no skillRegistry is set', async () => {
+      const config = createBotConfig({ skills: ['code-review'] });
+      const bot = await botManager.loadBot('test-bot', config);
+
+      // Should load normally without skill instructions
+      assert.equal(bot.soulContent, 'You are a helpful test bot.');
+    });
+
+    test('skips skill resolution when skills array is empty', async () => {
+      const mockSkillRegistry = createMockSkillRegistry();
+
+      const manager = new BotManager(mockStorage, mockContainerPool, mockSoulLoader, {
+        configValidator: mockValidator,
+        skillRegistry: mockSkillRegistry,
+      });
+
+      const config = createBotConfig({ skills: [] });
+      await manager.loadBot('test-bot', config);
+
+      assert.equal(mockSkillRegistry.attachToBot.mock.calls.length, 0);
+    });
+
+    test('throws BotManagerError when skill resolution fails during loadBot', async () => {
+      const mockSkillRegistry = createMockSkillRegistry({
+        attachToBot: mock.fn(() => {
+          throw new Error('Skills not found in registry: nonexistent');
+        }),
+      });
+
+      const manager = new BotManager(mockStorage, mockContainerPool, mockSoulLoader, {
+        configValidator: mockValidator,
+        skillRegistry: mockSkillRegistry,
+      });
+
+      const config = createBotConfig({ skills: ['nonexistent'] });
+
+      await assert.rejects(
+        () => manager.loadBot('test-bot', config),
+        err => {
+          assert.equal(err.name, 'BotManagerError');
+          assert.match(err.message, /Failed to resolve skills/);
+          assert.equal(err.operation, 'loadBot');
+          assert.equal(err.botId, 'test-bot');
+          assert.ok(err.cause);
+          return true;
+        }
+      );
+    });
+
+    test('re-resolves skills during reloadBot', async () => {
+      const mockSkillRegistry = createMockSkillRegistry({
+        getSkillInstructions: mock.fn(() => 'Initial instructions'),
+        getSkillTools: mock.fn(() => ({})),
+      });
+
+      const manager = new BotManager(mockStorage, mockContainerPool, mockSoulLoader, {
+        configValidator: mockValidator,
+        skillRegistry: mockSkillRegistry,
+      });
+
+      await manager.loadBot('test-bot', createBotConfig({ skills: ['code-review'] }));
+
+      // Change instructions for reload
+      mockSkillRegistry.getSkillInstructions = mock.fn(() => 'Updated instructions');
+
+      await manager.reloadBot('test-bot', createBotConfig({ skills: ['code-review'] }));
+
+      const bot = manager.getBot('test-bot');
+      assert.ok(bot.soulContent.includes('Updated instructions'));
+    });
+
+    test('detaches skills during reloadBot when new config has no skills', async () => {
+      const mockSkillRegistry = createMockSkillRegistry({
+        getSkillInstructions: mock.fn(() => 'Some instructions'),
+        getSkillTools: mock.fn(() => ({})),
+      });
+
+      const manager = new BotManager(mockStorage, mockContainerPool, mockSoulLoader, {
+        configValidator: mockValidator,
+        skillRegistry: mockSkillRegistry,
+      });
+
+      await manager.loadBot('test-bot', createBotConfig({ skills: ['code-review'] }));
+      await manager.reloadBot('test-bot', createBotConfig({ skills: [] }));
+
+      assert.equal(mockSkillRegistry.detachFromBot.mock.calls.length, 1);
+      assert.equal(mockSkillRegistry.detachFromBot.mock.calls[0].arguments[0], 'test-bot');
+    });
+
+    test('throws BotManagerError when skill resolution fails during reloadBot', async () => {
+      const mockSkillRegistry = createMockSkillRegistry({
+        getSkillInstructions: mock.fn(() => 'Instructions'),
+        getSkillTools: mock.fn(() => ({})),
+      });
+
+      const manager = new BotManager(mockStorage, mockContainerPool, mockSoulLoader, {
+        configValidator: mockValidator,
+        skillRegistry: mockSkillRegistry,
+      });
+
+      await manager.loadBot('test-bot', createBotConfig({ skills: ['code-review'] }));
+
+      // Make attachToBot fail on reload
+      mockSkillRegistry.attachToBot = mock.fn(() => {
+        throw new Error('Skills not found in registry: missing-skill');
+      });
+
+      await assert.rejects(
+        () => manager.reloadBot('test-bot', createBotConfig({ skills: ['missing-skill'] })),
+        err => {
+          assert.equal(err.name, 'BotManagerError');
+          assert.match(err.message, /Failed to resolve skills/);
+          assert.equal(err.operation, 'reloadBot');
+          assert.equal(err.botId, 'test-bot');
+          return true;
+        }
+      );
+    });
+  });
+
   describe('full lifecycle', () => {
     test('load → start → stop → restart flow', async () => {
       const config = createBotConfig();

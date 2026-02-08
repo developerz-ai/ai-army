@@ -1,13 +1,15 @@
 /**
- * ToolRegistry - Registry for built-in and MCP tools
+ * ToolRegistry - Registry for built-in, MCP, and skill tools
  *
  * Manages tool registration and per-bot tool resolution. Built-in tools are
  * registered as factory functions that create Vercel AI SDK tool objects.
  * MCP tools are fetched dynamically from the McpManager.
+ * Skill tools are resolved from the SkillRegistry based on the bot's skills config.
  *
- * Each bot config declares which tools it needs via `tools` (builtin) and
- * `mcpServers` (MCP). The registry resolves these into a tools object
- * suitable for passing to `generateText()` / `streamText()`.
+ * Each bot config declares which tools it needs via `tools` (builtin),
+ * `mcpServers` (MCP), and `skills` (skill-provided tools). The registry
+ * resolves these into a tools object suitable for passing to
+ * `generateText()` / `streamText()`.
  *
  * @module tools/tool-registry
  */
@@ -77,9 +79,11 @@ export class ToolRegistry {
    *
    * @param {Object} containerPool - ContainerPool instance for Docker container access
    * @param {Object} [mcpManager=null] - McpManager instance for MCP server tools
+   * @param {Object} [options={}] - Additional options
+   * @param {Object} [options.skillRegistry=null] - SkillRegistry instance for resolving skill tools
    * @throws {ToolRegistryError} When containerPool is not provided
    */
-  constructor(containerPool, mcpManager = null) {
+  constructor(containerPool, mcpManager = null, options = {}) {
     if (!containerPool) {
       throw new ToolRegistryError('ContainerPool is required', {
         operation: 'constructor',
@@ -91,6 +95,9 @@ export class ToolRegistry {
 
     /** @type {Object|null} McpManager instance */
     this.mcpManager = mcpManager;
+
+    /** @type {Object|null} SkillRegistry for resolving skill tools */
+    this.skillRegistry = options.skillRegistry || null;
 
     /**
      * Map of tool name to factory function
@@ -250,6 +257,28 @@ export class ToolRegistry {
           botId,
           cause: err,
         });
+      }
+    }
+
+    // Resolve skill tools (if SkillRegistry is available)
+    if (this.skillRegistry && botConfig.skills?.length > 0) {
+      try {
+        const skillTools = this.skillRegistry.getSkillTools(botConfig.skills);
+        // Skill tools have lower precedence than built-in and MCP tools
+        for (const [toolName, tool] of Object.entries(skillTools)) {
+          if (!tools[toolName]) {
+            tools[toolName] = tool;
+          }
+        }
+      } catch (err) {
+        throw new ToolRegistryError(
+          `Failed to get skill tools for bot "${botId}": ${err.message}`,
+          {
+            operation: 'getToolsForBot',
+            botId,
+            cause: err,
+          }
+        );
       }
     }
 

@@ -10,6 +10,7 @@
  * - containerPool: ContainerPool instance for Docker container management
  * - soulLoader: SoulLoader instance for loading bot personality files
  * - configValidator: ConfigValidator instance for validating bot configs
+ * - skillRegistry: SkillRegistry instance for resolving bot skills (optional)
  *
  * @module core/bot-manager
  */
@@ -61,6 +62,7 @@ export class BotManager {
    * @param {Object} [options={}] - Configuration options
    * @param {Object} [options.configValidator] - ConfigValidator instance (created if not provided)
    * @param {Object} [options.toolRegistry] - ToolRegistry instance for resolving tools (including MCP)
+   * @param {Object} [options.skillRegistry] - SkillRegistry instance for resolving bot skills
    */
   constructor(storage, containerPool, soulLoader, options = {}) {
     if (!storage) {
@@ -86,6 +88,9 @@ export class BotManager {
 
     /** @type {Object|null} ToolRegistry for resolving built-in and MCP tools */
     this.toolRegistry = options.toolRegistry || null;
+
+    /** @type {Object|null} SkillRegistry for resolving bot skills */
+    this.skillRegistry = options.skillRegistry || null;
 
     /** @type {Map<string, Object>} In-memory store of bot objects */
     this.bots = new Map();
@@ -152,6 +157,28 @@ export class BotManager {
         }
       }
 
+      // Resolve skills via SkillRegistry and merge into soul + tools
+      const skillNames = validatedConfig.skills || [];
+      let skillTools = {};
+      if (this.skillRegistry && skillNames.length > 0) {
+        try {
+          this.skillRegistry.attachToBot(botId, skillNames);
+          const skillInstructions = this.skillRegistry.getSkillInstructions(skillNames);
+          if (skillInstructions) {
+            soulContent = soulContent
+              ? `${soulContent}\n\n## Skills\n\n${skillInstructions}`
+              : skillInstructions;
+          }
+          skillTools = this.skillRegistry.getSkillTools(skillNames);
+        } catch (err) {
+          throw new BotManagerError(`Failed to resolve skills for bot '${botId}': ${err.message}`, {
+            cause: err,
+            operation: 'loadBot',
+            botId,
+          });
+        }
+      }
+
       // Resolve tools (built-in + MCP) via ToolRegistry
       let resolvedTools = {};
       if (this.toolRegistry) {
@@ -164,6 +191,11 @@ export class BotManager {
             botId,
           });
         }
+      }
+
+      // Merge skill tools into resolved tools (skill tools have lower precedence)
+      if (Object.keys(skillTools).length > 0) {
+        resolvedTools = { ...skillTools, ...resolvedTools };
       }
 
       // Create bot object
@@ -367,6 +399,31 @@ export class BotManager {
         }
       }
 
+      // Re-resolve skills via SkillRegistry and merge into soul + tools
+      const skillNames = validatedConfig.skills || [];
+      let skillTools = {};
+      if (this.skillRegistry && skillNames.length > 0) {
+        try {
+          this.skillRegistry.attachToBot(botId, skillNames);
+          const skillInstructions = this.skillRegistry.getSkillInstructions(skillNames);
+          if (skillInstructions) {
+            soulContent = soulContent
+              ? `${soulContent}\n\n## Skills\n\n${skillInstructions}`
+              : skillInstructions;
+          }
+          skillTools = this.skillRegistry.getSkillTools(skillNames);
+        } catch (err) {
+          throw new BotManagerError(`Failed to resolve skills for bot '${botId}': ${err.message}`, {
+            cause: err,
+            operation: 'reloadBot',
+            botId,
+          });
+        }
+      } else if (this.skillRegistry) {
+        // No skills in new config — detach any previously attached skills
+        this.skillRegistry.detachFromBot(botId);
+      }
+
       // Re-resolve tools via ToolRegistry
       let resolvedTools = bot.tools || {};
       if (this.toolRegistry) {
@@ -379,6 +436,11 @@ export class BotManager {
             botId,
           });
         }
+      }
+
+      // Merge skill tools into resolved tools (skill tools have lower precedence)
+      if (Object.keys(skillTools).length > 0) {
+        resolvedTools = { ...skillTools, ...resolvedTools };
       }
 
       // Check if sandbox config changed (requires container recreation)
