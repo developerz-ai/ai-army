@@ -59,10 +59,11 @@ docs/
 demo/
 AGENT.md
 CHANGELOG.md
-CLAUDE.md
 CONTRIBUTING.md
 README.md
 LICENSE
+*.md
+!CLAUDE.md
 
 # Dev tooling configs
 eslint.config.js
