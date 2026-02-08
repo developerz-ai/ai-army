@@ -302,6 +302,204 @@ export class ChannelManager {
   }
 
   /**
+   * Broadcast a message to all initialized channels
+   *
+   * Sends the same message text to every channel. Each channel's adapter
+   * must support `sendMessage(channelId, text)`. Collects results and
+   * continues even if individual sends fail.
+   *
+   * @param {string} message - Message text to broadcast
+   * @param {Object} [options={}] - Broadcast options
+   * @param {string} [options.channelId] - Target channel/conversation ID on each adapter
+   * @returns {Promise<Object>} Results with sent/failed arrays
+   * @throws {ChannelManagerError} If message is not a non-empty string
+   */
+  async broadcastToAll(message, options = {}) {
+    if (!message || typeof message !== 'string') {
+      throw new ChannelManagerError('Broadcast message must be a non-empty string', {
+        operation: 'broadcastToAll',
+      });
+    }
+
+    const results = { sent: [], failed: [] };
+
+    for (const [name, channel] of this.channels) {
+      try {
+        const { adapter } = channel;
+        if (adapter && typeof adapter.sendMessage === 'function') {
+          const targetChannelId = options.channelId || name;
+          await adapter.sendMessage(targetChannelId, message);
+          results.sent.push(name);
+          this._log(`Broadcast sent to channel: ${name}`);
+        } else {
+          results.failed.push({
+            name,
+            error: 'Adapter does not support sendMessage',
+          });
+        }
+      } catch (err) {
+        results.failed.push({ name, error: err.message });
+        this._log(`Broadcast failed for channel '${name}': ${err.message}`);
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Get the current status of a channel
+   *
+   * Returns a snapshot of the channel's state including status, type,
+   * creation time, and whether the adapter is present.
+   *
+   * @param {string} name - Channel name
+   * @returns {Object|null} Channel status object or null if not found
+   */
+  getChannelStatus(name) {
+    const channel = this.channels.get(name);
+    if (!channel) {
+      return null;
+    }
+
+    return {
+      name: channel.name,
+      status: channel.status,
+      type: channel.config ? channel.config.type : null,
+      hasAdapter: !!channel.adapter,
+      createdAt: channel.createdAt,
+    };
+  }
+
+  /**
+   * Reconnect a channel by stopping and re-initializing it
+   *
+   * Uses the channel's stored configuration to perform a clean
+   * stop-and-reinitialize cycle.
+   *
+   * @param {string} name - Channel name to reconnect
+   * @returns {Promise<Object>} The re-initialized channel entry
+   * @throws {ChannelManagerError} If channel not found or reconnect fails
+   */
+  async reconnectChannel(name) {
+    if (!name || typeof name !== 'string') {
+      throw new ChannelManagerError('Channel name must be a non-empty string', {
+        operation: 'reconnectChannel',
+      });
+    }
+
+    const channel = this.channels.get(name);
+    if (!channel) {
+      throw new ChannelManagerError(`Channel '${name}' not found`, {
+        operation: 'reconnectChannel',
+        channelName: name,
+      });
+    }
+
+    const { config } = channel;
+    this._log(`Reconnecting channel '${name}'...`);
+
+    try {
+      await this._stopChannel(name);
+      this.channels.delete(name);
+      const reconnected = await this.initializeChannel(name, config);
+      this._log(`Reconnected channel: ${name}`);
+      return reconnected;
+    } catch (err) {
+      if (err instanceof ChannelManagerError) {
+        throw err;
+      }
+      throw new ChannelManagerError(`Failed to reconnect channel '${name}': ${err.message}`, {
+        cause: err,
+        operation: 'reconnectChannel',
+        channelName: name,
+      });
+    }
+  }
+
+  /**
+   * Update the configuration of an existing channel
+   *
+   * Merges new config values into the channel's existing config,
+   * then stops and re-initializes the channel with the merged config.
+   *
+   * @param {string} name - Channel name to update
+   * @param {Object} configUpdates - Config fields to merge/override
+   * @returns {Promise<Object>} The re-initialized channel entry
+   * @throws {ChannelManagerError} If channel not found or update fails
+   */
+  async updateChannelConfig(name, configUpdates) {
+    if (!name || typeof name !== 'string') {
+      throw new ChannelManagerError('Channel name must be a non-empty string', {
+        operation: 'updateChannelConfig',
+      });
+    }
+
+    if (!configUpdates || typeof configUpdates !== 'object') {
+      throw new ChannelManagerError('Config updates must be a non-null object', {
+        operation: 'updateChannelConfig',
+        channelName: name,
+      });
+    }
+
+    const channel = this.channels.get(name);
+    if (!channel) {
+      throw new ChannelManagerError(`Channel '${name}' not found`, {
+        operation: 'updateChannelConfig',
+        channelName: name,
+      });
+    }
+
+    const mergedConfig = { ...channel.config, ...configUpdates };
+    this._log(`Updating config for channel '${name}'`);
+
+    try {
+      await this._stopChannel(name);
+      this.channels.delete(name);
+      const updated = await this.initializeChannel(name, mergedConfig);
+      this._log(`Updated channel config: ${name}`);
+      return updated;
+    } catch (err) {
+      if (err instanceof ChannelManagerError) {
+        throw err;
+      }
+      throw new ChannelManagerError(
+        `Failed to update channel config for '${name}': ${err.message}`,
+        { cause: err, operation: 'updateChannelConfig', channelName: name }
+      );
+    }
+  }
+
+  /**
+   * Get stats for all channels as a summary object
+   *
+   * Returns counts by status and basic info about each channel.
+   *
+   * @returns {Object} Channel stats with byStatus counts and channels array
+   */
+  getChannelStats() {
+    const byStatus = {};
+    const channelList = [];
+
+    for (const [name, channel] of this.channels) {
+      const { status } = channel;
+      byStatus[status] = (byStatus[status] || 0) + 1;
+
+      channelList.push({
+        name,
+        status,
+        type: channel.config ? channel.config.type : null,
+        createdAt: channel.createdAt,
+      });
+    }
+
+    return {
+      total: this.channels.size,
+      byStatus,
+      channels: channelList,
+    };
+  }
+
+  /**
    * Get registered adapter type names
    *
    * @returns {string[]} Array of registered type names

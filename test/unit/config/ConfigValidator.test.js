@@ -23,6 +23,8 @@ import {
   SecretAdapterConfigSchema,
   SecretCacheConfigSchema,
   QueueConfigSchema,
+  ChannelRestrictionsSchema,
+  BotChannelConfigSchema,
 } from '../../../src/config/ConfigValidator.js';
 
 describe('ConfigValidator', () => {
@@ -1371,6 +1373,295 @@ describe('Zod Schemas', () => {
       );
 
       assert.equal(errors.length, 0);
+    });
+  });
+
+  // ===========================================================================
+  // ChannelRestrictionsSchema
+  // ===========================================================================
+
+  describe('ChannelRestrictionsSchema', () => {
+    test('accepts empty restrictions', () => {
+      const result = ChannelRestrictionsSchema.safeParse({});
+      assert.ok(result.success);
+      assert.equal(result.data.allowDMs, true);
+    });
+
+    test('accepts full restrictions config', () => {
+      const result = ChannelRestrictionsSchema.safeParse({
+        allowedChannels: ['C123', 'C456'],
+        deniedChannels: ['C999'],
+        allowedUsers: ['U001'],
+        deniedUsers: ['U999'],
+        allowDMs: false,
+        allowedDomains: ['company.com'],
+      });
+      assert.ok(result.success);
+      assert.deepEqual(result.data.allowedChannels, ['C123', 'C456']);
+      assert.equal(result.data.allowDMs, false);
+      assert.deepEqual(result.data.allowedDomains, ['company.com']);
+    });
+
+    test('accepts restrictions with only allowedChannels', () => {
+      const result = ChannelRestrictionsSchema.safeParse({
+        allowedChannels: ['C123456'],
+      });
+      assert.ok(result.success);
+      assert.deepEqual(result.data.allowedChannels, ['C123456']);
+    });
+  });
+
+  // ===========================================================================
+  // BotChannelConfigSchema
+  // ===========================================================================
+
+  describe('BotChannelConfigSchema', () => {
+    test('accepts valid bot channel config', () => {
+      const result = BotChannelConfigSchema.safeParse({
+        name: 'slack-engineering',
+        type: 'slack',
+        botToken: '${SLACK_ENG_TOKEN}',
+      });
+      assert.ok(result.success);
+      assert.equal(result.data.name, 'slack-engineering');
+      assert.equal(result.data.type, 'slack');
+    });
+
+    test('accepts bot channel with restrictions', () => {
+      const result = BotChannelConfigSchema.safeParse({
+        name: 'discord-public',
+        type: 'discord',
+        token: '${DISCORD_TOKEN}',
+        restrictions: {
+          allowDMs: true,
+          allowedChannels: ['12345'],
+        },
+      });
+      assert.ok(result.success);
+      assert.equal(result.data.restrictions.allowDMs, true);
+    });
+
+    test('rejects bot channel without name', () => {
+      const result = BotChannelConfigSchema.safeParse({
+        type: 'slack',
+        botToken: 'token',
+      });
+      assert.ok(!result.success);
+    });
+
+    test('rejects bot channel with empty name', () => {
+      const result = BotChannelConfigSchema.safeParse({
+        name: '',
+        type: 'slack',
+      });
+      assert.ok(!result.success);
+    });
+
+    test('rejects bot channel with invalid type', () => {
+      const result = BotChannelConfigSchema.safeParse({
+        name: 'test-channel',
+        type: 'telegram',
+      });
+      assert.ok(!result.success);
+    });
+
+    test('allows passthrough for adapter-specific fields', () => {
+      const result = BotChannelConfigSchema.safeParse({
+        name: 'rest-api',
+        type: 'rest',
+        port: 3000,
+        host: 'localhost',
+        authToken: 'secret',
+      });
+      assert.ok(result.success);
+      assert.equal(result.data.port, 3000);
+    });
+  });
+
+  // ===========================================================================
+  // BotConfigSchema with channels[] array
+  // ===========================================================================
+
+  describe('BotConfigSchema channels[] array', () => {
+    test('accepts bot config with channels array', () => {
+      const result = BotConfigSchema.safeParse({
+        id: 'multi-bot',
+        soul: './soul.md',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        channels: [
+          {
+            name: 'slack-eng',
+            type: 'slack',
+            botToken: '${SLACK_ENG_TOKEN}',
+          },
+          {
+            name: 'discord-pub',
+            type: 'discord',
+            token: '${DISCORD_TOKEN}',
+            restrictions: { allowDMs: true },
+          },
+        ],
+      });
+      assert.ok(result.success, `Failed: ${JSON.stringify(result.error?.issues)}`);
+      assert.equal(result.data.channels.length, 2);
+      assert.equal(result.data.channels[0].name, 'slack-eng');
+      assert.equal(result.data.channels[1].restrictions.allowDMs, true);
+    });
+
+    test('accepts bot config without channels array (backward compatible)', () => {
+      const result = BotConfigSchema.safeParse({
+        id: 'simple-bot',
+        soul: './soul.md',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        channel: 'slack-main',
+      });
+      assert.ok(result.success);
+      assert.equal(result.data.channel, 'slack-main');
+      assert.equal(result.data.channels, undefined);
+    });
+
+    test('accepts bot config with both channel and channels', () => {
+      const result = BotConfigSchema.safeParse({
+        id: 'dual-bot',
+        soul: './soul.md',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        channel: 'slack-main',
+        channels: [{ name: 'discord-main', type: 'discord', token: 'test' }],
+      });
+      assert.ok(result.success);
+    });
+
+    test('accepts bot config with empty channels array', () => {
+      const result = BotConfigSchema.safeParse({
+        id: 'empty-channels-bot',
+        soul: './soul.md',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        channels: [],
+      });
+      assert.ok(result.success);
+      assert.deepEqual(result.data.channels, []);
+    });
+  });
+
+  // ===========================================================================
+  // Channel restrictions in main config channels
+  // ===========================================================================
+
+  describe('Channel restrictions in main config', () => {
+    test('validates slack channel with restrictions', () => {
+      const validator = new ConfigValidator();
+      const config = {
+        channels: {
+          'slack-main': {
+            type: 'slack',
+            botToken: 'xoxb-test-token',
+            restrictions: {
+              allowedChannels: ['C123456', 'C789012'],
+              deniedUsers: ['U999999'],
+              allowDMs: false,
+            },
+          },
+        },
+      };
+      const result = validator.validateMainConfig(config);
+      assert.ok(result.valid, `Should be valid: ${JSON.stringify(result.errors)}`);
+      assert.deepEqual(result.data.channels['slack-main'].restrictions.allowedChannels, [
+        'C123456',
+        'C789012',
+      ]);
+      assert.equal(result.data.channels['slack-main'].restrictions.allowDMs, false);
+    });
+
+    test('validates discord channel with restrictions', () => {
+      const validator = new ConfigValidator();
+      const config = {
+        channels: {
+          'discord-server': {
+            type: 'discord',
+            botToken: 'discord-test-token',
+            restrictions: {
+              allowedDomains: ['company.com'],
+              allowDMs: true,
+            },
+          },
+        },
+      };
+      const result = validator.validateMainConfig(config);
+      assert.ok(result.valid);
+      assert.deepEqual(result.data.channels['discord-server'].restrictions.allowedDomains, [
+        'company.com',
+      ]);
+    });
+
+    test('validates rest channel with restrictions', () => {
+      const validator = new ConfigValidator();
+      const config = {
+        channels: {
+          api: {
+            type: 'rest',
+            port: 3000,
+            restrictions: {
+              allowedUsers: ['admin'],
+            },
+          },
+        },
+      };
+      const result = validator.validateMainConfig(config);
+      assert.ok(result.valid);
+      assert.deepEqual(result.data.channels.api.restrictions.allowedUsers, ['admin']);
+    });
+  });
+
+  // ===========================================================================
+  // Cross-reference: duplicate channel names in bot channels[]
+  // ===========================================================================
+
+  describe('validateAll() channels[] cross-reference', () => {
+    test('detects duplicate channel names in bot channels array', () => {
+      const validator = new ConfigValidator();
+      const mainConfig = {
+        providers: { anthropic: { type: 'anthropic', apiKey: 'test' } },
+      };
+      const botConfigs = {
+        'multi-bot': {
+          id: 'multi-bot',
+          soul: './soul.md',
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-5',
+          channels: [
+            { name: 'slack-eng', type: 'slack', botToken: 'token1' },
+            { name: 'slack-eng', type: 'slack', botToken: 'token2' },
+          ],
+        },
+      };
+      const result = validator.validateAll(mainConfig, botConfigs);
+      assert.ok(!result.valid);
+      assert.ok(result.errors.some(e => e.code === 'duplicate_channel_name'));
+    });
+
+    test('passes with unique channel names in bot channels array', () => {
+      const validator = new ConfigValidator();
+      const mainConfig = {
+        providers: { anthropic: { type: 'anthropic', apiKey: 'test' } },
+      };
+      const botConfigs = {
+        'multi-bot': {
+          id: 'multi-bot',
+          soul: './soul.md',
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-5',
+          channels: [
+            { name: 'slack-eng', type: 'slack', botToken: 'token1' },
+            { name: 'discord-pub', type: 'discord', token: 'token2' },
+          ],
+        },
+      };
+      const result = validator.validateAll(mainConfig, botConfigs);
+      assert.ok(result.valid);
     });
   });
 });

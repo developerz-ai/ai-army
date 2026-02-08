@@ -222,9 +222,13 @@ export class MessageRouter {
   /**
    * Find the bot that should handle a message based on channel binding
    *
-   * Each bot has a `config.channel` property that names the channel it listens on.
-   * This method finds the first running bot whose channel matches the message's
-   * channelName.
+   * Supports two config shapes:
+   * - Single channel: `bot.config.channel = 'slack-main'`
+   * - Multi-channel: `bot.config.channels = ['slack-main', 'discord-dev']`
+   *   or `bot.config.channels = [{ name: 'slack-main' }, { name: 'discord-dev' }]`
+   *
+   * Returns the first running bot whose channel (or channels array) matches
+   * the message's channelName.
    *
    * @param {Object} message - Incoming message
    * @param {string} message.channelName - Name of the channel (e.g., 'slack-main')
@@ -245,8 +249,30 @@ export class MessageRouter {
     const bots = this.botManager.listBots();
 
     for (const bot of bots) {
-      if (bot.config && bot.config.channel === channelName) {
+      if (!bot.config) {
+        continue;
+      }
+
+      // Single channel binding (existing behavior)
+      if (bot.config.channel === channelName) {
         return bot;
+      }
+
+      // Multi-channel support: bot.config.channels array
+      if (Array.isArray(bot.config.channels)) {
+        const match = bot.config.channels.some(ch => {
+          if (typeof ch === 'string') {
+            return ch === channelName;
+          }
+          if (ch && typeof ch === 'object' && ch.name) {
+            return ch.name === channelName;
+          }
+          return false;
+        });
+
+        if (match) {
+          return bot;
+        }
       }
     }
 

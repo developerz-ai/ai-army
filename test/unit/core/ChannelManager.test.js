@@ -768,6 +768,343 @@ describe('ChannelManager', () => {
     });
   });
 
+  describe('broadcastToAll()', () => {
+    test('broadcasts message to all channels', async () => {
+      await manager.initializeChannel('slack-main', createChannelConfig());
+      await manager.initializeChannel('discord-main', createChannelConfig({ type: 'discord' }));
+
+      const results = await manager.broadcastToAll('Hello everyone!');
+
+      assert.equal(results.sent.length, 2);
+      assert.equal(results.failed.length, 0);
+      assert.ok(results.sent.includes('slack-main'));
+      assert.ok(results.sent.includes('discord-main'));
+    });
+
+    test('uses custom channelId when provided', async () => {
+      await manager.initializeChannel('slack-main', createChannelConfig());
+
+      const slackAdapter = MockSlackAdapter._lastInstance;
+      await manager.broadcastToAll('Test message', { channelId: 'C123456' });
+
+      assert.equal(slackAdapter.sendMessage.mock.calls.length, 1);
+      assert.equal(slackAdapter.sendMessage.mock.calls[0].arguments[0], 'C123456');
+      assert.equal(slackAdapter.sendMessage.mock.calls[0].arguments[1], 'Test message');
+    });
+
+    test('defaults to channel name when no channelId provided', async () => {
+      await manager.initializeChannel('slack-main', createChannelConfig());
+
+      const slackAdapter = MockSlackAdapter._lastInstance;
+      await manager.broadcastToAll('Test message');
+
+      assert.equal(slackAdapter.sendMessage.mock.calls[0].arguments[0], 'slack-main');
+    });
+
+    test('collects failures for channels without sendMessage', async () => {
+      class NoSendAdapter {
+        constructor(config) {
+          this.config = config;
+          this.initialize = mock.fn(async () => {});
+          this.stop = mock.fn(async () => {});
+        }
+      }
+      manager.registerAdapter('nosend', NoSendAdapter);
+
+      await manager.initializeChannel('slack-main', createChannelConfig());
+      await manager.initializeChannel('nosend-chan', createChannelConfig({ type: 'nosend' }));
+
+      const results = await manager.broadcastToAll('Hello');
+
+      assert.equal(results.sent.length, 1);
+      assert.equal(results.failed.length, 1);
+      assert.equal(results.failed[0].name, 'nosend-chan');
+      assert.match(results.failed[0].error, /does not support sendMessage/);
+    });
+
+    test('collects failures when sendMessage throws', async () => {
+      const FailingSend = createMockAdapterClass({
+        sendMessage: mock.fn(async () => {
+          throw new Error('Send failed');
+        }),
+      });
+      manager.registerAdapter('failing', FailingSend);
+
+      await manager.initializeChannel('slack-main', createChannelConfig());
+      await manager.initializeChannel('fail-chan', createChannelConfig({ type: 'failing' }));
+
+      const results = await manager.broadcastToAll('Hello');
+
+      assert.equal(results.sent.length, 1);
+      assert.equal(results.failed.length, 1);
+      assert.equal(results.failed[0].name, 'fail-chan');
+      assert.match(results.failed[0].error, /Send failed/);
+    });
+
+    test('throws when message is empty', async () => {
+      await assert.rejects(
+        () => manager.broadcastToAll(''),
+        err => {
+          assert.equal(err.name, 'ChannelManagerError');
+          assert.match(err.message, /Broadcast message must be a non-empty string/);
+          assert.equal(err.operation, 'broadcastToAll');
+          return true;
+        }
+      );
+    });
+
+    test('throws when message is null', async () => {
+      await assert.rejects(
+        () => manager.broadcastToAll(null),
+        err => {
+          assert.equal(err.name, 'ChannelManagerError');
+          return true;
+        }
+      );
+    });
+
+    test('returns empty results when no channels exist', async () => {
+      const results = await manager.broadcastToAll('Hello');
+
+      assert.equal(results.sent.length, 0);
+      assert.equal(results.failed.length, 0);
+    });
+  });
+
+  describe('getChannelStatus()', () => {
+    test('returns status for initialized channel', async () => {
+      await manager.initializeChannel('slack-main', createChannelConfig());
+
+      const status = manager.getChannelStatus('slack-main');
+
+      assert.ok(status);
+      assert.equal(status.name, 'slack-main');
+      assert.equal(status.status, CHANNEL_STATUSES.READY);
+      assert.equal(status.type, 'slack');
+      assert.equal(status.hasAdapter, true);
+      assert.ok(status.createdAt instanceof Date);
+    });
+
+    test('returns null for unknown channel', () => {
+      const status = manager.getChannelStatus('nonexistent');
+      assert.equal(status, null);
+    });
+
+    test('shows hasAdapter false when adapter is null', async () => {
+      await manager.initializeChannel('slack-main', createChannelConfig());
+      const channel = manager.getChannel('slack-main');
+      channel.adapter = null;
+
+      const status = manager.getChannelStatus('slack-main');
+
+      assert.equal(status.hasAdapter, false);
+    });
+  });
+
+  describe('reconnectChannel()', () => {
+    test('reconnects a channel successfully', async () => {
+      await manager.initializeChannel('slack-main', createChannelConfig());
+      const firstAdapter = MockSlackAdapter._lastInstance;
+
+      const reconnected = await manager.reconnectChannel('slack-main');
+
+      assert.equal(firstAdapter.stop.mock.calls.length, 1);
+      assert.equal(reconnected.name, 'slack-main');
+      assert.equal(reconnected.status, CHANNEL_STATUSES.READY);
+      assert.notEqual(reconnected.adapter, firstAdapter);
+    });
+
+    test('uses original config when reconnecting', async () => {
+      const config = createChannelConfig({ botToken: 'xoxb-original' });
+      await manager.initializeChannel('slack-main', config);
+
+      await manager.reconnectChannel('slack-main');
+
+      const newAdapter = MockSlackAdapter._lastInstance;
+      assert.equal(newAdapter.config.botToken, 'xoxb-original');
+    });
+
+    test('throws when name is empty', async () => {
+      await assert.rejects(
+        () => manager.reconnectChannel(''),
+        err => {
+          assert.equal(err.name, 'ChannelManagerError');
+          assert.match(err.message, /Channel name must be a non-empty string/);
+          assert.equal(err.operation, 'reconnectChannel');
+          return true;
+        }
+      );
+    });
+
+    test('throws when channel not found', async () => {
+      await assert.rejects(
+        () => manager.reconnectChannel('nonexistent'),
+        err => {
+          assert.equal(err.name, 'ChannelManagerError');
+          assert.match(err.message, /Channel 'nonexistent' not found/);
+          assert.equal(err.operation, 'reconnectChannel');
+          assert.equal(err.channelName, 'nonexistent');
+          return true;
+        }
+      );
+    });
+
+    test('throws when re-initialization fails', async () => {
+      await manager.initializeChannel('slack-main', createChannelConfig());
+
+      // Replace adapter with one that fails on initialize
+      const FailingInit = createMockAdapterClass({
+        initialize: mock.fn(async () => {
+          throw new Error('Reconnect init failed');
+        }),
+      });
+      manager.registerAdapter('slack', FailingInit);
+
+      await assert.rejects(
+        () => manager.reconnectChannel('slack-main'),
+        err => {
+          assert.equal(err.name, 'ChannelManagerError');
+          // The error from initializeChannel is re-thrown as-is
+          assert.match(err.message, /Failed to initialize channel 'slack-main'/);
+          assert.ok(err.cause);
+          return true;
+        }
+      );
+    });
+  });
+
+  describe('updateChannelConfig()', () => {
+    test('updates channel config and reinitializes', async () => {
+      const config = createChannelConfig({ botToken: 'xoxb-old' });
+      await manager.initializeChannel('slack-main', config);
+      const firstAdapter = MockSlackAdapter._lastInstance;
+
+      const updated = await manager.updateChannelConfig('slack-main', { botToken: 'xoxb-new' });
+
+      assert.equal(firstAdapter.stop.mock.calls.length, 1);
+      assert.equal(updated.config.botToken, 'xoxb-new');
+      assert.notEqual(updated.adapter, firstAdapter);
+    });
+
+    test('merges config updates with existing config', async () => {
+      const config = createChannelConfig({ botToken: 'xoxb-old', appToken: 'xapp-old' });
+      await manager.initializeChannel('slack-main', config);
+
+      await manager.updateChannelConfig('slack-main', { botToken: 'xoxb-new' });
+
+      const newAdapter = MockSlackAdapter._lastInstance;
+      assert.equal(newAdapter.config.botToken, 'xoxb-new');
+      assert.equal(newAdapter.config.appToken, 'xapp-old');
+    });
+
+    test('throws when name is empty', async () => {
+      await assert.rejects(
+        () => manager.updateChannelConfig('', {}),
+        err => {
+          assert.equal(err.name, 'ChannelManagerError');
+          assert.match(err.message, /Channel name must be a non-empty string/);
+          assert.equal(err.operation, 'updateChannelConfig');
+          return true;
+        }
+      );
+    });
+
+    test('throws when configUpdates is null', async () => {
+      await assert.rejects(
+        () => manager.updateChannelConfig('slack-main', null),
+        err => {
+          assert.equal(err.name, 'ChannelManagerError');
+          assert.match(err.message, /Config updates must be a non-null object/);
+          assert.equal(err.operation, 'updateChannelConfig');
+          return true;
+        }
+      );
+    });
+
+    test('throws when channel not found', async () => {
+      await assert.rejects(
+        () => manager.updateChannelConfig('nonexistent', { botToken: 'xoxb-new' }),
+        err => {
+          assert.equal(err.name, 'ChannelManagerError');
+          assert.match(err.message, /Channel 'nonexistent' not found/);
+          assert.equal(err.operation, 'updateChannelConfig');
+          assert.equal(err.channelName, 'nonexistent');
+          return true;
+        }
+      );
+    });
+
+    test('throws when re-initialization fails', async () => {
+      await manager.initializeChannel('slack-main', createChannelConfig());
+
+      // Replace adapter with one that fails on initialize
+      const FailingInit = createMockAdapterClass({
+        initialize: mock.fn(async () => {
+          throw new Error('Update init failed');
+        }),
+      });
+      manager.registerAdapter('slack', FailingInit);
+
+      await assert.rejects(
+        () => manager.updateChannelConfig('slack-main', { botToken: 'xoxb-new' }),
+        err => {
+          assert.equal(err.name, 'ChannelManagerError');
+          // The error from initializeChannel is re-thrown as-is
+          assert.match(err.message, /Failed to initialize channel 'slack-main'/);
+          assert.ok(err.cause);
+          return true;
+        }
+      );
+    });
+  });
+
+  describe('getChannelStats()', () => {
+    test('returns empty stats when no channels', () => {
+      const stats = manager.getChannelStats();
+
+      assert.equal(stats.total, 0);
+      assert.deepEqual(stats.byStatus, {});
+      assert.deepEqual(stats.channels, []);
+    });
+
+    test('returns stats for all channels', async () => {
+      await manager.initializeChannel('slack-main', createChannelConfig());
+      await manager.initializeChannel('discord-main', createChannelConfig({ type: 'discord' }));
+
+      const stats = manager.getChannelStats();
+
+      assert.equal(stats.total, 2);
+      assert.equal(stats.byStatus[CHANNEL_STATUSES.READY], 2);
+      assert.equal(stats.channels.length, 2);
+    });
+
+    test('includes channel details in channels array', async () => {
+      await manager.initializeChannel('slack-main', createChannelConfig());
+
+      const stats = manager.getChannelStats();
+      const channelInfo = stats.channels[0];
+
+      assert.equal(channelInfo.name, 'slack-main');
+      assert.equal(channelInfo.status, CHANNEL_STATUSES.READY);
+      assert.equal(channelInfo.type, 'slack');
+      assert.ok(channelInfo.createdAt instanceof Date);
+    });
+
+    test('groups channels by status', async () => {
+      await manager.initializeChannel('slack-main', createChannelConfig());
+      await manager.initializeChannel('discord-main', createChannelConfig({ type: 'discord' }));
+
+      // Manually set one channel to error status
+      const channel = manager.getChannel('discord-main');
+      channel.status = CHANNEL_STATUSES.ERROR;
+
+      const stats = manager.getChannelStats();
+
+      assert.equal(stats.byStatus[CHANNEL_STATUSES.READY], 1);
+      assert.equal(stats.byStatus[CHANNEL_STATUSES.ERROR], 1);
+    });
+  });
+
   describe('full lifecycle', () => {
     test('register → initialize → get → stop flow', async () => {
       const m = new ChannelManager();
