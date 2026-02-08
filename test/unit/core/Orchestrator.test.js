@@ -2226,6 +2226,265 @@ describe('Orchestrator', () => {
       await orch.stop();
     });
   });
+
+  // ===========================================================================
+  // MCP Integration
+  // ===========================================================================
+
+  describe('mcpManager', () => {
+    test('constructor accepts mcpManager option', () => {
+      const mockMcp = { startServer: mock.fn(), stopAll: mock.fn(), getServerCount: mock.fn() };
+      const orch = new Orchestrator({ ...opts, mcpManager: mockMcp });
+      assert.equal(orch.mcpManager, mockMcp);
+    });
+
+    test('constructor defaults mcpManager to null', () => {
+      const orch = new Orchestrator({ logger: null });
+      assert.equal(orch.mcpManager, null);
+    });
+
+    test('constructor accepts mcpManagerFactory option', () => {
+      const factory = mock.fn();
+      const orch = new Orchestrator({ ...opts, mcpManagerFactory: factory });
+      assert.equal(orch.mcpManagerFactory, factory);
+    });
+
+    test('starts MCP servers from config during startup', async () => {
+      const mockMcp = {
+        startServer: mock.fn(async () => ({ tools: [] })),
+        stopAll: mock.fn(async () => ({ stopped: [], failed: [] })),
+        getServerCount: mock.fn(() => 1),
+      };
+
+      const mainConfig = createMainConfig({
+        mcpServers: {
+          github: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'] },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        mcpManager: mockMcp,
+      });
+
+      await orch.start();
+
+      assert.equal(mockMcp.startServer.mock.calls.length, 1);
+      const serverConfig = mockMcp.startServer.mock.calls[0].arguments[0];
+      assert.equal(serverConfig.id, 'github');
+      assert.equal(serverConfig.command, 'npx');
+
+      await orch.stop();
+    });
+
+    test('starts multiple MCP servers', async () => {
+      const mockMcp = {
+        startServer: mock.fn(async () => ({ tools: [] })),
+        stopAll: mock.fn(async () => ({ stopped: [], failed: [] })),
+        getServerCount: mock.fn(() => 2),
+      };
+
+      const mainConfig = createMainConfig({
+        mcpServers: {
+          github: { command: 'npx', args: ['server-github'] },
+          filesystem: { command: 'npx', args: ['server-fs'] },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        mcpManager: mockMcp,
+      });
+
+      await orch.start();
+
+      assert.equal(mockMcp.startServer.mock.calls.length, 2);
+
+      await orch.stop();
+    });
+
+    test('continues startup when MCP server fails to start', async () => {
+      let callCount = 0;
+      const mockMcp = {
+        startServer: mock.fn(async () => {
+          callCount++;
+          if (callCount === 1) {
+            throw new Error('Server spawn failed');
+          }
+          return { tools: [] };
+        }),
+        stopAll: mock.fn(async () => ({ stopped: [], failed: [] })),
+        getServerCount: mock.fn(() => 1),
+      };
+
+      const mainConfig = createMainConfig({
+        mcpServers: {
+          badServer: { command: 'bad-cmd' },
+          goodServer: { command: 'good-cmd' },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        mcpManager: mockMcp,
+      });
+
+      await orch.start();
+
+      assert.equal(orch.state, 'running');
+      assert.equal(mockMcp.startServer.mock.calls.length, 2);
+
+      await orch.stop();
+    });
+
+    test('skips MCP when no mcpServers configured', async () => {
+      const mockMcp = {
+        startServer: mock.fn(async () => ({ tools: [] })),
+        stopAll: mock.fn(async () => ({ stopped: [], failed: [] })),
+        getServerCount: mock.fn(() => 0),
+      };
+
+      const orch = new Orchestrator({
+        ...opts,
+        mcpManager: mockMcp,
+      });
+
+      await orch.start();
+
+      assert.equal(mockMcp.startServer.mock.calls.length, 0);
+
+      await orch.stop();
+    });
+
+    test('creates mcpManager from factory when provided', async () => {
+      const mockMcp = {
+        startServer: mock.fn(async () => ({ tools: [] })),
+        stopAll: mock.fn(async () => ({ stopped: [], failed: [] })),
+        getServerCount: mock.fn(() => 1),
+      };
+      const factory = mock.fn(() => mockMcp);
+
+      const mainConfig = createMainConfig({
+        mcpServers: {
+          github: { command: 'npx', args: ['server-github'] },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        mcpManagerFactory: factory,
+      });
+
+      await orch.start();
+
+      assert.equal(factory.mock.calls.length, 1);
+      assert.equal(orch.mcpManager, mockMcp);
+      assert.equal(mockMcp.startServer.mock.calls.length, 1);
+
+      await orch.stop();
+    });
+
+    test('does not create mcpManager when no mcpServers and no DI', async () => {
+      const orch = new Orchestrator(opts);
+
+      await orch.start();
+
+      assert.equal(orch.mcpManager, null);
+
+      await orch.stop();
+    });
+
+    test('stops MCP servers during shutdown', async () => {
+      const mockMcp = {
+        startServer: mock.fn(async () => ({ tools: [] })),
+        stopAll: mock.fn(async () => ({ stopped: ['github'], failed: [] })),
+        getServerCount: mock.fn(() => 1),
+      };
+
+      const mainConfig = createMainConfig({
+        mcpServers: {
+          github: { command: 'npx', args: ['server-github'] },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        mcpManager: mockMcp,
+      });
+
+      await orch.start();
+      await orch.stop();
+
+      assert.equal(mockMcp.stopAll.mock.calls.length, 1);
+    });
+
+    test('logs MCP server start failures during startup', async () => {
+      const mockMcp = {
+        startServer: mock.fn(async () => {
+          throw new Error('Spawn failed');
+        }),
+        stopAll: mock.fn(async () => ({ stopped: [], failed: [] })),
+        getServerCount: mock.fn(() => 0),
+      };
+
+      const mainConfig = createMainConfig({
+        mcpServers: {
+          github: { command: 'npx', args: ['server-github'] },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+      const logs = [];
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        mcpManager: mockMcp,
+        logger: msg => logs.push(msg),
+      });
+
+      await orch.start();
+
+      assert.ok(logs.some(l => l.includes('Failed to start MCP server')));
+      assert.ok(logs.some(l => l.includes('0/1 MCP server(s) started')));
+
+      await orch.stop();
+    });
+
+    test('getStatus() includes mcpServerCount', async () => {
+      const mockMcp = {
+        startServer: mock.fn(async () => ({ tools: [] })),
+        stopAll: mock.fn(async () => ({ stopped: [], failed: [] })),
+        getServerCount: mock.fn(() => 2),
+      };
+
+      const orch = new Orchestrator({
+        ...opts,
+        mcpManager: mockMcp,
+      });
+
+      await orch.start();
+
+      const status = orch.getStatus();
+      assert.equal(status.mcpServerCount, 2);
+
+      await orch.stop();
+    });
+
+    test('getStatus() returns 0 for mcpServerCount when no mcpManager', () => {
+      const status = orchestrator.getStatus();
+      assert.equal(status.mcpServerCount, 0);
+    });
+  });
 });
 
 // =============================================================================

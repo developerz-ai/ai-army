@@ -17,9 +17,11 @@
 
 import fs from 'fs/promises';
 import path from 'path';
+
 import { ConfigLoader } from '../config/ConfigLoader.js';
 import { ConfigValidator } from '../config/ConfigValidator.js';
 import { MigrationRunner } from '../database/MigrationRunner.js';
+import { MCPManager } from '../mcp/mcp-manager.js';
 import { SecretsManager } from '../secrets/secrets-manager.js';
 import { EnvAdapter } from '../adapters/secrets/env.js';
 
@@ -86,6 +88,8 @@ export class Orchestrator {
    * @param {Function} [options.migrationRunnerFactory] - Factory to create MigrationRunner (for DI)
    * @param {Function} [options.messageProcessorFactory] - Factory to create MessageProcessor
    * @param {Function} [options.messageRouterFactory] - Factory to create MessageRouter
+   * @param {Object} [options.mcpManager] - Pre-configured MCPManager instance (for DI/testing)
+   * @param {Function} [options.mcpManagerFactory] - Factory (config) => MCPManager
    * @param {Object} [options.botReloader] - Pre-configured BotReloader instance (for DI/testing)
    * @param {Function} [options.botReloaderFactory] - Factory (botManager, config) => BotReloader.
    *   The factory must close over containerPool + soulLoader or supply them internally.
@@ -108,6 +112,9 @@ export class Orchestrator {
     this.migrationRunner = options.migrationRunner || null;
     this.secretsManager = options.secretsManager || null;
 
+    // MCPManager for MCP server lifecycle
+    this.mcpManager = options.mcpManager || null;
+
     // BotReloader for granular hot-reload
     this.botReloader = options.botReloader || null;
 
@@ -118,6 +125,7 @@ export class Orchestrator {
     this.migrationRunnerFactory = options.migrationRunnerFactory || null;
     this.messageProcessorFactory = options.messageProcessorFactory || null;
     this.messageRouterFactory = options.messageRouterFactory || null;
+    this.mcpManagerFactory = options.mcpManagerFactory || null;
     this.botReloaderFactory = options.botReloaderFactory || null;
     this.secretsManagerFactory = options.secretsManagerFactory || null;
 
@@ -174,6 +182,9 @@ export class Orchestrator {
 
       // Step 4: Create component instances (BotManager, SessionManager, SecretsManager)
       await this._createComponents();
+
+      // Step 4b: Start MCP servers
+      await this._startMCPServers();
 
       // Step 5: Discover and load bots
       const { discovered: discoveredCount, loaded: loadedCount } = await this._loadBots();
@@ -263,14 +274,21 @@ export class Orchestrator {
       errors.push({ component: 'bots', error: err });
     }
 
-    // Step 2: Close channels
+    // Step 2: Stop MCP servers
+    try {
+      await this._stopMCPServers();
+    } catch (err) {
+      errors.push({ component: 'mcp', error: err });
+    }
+
+    // Step 3: Close channels
     try {
       await this._closeChannels();
     } catch (err) {
       errors.push({ component: 'channels', error: err });
     }
 
-    // Step 3: Disconnect database
+    // Step 4: Disconnect database
     try {
       await this._disconnectDatabase();
     } catch (err) {
@@ -453,6 +471,7 @@ export class Orchestrator {
       uptime: this.startedAt ? Date.now() - this.startedAt.getTime() : 0,
       botCount: this.botManager ? this.botManager.getBotCount() : 0,
       channelCount: this.channels.size,
+      mcpServerCount: this.mcpManager ? this.mcpManager.getServerCount() : 0,
       middlewareCount: this.middlewares.length,
       databaseConnected: this.storage ? this.storage.isConnected() : false,
       messageProcessorReady: !!this.messageProcessor,
@@ -922,6 +941,81 @@ export class Orchestrator {
     } catch (err) {
       this._log(`❌ Error handling message on channel '${channelName}': ${err.message}`);
     }
+  }
+
+  // ==========================================================================
+  // Private: MCP Lifecycle
+  // ==========================================================================
+
+  /**
+   * Start MCP servers defined in config.mcpServers
+   *
+   * Creates or reuses an MCPManager and starts each configured MCP server.
+   * Failures on individual servers are logged but do not prevent startup.
+   *
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _startMCPServers() {
+    const mcpServersConfig = this.config.mcpServers || {};
+    const serverIds = Object.keys(mcpServersConfig);
+
+    if (serverIds.length === 0 && !this.mcpManager) {
+      return;
+    }
+
+    // Create MCPManager if not injected
+    if (!this.mcpManager) {
+      if (this.mcpManagerFactory) {
+        this.mcpManager = this.mcpManagerFactory(this.config);
+      } else {
+        this.mcpManager = new MCPManager({ logger: this.logger });
+      }
+    }
+
+    if (serverIds.length === 0) {
+      return;
+    }
+
+    this._log('🔌 Starting MCP servers...');
+
+    let startedCount = 0;
+    for (const [serverId, serverConfig] of Object.entries(mcpServersConfig)) {
+      try {
+        await this.mcpManager.startServer({
+          id: serverId,
+          ...serverConfig,
+        });
+        startedCount++;
+        this._log(`  🔌 Started MCP server: ${serverId}`);
+      } catch (err) {
+        this._log(`  ❌ Failed to start MCP server '${serverId}': ${err.message}`);
+      }
+    }
+
+    this._log(`🔌 ${startedCount}/${serverIds.length} MCP server(s) started`);
+  }
+
+  /**
+   * Stop all running MCP servers
+   *
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _stopMCPServers() {
+    if (!this.mcpManager) {
+      return;
+    }
+
+    this._log('🔌 Stopping MCP servers...');
+    const results = await this.mcpManager.stopAll();
+
+    if (results.failed.length > 0) {
+      const failedIds = results.failed.map(f => f.id).join(', ');
+      this._log(`⚠️ Some MCP servers failed to stop: ${failedIds}`);
+    }
+
+    this._log(`✅ ${results.stopped.length} MCP server(s) stopped`);
   }
 
   // ==========================================================================
