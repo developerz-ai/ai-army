@@ -3058,6 +3058,246 @@ describe('Orchestrator', () => {
       await orch.stop();
     });
   });
+
+  // ===========================================================================
+  // ChannelManager Integration
+  // ===========================================================================
+
+  describe('ChannelManager integration', () => {
+    test('constructor accepts channelManager option', () => {
+      const mockChannelManager = {
+        registerAdapter: mock.fn(),
+        initializeChannel: mock.fn(),
+        listChannels: mock.fn(() => []),
+        getChannelCount: mock.fn(() => 0),
+        getChannelStats: mock.fn(() => ({ total: 0, byStatus: {}, channels: [] })),
+        stopAll: mock.fn(async () => ({ stopped: [], failed: [] })),
+      };
+      const orch = new Orchestrator({ ...opts, channelManager: mockChannelManager });
+      assert.equal(orch.channelManager, mockChannelManager);
+    });
+
+    test('constructor defaults channelManager to null', () => {
+      const orch = new Orchestrator({ logger: null });
+      assert.equal(orch.channelManager, null);
+    });
+
+    test('constructor defaults healthCheckInterval to 30000', () => {
+      const orch = new Orchestrator({ logger: null });
+      assert.equal(orch.healthCheckInterval, 30000);
+    });
+
+    test('constructor accepts custom healthCheckInterval', () => {
+      const orch = new Orchestrator({ logger: null, healthCheckInterval: 10000 });
+      assert.equal(orch.healthCheckInterval, 10000);
+    });
+
+    test('constructor accepts healthCheckInterval of 0 to disable', () => {
+      const orch = new Orchestrator({ logger: null, healthCheckInterval: 0 });
+      assert.equal(orch.healthCheckInterval, 0);
+    });
+
+    test('creates ChannelManager during channel initialization', async () => {
+      const MockAdapter = createMockChannelAdapterClass();
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        healthCheckInterval: 0,
+      });
+      orch.registerChannelAdapter('slack', MockAdapter);
+
+      await orch.start();
+
+      // ChannelManager should have been created
+      assert.ok(orch.channelManager);
+      assert.equal(orch.channelManager.getChannelCount(), 1);
+      // backward-compat channels map should still be populated
+      assert.equal(orch.channels.size, 1);
+
+      await orch.stop();
+    });
+
+    test('creates ChannelManager from factory when provided', async () => {
+      const MockAdapter = createMockChannelAdapterClass();
+      const mockChannelManager = {
+        adapterTypes: new Map(),
+        registerAdapter: mock.fn((type, cls) => {
+          mockChannelManager.adapterTypes.set(type, cls);
+        }),
+        initializeChannel: mock.fn(async (name, config) => {
+          const adapter = new (mockChannelManager.adapterTypes.get(config.type))();
+          await adapter.initialize(config);
+          return { name, config, adapter, status: 'ready', createdAt: new Date() };
+        }),
+        getChannel: mock.fn(name => {
+          const AdapterClass = mockChannelManager.adapterTypes.get('slack');
+          if (AdapterClass) {
+            const adapter = new AdapterClass();
+            return { name, adapter, status: 'ready' };
+          }
+          return undefined;
+        }),
+        listChannels: mock.fn(() => []),
+        getChannelCount: mock.fn(() => 1),
+        getChannelStats: mock.fn(() => ({ total: 1, byStatus: { ready: 1 }, channels: [] })),
+        stopAll: mock.fn(async () => ({ stopped: ['slack-main'], failed: [] })),
+      };
+
+      const factory = mock.fn(() => mockChannelManager);
+
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        channelManagerFactory: factory,
+        healthCheckInterval: 0,
+      });
+      orch.registerChannelAdapter('slack', MockAdapter);
+
+      await orch.start();
+
+      assert.equal(factory.mock.calls.length, 1);
+      assert.equal(orch.channelManager, mockChannelManager);
+
+      await orch.stop();
+    });
+
+    test('uses ChannelManager.stopAll() during shutdown', async () => {
+      const MockAdapter = createMockChannelAdapterClass();
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        healthCheckInterval: 0,
+      });
+      orch.registerChannelAdapter('slack', MockAdapter);
+
+      await orch.start();
+
+      const stopAllSpy = mock.fn(orch.channelManager.stopAll.bind(orch.channelManager));
+      orch.channelManager.stopAll = stopAllSpy;
+
+      await orch.stop();
+
+      assert.equal(stopAllSpy.mock.calls.length, 1);
+      assert.equal(orch.channels.size, 0);
+    });
+
+    test('getStatus() includes channelStats when ChannelManager is available', async () => {
+      const MockAdapter = createMockChannelAdapterClass();
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        healthCheckInterval: 0,
+      });
+      orch.registerChannelAdapter('slack', MockAdapter);
+
+      await orch.start();
+
+      const status = orch.getStatus();
+      assert.ok(status.channelStats);
+      assert.equal(status.channelStats.total, 1);
+      assert.equal(status.channelCount, 1);
+
+      await orch.stop();
+    });
+
+    test('getStatus() returns null channelStats without ChannelManager', () => {
+      const status = orchestrator.getStatus();
+      assert.equal(status.channelStats, null);
+    });
+
+    test('getStatus() includes healthMonitorActive flag', () => {
+      const status = orchestrator.getStatus();
+      assert.equal(status.healthMonitorActive, false);
+    });
+  });
+
+  // ===========================================================================
+  // Health Monitor
+  // ===========================================================================
+
+  describe('health monitor', () => {
+    test('does not start health monitor when healthCheckInterval is 0', async () => {
+      const MockAdapter = createMockChannelAdapterClass();
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        healthCheckInterval: 0,
+      });
+      orch.registerChannelAdapter('slack', MockAdapter);
+
+      await orch.start();
+
+      assert.equal(orch._healthCheckTimer, null);
+
+      await orch.stop();
+    });
+
+    test('stops health monitor during shutdown', async () => {
+      const MockAdapter = createMockChannelAdapterClass();
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+        },
+      });
+
+      opts.configLoader.load = mock.fn(async () => mainConfig);
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader: opts.configLoader,
+        healthCheckInterval: 60000, // Long interval so it doesn't fire
+      });
+      orch.registerChannelAdapter('slack', MockAdapter);
+
+      await orch.start();
+
+      assert.ok(orch._healthCheckTimer !== null, 'Health timer should be active');
+
+      await orch.stop();
+
+      assert.equal(orch._healthCheckTimer, null, 'Health timer should be cleared after stop');
+    });
+  });
 });
 
 // =============================================================================

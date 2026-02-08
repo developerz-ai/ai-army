@@ -166,6 +166,22 @@ const ProviderSpecificSchemas = Object.freeze({
 // =============================================================================
 
 /**
+ * Schema for per-channel restrictions
+ *
+ * Allows fine-grained access control at the channel level, including
+ * allowed/blocked channel IDs, user restrictions, DM policy, and
+ * domain verification.
+ */
+const ChannelRestrictionsSchema = z.object({
+  allowedChannels: z.array(z.string()).optional(),
+  deniedChannels: z.array(z.string()).optional(),
+  allowedUsers: z.array(z.string()).optional(),
+  deniedUsers: z.array(z.string()).optional(),
+  allowDMs: z.boolean().optional().default(true),
+  allowedDomains: z.array(z.string()).optional(),
+});
+
+/**
  * Schema for Slack channel configuration
  */
 const SlackChannelSchema = z.object({
@@ -173,6 +189,7 @@ const SlackChannelSchema = z.object({
   botToken: z.string().min(1, 'Slack bot token is required'),
   appToken: z.string().optional(),
   signingSecret: z.string().optional(),
+  restrictions: ChannelRestrictionsSchema.optional(),
 });
 
 /**
@@ -182,6 +199,7 @@ const DiscordChannelSchema = z.object({
   type: z.literal('discord'),
   botToken: z.string().min(1, 'Discord bot token is required'),
   guildIds: z.array(z.string()).optional(),
+  restrictions: ChannelRestrictionsSchema.optional(),
 });
 
 /**
@@ -192,6 +210,7 @@ const RestChannelSchema = z.object({
   port: z.number().int().positive().optional(),
   host: z.string().optional(),
   authToken: z.string().optional(),
+  restrictions: ChannelRestrictionsSchema.optional(),
 });
 
 /**
@@ -202,6 +221,21 @@ const ChannelConfigSchema = z.discriminatedUnion('type', [
   DiscordChannelSchema,
   RestChannelSchema,
 ]);
+
+/**
+ * Schema for a bot-level channel entry in the `channels[]` array
+ *
+ * Allows bots to define multiple channel connections with per-channel
+ * names, types, and restrictions. The `name` field uniquely identifies
+ * each channel entry within the bot's config.
+ */
+const BotChannelConfigSchema = z
+  .object({
+    name: z.string().min(1, 'Channel name is required'),
+    type: ChannelTypeSchema,
+    restrictions: ChannelRestrictionsSchema.optional(),
+  })
+  .passthrough();
 
 // =============================================================================
 // MCP Server Configuration Schema
@@ -487,8 +521,10 @@ export const BotConfigSchema = z
     temperature: z.number().min(0).max(2).optional(),
     maxTokens: z.number().int().positive().optional(),
 
-    // Channel assignment
+    // Channel assignment (single channel - backward compatible)
     channel: z.string().optional(),
+    // Multi-channel support: array of channel configs per bot
+    channels: z.array(BotChannelConfigSchema).optional(),
     sessionPer: z.enum(['user', 'channel', 'thread']).optional().default('user'),
 
     // Workspace
@@ -948,7 +984,7 @@ export class ConfigValidator {
         }
       }
 
-      // Check channel reference
+      // Check single channel reference (backward-compatible)
       if (botConfig.channel && channels.length > 0 && !channels.includes(botConfig.channel)) {
         errors.push({
           path: 'channel',
@@ -956,6 +992,25 @@ export class ConfigValidator {
           code: 'invalid_reference',
           context: `bots/${botId}/config.json`,
         });
+      }
+
+      // Check multi-channel references (channels[] array)
+      if (Array.isArray(botConfig.channels)) {
+        const seenNames = new Set();
+        for (const channelEntry of botConfig.channels) {
+          const channelName = channelEntry.name;
+          if (channelName && seenNames.has(channelName)) {
+            errors.push({
+              path: 'channels',
+              message: `Duplicate channel name '${channelName}' in bot channels array`,
+              code: 'duplicate_channel_name',
+              context: `bots/${botId}/config.json`,
+            });
+          }
+          if (channelName) {
+            seenNames.add(channelName);
+          }
+        }
       }
 
       // Check MCP server references
@@ -991,6 +1046,8 @@ export {
   GoogleProviderSchema,
   CustomProviderSchema,
   ChannelConfigSchema,
+  ChannelRestrictionsSchema,
+  BotChannelConfigSchema,
   McpServerConfigSchema,
   SandboxConfigSchema,
   RestrictionsConfigSchema,

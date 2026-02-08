@@ -35,6 +35,7 @@ import { BotEventEmitter } from './event-emitter.js';
 import { WebhookManager } from '../webhooks/webhook-manager.js';
 import { WebhookWorker } from '../webhooks/webhook-worker.js';
 import { DeliveryManager } from '../webhooks/delivery-manager.js';
+import { ChannelManager } from './channel-manager.js';
 
 /**
  * Orchestrator lifecycle states
@@ -123,6 +124,9 @@ export class Orchestrator {
    * @param {Function} [options.webhookWorkerFactory] - Factory (deliveryManager, storage, opts) => WebhookWorker
    * @param {Function} [options.deliveryManagerFactory] - Factory (storage, opts) => DeliveryManager
    * @param {Function} [options.eventEmitterFactory] - Factory (opts) => BotEventEmitter
+   * @param {Object} [options.channelManager] - Pre-configured ChannelManager instance (for DI/testing)
+   * @param {Function} [options.channelManagerFactory] - Factory (opts) => ChannelManager
+   * @param {number} [options.healthCheckInterval=30000] - Interval in ms between channel health checks (0 to disable)
    */
   constructor(options = {}) {
     this.configPath = options.configPath || './config.json';
@@ -186,11 +190,19 @@ export class Orchestrator {
     this.queueWorkerFactory = options.queueWorkerFactory || null;
     this.concurrencyControllerFactory = options.concurrencyControllerFactory || null;
 
+    // ChannelManager for unified channel lifecycle
+    this.channelManager = options.channelManager || null;
+    this.channelManagerFactory = options.channelManagerFactory || null;
+
+    // Health monitoring
+    this.healthCheckInterval = options.healthCheckInterval ?? 30000;
+    this._healthCheckTimer = null;
+
     // Adapter registries
     this.channelAdapters = new Map();
     this.secretAdapters = new Map();
 
-    // Initialized channel instances
+    // Initialized channel instances (kept for backward compatibility)
     this.channels = new Map();
 
     // Middleware chain
@@ -545,12 +557,17 @@ export class Orchestrator {
    * @returns {Object} Status information
    */
   getStatus() {
+    const channelCount = this.channelManager
+      ? this.channelManager.getChannelCount()
+      : this.channels.size;
+
     return {
       state: this.state,
       startedAt: this.startedAt,
       uptime: this.startedAt ? Date.now() - this.startedAt.getTime() : 0,
       botCount: this.botManager ? this.botManager.getBotCount() : 0,
-      channelCount: this.channels.size,
+      channelCount,
+      channelStats: this.channelManager ? this.channelManager.getChannelStats() : null,
       mcpServerCount: this.mcpManager ? this.mcpManager.getServerCount() : 0,
       middlewareCount: this.middlewares.length,
       databaseConnected: this.storage ? this.storage.isConnected() : false,
@@ -565,6 +582,7 @@ export class Orchestrator {
       webhookWorkerRunning: this.webhookWorker
         ? this.webhookWorker.getState() === 'running'
         : false,
+      healthMonitorActive: this._healthCheckTimer !== null,
     };
   }
 
@@ -1045,6 +1063,10 @@ export class Orchestrator {
   /**
    * Step 7: Initialize channel adapters from config
    *
+   * Creates a ChannelManager (if not injected), registers all adapter types,
+   * and initializes each configured channel. Falls back to direct channel
+   * management for backward compatibility.
+   *
    * @returns {Promise<{initialized: string[], failed: string[]}>} Results with initialized/failed channel names
    * @private
    */
@@ -1059,18 +1081,36 @@ export class Orchestrator {
 
     this._log('📡 Initializing channels...');
 
+    // Create ChannelManager if not injected
+    if (!this.channelManager) {
+      if (this.channelManagerFactory) {
+        this.channelManager = this.channelManagerFactory({ logger: this.logger });
+      } else {
+        this.channelManager = new ChannelManager({ logger: this.logger });
+      }
+    }
+
+    // Register all adapter types with ChannelManager
+    for (const [type, AdapterClass] of this.channelAdapters) {
+      if (!this.channelManager.adapterTypes.has(type)) {
+        this.channelManager.registerAdapter(type, AdapterClass);
+      }
+    }
+
     for (const [name, channelConfig] of Object.entries(channelsConfig)) {
       try {
-        const AdapterClass = this.channelAdapters.get(channelConfig.type);
-        if (!AdapterClass) {
+        if (!this.channelManager.adapterTypes.has(channelConfig.type)) {
           this._log(`  ⏭️ No adapter registered for channel type: ${channelConfig.type}`);
           results.failed.push(name);
           continue;
         }
 
-        const adapter = new AdapterClass();
-        await adapter.initialize(channelConfig);
-        this.channels.set(name, adapter);
+        await this.channelManager.initializeChannel(name, channelConfig);
+        // Mirror into this.channels for backward compatibility
+        const channel = this.channelManager.getChannel(name);
+        if (channel && channel.adapter) {
+          this.channels.set(name, channel.adapter);
+        }
         results.initialized.push(name);
         this._log(`  📡 Initialized channel: ${name} (${channelConfig.type})`);
       } catch (err) {
@@ -1078,6 +1118,9 @@ export class Orchestrator {
         this._log(`  ❌ Failed to initialize channel '${name}': ${err.message}`);
       }
     }
+
+    // Start health monitoring after channels are initialized
+    this._startHealthMonitor();
 
     return results;
   }
@@ -1113,8 +1156,13 @@ export class Orchestrator {
 
     let wiredCount = 0;
 
-    for (const [channelName, adapter] of this.channels) {
-      if (typeof adapter.onMessage !== 'function') {
+    // Use ChannelManager if available, fall back to direct channels map
+    const channelEntries = this.channelManager
+      ? this.channelManager.listChannels().map(ch => [ch.name, ch.adapter])
+      : Array.from(this.channels.entries());
+
+    for (const [channelName, adapter] of channelEntries) {
+      if (!adapter || typeof adapter.onMessage !== 'function') {
         this._log(`  ⏭️ Channel '${channelName}' does not support onMessage`);
         continue;
       }
@@ -1287,6 +1335,9 @@ export class Orchestrator {
         // Provide channel adapter lookup so the worker can route responses
         // back to the originating channel after processing queued messages.
         const getChannelAdapter = channelName => {
+          if (this.channelManager) {
+            return this.channelManager.getAdapter(channelName) || null;
+          }
           return this.channels.get(channelName) || null;
         };
 
@@ -1563,10 +1614,29 @@ export class Orchestrator {
   /**
    * Close all channel connections
    *
+   * Stops the health monitor and uses ChannelManager.stopAll() when
+   * available, falling back to direct adapter cleanup for backward
+   * compatibility.
+   *
    * @returns {Promise<void>}
    * @private
    */
   async _closeChannels() {
+    // Stop health monitoring
+    this._stopHealthMonitor();
+
+    // Use ChannelManager for graceful shutdown if available
+    if (this.channelManager) {
+      const results = await this.channelManager.stopAll();
+      if (results.failed.length > 0) {
+        const failedNames = results.failed.map(f => f.name).join(', ');
+        this._log(`⚠️ Some channels failed to stop: ${failedNames}`);
+      }
+      this.channels.clear();
+      return;
+    }
+
+    // Fallback: direct adapter cleanup
     for (const [name, adapter] of this.channels) {
       try {
         if (typeof adapter.close === 'function') {
@@ -1579,6 +1649,113 @@ export class Orchestrator {
       }
     }
     this.channels.clear();
+  }
+
+  // ==========================================================================
+  // Private: Channel Health Monitoring
+  // ==========================================================================
+
+  /**
+   * Start periodic health checks for all initialized channels
+   *
+   * Runs at the interval specified by `this.healthCheckInterval`. Each tick
+   * iterates over ChannelManager channels and attempts reconnect on any
+   * channel whose adapter reports unhealthy (via `isHealthy()` or status).
+   *
+   * @private
+   */
+  _startHealthMonitor() {
+    if (this.healthCheckInterval <= 0 || !this.channelManager) {
+      return;
+    }
+
+    this._log(`💓 Starting channel health monitor (interval: ${this.healthCheckInterval}ms)`);
+
+    this._healthCheckTimer = setInterval(async () => {
+      try {
+        await this._runHealthChecks();
+      } catch (err) {
+        this._log(`⚠️ Health check error: ${err.message}`);
+      }
+    }, this.healthCheckInterval);
+
+    // Allow the process to exit even if the timer is still running
+    if (this._healthCheckTimer.unref) {
+      this._healthCheckTimer.unref();
+    }
+  }
+
+  /**
+   * Stop the channel health monitor
+   *
+   * @private
+   */
+  _stopHealthMonitor() {
+    if (this._healthCheckTimer) {
+      clearInterval(this._healthCheckTimer);
+      this._healthCheckTimer = null;
+      this._log('💓 Channel health monitor stopped');
+    }
+  }
+
+  /**
+   * Run a single health check pass across all channels
+   *
+   * For each channel, checks if the adapter supports `isHealthy()`.
+   * If the adapter reports unhealthy, attempts reconnection via
+   * ChannelManager.reconnectChannel(). After reconnect, re-wires
+   * the channel handler so messages continue to flow.
+   *
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _runHealthChecks() {
+    if (!this.channelManager) {
+      return;
+    }
+
+    const channelList = this.channelManager.listChannels();
+
+    for (const channel of channelList) {
+      const { name, adapter, status } = channel;
+
+      // Skip channels without adapters or already in error/stopped state
+      if (!adapter) {
+        continue;
+      }
+
+      try {
+        // Check adapter health if the method exists
+        const isHealthy =
+          typeof adapter.isHealthy === 'function' ? await adapter.isHealthy() : status !== 'error';
+
+        if (!isHealthy) {
+          this._log(`⚠️ Channel '${name}' unhealthy, attempting reconnect...`);
+          const reconnected = await this.channelManager.reconnectChannel(name);
+
+          // Update backward-compatible channels map
+          if (reconnected && reconnected.adapter) {
+            this.channels.set(name, reconnected.adapter);
+          }
+
+          // Re-wire message handler if processing pipeline is available
+          const canWire =
+            reconnected && reconnected.adapter && this.messageRouter && this.messageProcessor;
+          if (canWire) {
+            const newAdapter = reconnected.adapter;
+            if (typeof newAdapter.onMessage === 'function') {
+              newAdapter.onMessage(async message => {
+                await this._handleChannelMessage(name, newAdapter, message);
+              });
+            }
+          }
+
+          this._log(`✅ Channel '${name}' reconnected successfully`);
+        }
+      } catch (err) {
+        this._log(`❌ Health check failed for channel '${name}': ${err.message}`);
+      }
+    }
   }
 
   /**
