@@ -649,7 +649,7 @@ describe('QueueWorker', () => {
       assert.equal(worker.getRetryCount(42), 0); // Cleaned up
     });
 
-    test('re-enqueues message on retryable failure after delay', async () => {
+    test('resets message to pending on retryable failure after delay', async () => {
       const msg = createMockQueueMessage({ id: 42 });
       mockQueue.dequeue = mock.fn(async () => msg);
       mockProcessor.processMessage = mock.fn(async () => {
@@ -659,14 +659,17 @@ describe('QueueWorker', () => {
       await worker.processNext('test-bot');
 
       // Retry is scheduled asynchronously with setTimeout
-      // The re-enqueue won't happen immediately
+      // The reset won't happen immediately
       assert.equal(worker.getRetryCount(42), 1);
 
       // Wait for the retry delay
       await new Promise(resolve => setTimeout(resolve, 150));
 
-      // Should have re-enqueued
-      assert.equal(mockQueue.enqueue.mock.callCount(), 1);
+      // Should have reset the same row back to pending (atomic update, not enqueue+delete)
+      const updateCalls = mockStorage.query.mock.calls.filter(c =>
+        c.arguments[0].includes('UPDATE message_queue')
+      );
+      assert.ok(updateCalls.length >= 1, 'Should have issued an UPDATE to reset the message');
     });
 
     test('getRetryCount returns 0 for unknown message', () => {
@@ -869,6 +872,89 @@ describe('QueueWorker', () => {
       await worker.start();
       await worker.stop();
       assert.equal(worker.getState(), WORKER_STATES.STOPPED);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────
+  // Response routing
+  // ──────────────────────────────────────────────────────────────
+
+  describe('response routing', () => {
+    beforeEach(async () => {
+      await worker.start();
+    });
+
+    test('sends response via channel adapter when channelName is present', async () => {
+      const mockAdapter = {
+        sendMessage: mock.fn(async () => {}),
+      };
+      const getChannelAdapter = mock.fn(name => (name === 'slack-main' ? mockAdapter : null));
+
+      worker.getChannelAdapter = getChannelAdapter;
+
+      const msg = createMockQueueMessage({
+        channelName: 'slack-main',
+        channelId: 'C123ABC',
+        threadTs: 'ts-123',
+      });
+      mockQueue.dequeue = mock.fn(async () => msg);
+      mockProcessor.processMessage = mock.fn(async () => ({
+        text: 'Bot response',
+        toolCalls: [],
+        usage: {},
+        sessionId: 'session-1',
+      }));
+
+      await worker.processNext('test-bot');
+
+      assert.equal(getChannelAdapter.mock.callCount(), 1);
+      assert.equal(mockAdapter.sendMessage.mock.callCount(), 1);
+      const [channelId, text, threadTs] = mockAdapter.sendMessage.mock.calls[0].arguments;
+      assert.equal(channelId, 'C123ABC');
+      assert.equal(text, 'Bot response');
+      assert.equal(threadTs, 'ts-123');
+    });
+
+    test('skips response routing when channelName is not present', async () => {
+      const getChannelAdapter = mock.fn(() => null);
+      worker.getChannelAdapter = getChannelAdapter;
+
+      const msg = createMockQueueMessage(); // no channelName
+      mockQueue.dequeue = mock.fn(async () => msg);
+
+      await worker.processNext('test-bot');
+
+      // Should not attempt to resolve adapter when channelName is missing
+      assert.equal(getChannelAdapter.mock.callCount(), 0);
+    });
+
+    test('skips response routing when getChannelAdapter is not configured', async () => {
+      worker.getChannelAdapter = null;
+
+      const msg = createMockQueueMessage({ channelName: 'slack-main' });
+      mockQueue.dequeue = mock.fn(async () => msg);
+
+      // Should not throw even though channelName is present
+      const result = await worker.processNext('test-bot');
+      assert.equal(result, true);
+    });
+
+    test('handles send failure gracefully without failing the message', async () => {
+      const mockAdapter = {
+        sendMessage: mock.fn(async () => {
+          throw new Error('send failed');
+        }),
+      };
+      worker.getChannelAdapter = mock.fn(() => mockAdapter);
+
+      const msg = createMockQueueMessage({ channelName: 'slack-main' });
+      mockQueue.dequeue = mock.fn(async () => msg);
+
+      const result = await worker.processNext('test-bot');
+
+      // Message should still be marked completed even if send fails
+      assert.equal(result, true);
+      assert.equal(mockQueue.markCompleted.mock.callCount(), 1);
     });
   });
 

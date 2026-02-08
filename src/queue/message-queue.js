@@ -72,6 +72,8 @@ export class MessageQueue {
    * @param {string} message.channelId - Source channel identifier
    * @param {string} message.userId - User who sent the message
    * @param {string} message.text - Message content
+   * @param {string} [message.channelName] - Orchestrator channel name for reply routing
+   * @param {string} [message.threadTs] - Thread timestamp for threaded replies
    * @param {number} [priority=0] - Processing priority (higher = processed first)
    * @returns {Promise<Object>} Enqueued message record with id and enqueued_at
    * @throws {MessageQueueError} If enqueue fails
@@ -83,10 +85,19 @@ export class MessageQueue {
 
     try {
       const { rows } = await this.storage.query(
-        `INSERT INTO message_queue (bot_id, channel_type, channel_id, user_id, message_text, priority)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING id, bot_id, channel_type, channel_id, user_id, message_text, priority, status, enqueued_at`,
-        [botId, message.channelType, message.channelId, message.userId, message.text, priority]
+        `INSERT INTO message_queue (bot_id, channel_type, channel_id, user_id, message_text, priority, channel_name, thread_ts)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING id, bot_id, channel_type, channel_id, user_id, message_text, priority, status, enqueued_at, channel_name, thread_ts`,
+        [
+          botId,
+          message.channelType,
+          message.channelId,
+          message.userId,
+          message.text,
+          priority,
+          message.channelName || null,
+          message.threadTs || null,
+        ]
       );
 
       const record = this._transformRow(rows[0]);
@@ -421,6 +432,8 @@ export class MessageQueue {
       startedAt: row.started_at,
       completedAt: row.completed_at,
       error: row.error,
+      channelName: row.channel_name || null,
+      threadTs: row.thread_ts || null,
     };
   }
 

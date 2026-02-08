@@ -2908,6 +2908,7 @@ describe('Orchestrator', () => {
       assert.equal(msg.channelId, 'C456');
       assert.equal(msg.userId, 'U123');
       assert.equal(msg.text, 'Hello bot!');
+      assert.equal(msg.channelName, 'slack-main');
       assert.equal(priority, 5);
 
       // processMessage should NOT have been called (queue handles it)

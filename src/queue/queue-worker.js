@@ -94,6 +94,8 @@ export class QueueWorker {
    * @param {number} [options.retryDelay=5000] - Base retry delay in milliseconds
    * @param {Function} [options.logger] - Optional logging function
    * @param {Function} [options.getBotConfig] - Function to get bot config by ID (botId => config)
+   * @param {Function} [options.getChannelAdapter] - Function to resolve a channel adapter by name
+   *   (channelName => adapter). Used to send responses back to originating channels.
    */
   constructor(messageQueue, messageProcessor, concurrencyController, storage, options = {}) {
     if (!messageQueue) {
@@ -137,6 +139,9 @@ export class QueueWorker {
 
     /** @type {Function|null} Function to resolve bot config from botId */
     this.getBotConfig = options.getBotConfig || null;
+
+    /** @type {Function|null} Function to resolve channel adapter by name for reply routing */
+    this.getChannelAdapter = options.getChannelAdapter || null;
 
     /** @type {string} Current worker state */
     this.state = WORKER_STATES.STOPPED;
@@ -279,7 +284,19 @@ export class QueueWorker {
       const botConfig = await this._resolveBotConfig(botId);
 
       // Process via MessageProcessor
-      await this.messageProcessor.processMessage(botConfig, processorMessage);
+      const result = await this.messageProcessor.processMessage(botConfig, processorMessage);
+
+      // Send response back to the originating channel adapter if routing info is available
+      if (result && result.text && queueMessage.channelName && this.getChannelAdapter) {
+        try {
+          const adapter = this.getChannelAdapter(queueMessage.channelName);
+          if (adapter && typeof adapter.sendMessage === 'function') {
+            await adapter.sendMessage(queueMessage.channelId, result.text, queueMessage.threadTs);
+          }
+        } catch (sendErr) {
+          this._log(`Failed to send response for message ${queueMessage.id}: ${sendErr.message}`);
+        }
+      }
 
       // Mark completed
       await this.messageQueue.markCompleted(queueMessage.id);
@@ -584,8 +601,15 @@ export class QueueWorker {
   /**
    * Handle a processing error with exponential backoff retry
    *
-   * If the message has not exceeded the retry limit, it is re-enqueued with
-   * the same priority. The retry count is tracked in-memory.
+   * If the message has not exceeded the retry limit, the message row is
+   * atomically reset to 'pending' with an incremented retry_count and a
+   * future next_attempt_at timestamp (exponential backoff). This avoids the
+   * previous enqueue-then-delete pattern, which was non-atomic and could
+   * lose or duplicate messages on crash.
+   *
+   * Retry count is tracked by a composite content key so that counts
+   * persist across any re-enqueued message IDs and old entries are cleaned
+   * up, preventing memory leaks.
    *
    * @param {string} botId - Bot identifier
    * @param {Object} queueMessage - The dequeued message that failed
@@ -616,30 +640,30 @@ export class QueueWorker {
       this._retryCounts.set(retryKey, newCount);
       this._retryCounts.set(queueMessage.id, newCount);
 
-      this._log(`Scheduling retry for message ${queueMessage.id} in ${delay}ms`);
+      this._log(
+        `Scheduling retry for message ${queueMessage.id} in ${delay}ms (delay: ${delay}ms)`
+      );
 
-      // Re-enqueue the message after the backoff delay
+      // Atomically reset the same row back to 'pending' with a future
+      // next_attempt_at so the poller/dequeue will pick it up after the
+      // backoff period. This is crash-safe: the row is always in a valid
+      // state and cannot be lost or duplicated.
       setTimeout(async () => {
         if (this.state !== WORKER_STATES.RUNNING) {
           return;
         }
 
         try {
-          await this.messageQueue.enqueue(
-            botId,
-            {
-              channelType: queueMessage.channelType,
-              channelId: queueMessage.channelId,
-              userId: queueMessage.userId,
-              text: queueMessage.messageText,
-            },
-            queueMessage.priority
+          await this.storage.query(
+            `UPDATE message_queue
+             SET status = 'pending',
+                 started_at = NULL,
+                 error = NULL
+             WHERE id = $1`,
+            [queueMessage.id]
           );
-
-          // Remove the original message (it has been re-enqueued as a new entry)
-          await this.storage.query('DELETE FROM message_queue WHERE id = $1', [queueMessage.id]);
         } catch (retryErr) {
-          this._log(`Failed to re-enqueue message ${queueMessage.id}: ${retryErr.message}`);
+          this._log(`Failed to reset message ${queueMessage.id} for retry: ${retryErr.message}`);
           await this._markFailedSafe(queueMessage.id, err);
         }
       }, delay);

@@ -134,7 +134,16 @@ describe('MessageQueue', () => {
       assert.equal(mockStorage.query.mock.callCount(), 1);
       const [sql, params] = mockStorage.query.mock.calls[0].arguments;
       assert.ok(sql.includes('INSERT INTO message_queue'));
-      assert.deepStrictEqual(params, ['test-bot', 'slack', 'C123ABC', 'U456DEF', 'Hello bot!', 5]);
+      assert.deepStrictEqual(params, [
+        'test-bot',
+        'slack',
+        'C123ABC',
+        'U456DEF',
+        'Hello bot!',
+        5,
+        null,
+        null,
+      ]);
     });
 
     test('returns transformed record', async () => {

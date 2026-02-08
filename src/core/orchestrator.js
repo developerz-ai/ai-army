@@ -962,7 +962,9 @@ export class Orchestrator {
 
       // Step 2: Enqueue or process directly
       if (this._isQueueEnabled() && this.messageQueue) {
-        // Queue-based processing: enqueue and let QueueWorker handle it
+        // Queue-based processing: enqueue and let QueueWorker handle it.
+        // Include channelName and threadTs so the worker can route responses
+        // back to the originating adapter after processing.
         const priority = this.config.queue?.defaultPriority ?? 0;
         await this.messageQueue.enqueue(
           bot.id,
@@ -971,6 +973,8 @@ export class Orchestrator {
             channelId: message.channelId,
             userId: message.userId,
             text: message.text,
+            channelName,
+            threadTs: message.threadTs || null,
           },
           priority
         );
@@ -1063,6 +1067,12 @@ export class Orchestrator {
           return botConfig || null;
         };
 
+        // Provide channel adapter lookup so the worker can route responses
+        // back to the originating channel after processing queued messages.
+        const getChannelAdapter = channelName => {
+          return this.channels.get(channelName) || null;
+        };
+
         if (this.queueWorkerFactory) {
           this.queueWorker = this.queueWorkerFactory(
             this.messageQueue,
@@ -1075,6 +1085,7 @@ export class Orchestrator {
               retryDelay: queueConfig.retryDelay ?? 5000,
               logger: this.logger,
               getBotConfig,
+              getChannelAdapter,
             }
           );
         } else {
@@ -1089,6 +1100,7 @@ export class Orchestrator {
               retryDelay: queueConfig.retryDelay ?? 5000,
               logger: this.logger,
               getBotConfig,
+              getChannelAdapter,
             }
           );
         }
