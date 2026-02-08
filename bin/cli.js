@@ -26,6 +26,7 @@ import { runMigrate } from '../src/cli/MigrateCommand.js';
 import { runStart } from '../src/cli/StartCommand.js';
 import { runDev } from '../src/cli/DevCommand.js';
 import { runReload } from '../src/cli/ReloadCommand.js';
+import { runStatus } from '../src/cli/StatusCommand.js';
 import { runInstance } from '../src/cli/InstanceCommand.js';
 
 /**
@@ -162,13 +163,35 @@ export function createProgram() {
       });
     });
 
-  // === status command (stub for Phase 7b) ===
+  // === status command ===
   program
     .command('status')
     .description('Show system status')
+    .option('-c, --config <path>', 'Config file path', './config.json')
     .action(async () => {
-      console.log('📊 Checking status...');
-      console.log('⚠️  status command not yet implemented');
+      const { PostgresStorage } = await import('../src/adapters/storage/postgres.js');
+      const databaseUrl = process.env.DATABASE_URL;
+      if (!databaseUrl) {
+        process.stderr.write('❌ DATABASE_URL environment variable is required\n');
+        process.exitCode = 1;
+        return;
+      }
+      const storage = new PostgresStorage(databaseUrl);
+      try {
+        await storage.connect();
+        const result = await runStatus({
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      } catch (err) {
+        process.stderr.write(`❌ Status error: ${err.message}\n`);
+        process.exitCode = 1;
+      } finally {
+        await storage.disconnect();
+      }
     });
 
   // === reload command ===

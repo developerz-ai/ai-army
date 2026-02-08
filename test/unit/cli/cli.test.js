@@ -150,6 +150,27 @@ describe('CLI - dev command', () => {
   });
 });
 
+describe('CLI - status command', () => {
+  test('status command has config option with default value', () => {
+    const program = createProgram();
+    const statusCmd = program.commands.find(c => c.name() === 'status');
+    assert.ok(statusCmd);
+    const { options } = statusCmd;
+    const configOpt = options.find(o => o.long === '--config');
+    assert.ok(configOpt, 'status should have --config option');
+    assert.equal(configOpt.defaultValue, './config.json');
+  });
+
+  test('status command accepts -c short form for config', () => {
+    const program = createProgram();
+    const statusCmd = program.commands.find(c => c.name() === 'status');
+    assert.ok(statusCmd);
+    const { options } = statusCmd;
+    const configOpt = options.find(o => o.short === '-c');
+    assert.ok(configOpt, 'status should have -c short form');
+  });
+});
+
 describe('CLI - reload command', () => {
   test('reload command has config option with default value', () => {
     const program = createProgram();
