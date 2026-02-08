@@ -3,11 +3,12 @@
  *
  * Manages persistent Docker containers for bot execution.
  * Provides container reuse, health monitoring, and automatic recycling.
+ * Supports remote Docker hosts for distributed worker deployment.
  *
  * @module execution/container-pool
  */
 
-import { DockerError } from './docker-manager.js';
+import { DockerManager, DockerError } from './docker-manager.js';
 
 /**
  * Custom error class for ContainerPool-related errors
@@ -58,7 +59,7 @@ export class ContainerPool {
       });
     }
 
-    /** @type {Object} DockerManager instance */
+    /** @type {Object} Default DockerManager instance (local Docker) */
     this.dockerManager = dockerManager;
 
     /** @type {Map<string, Object>} Map of botId -> container */
@@ -69,6 +70,9 @@ export class ContainerPool {
 
     /** @type {Map<string, Object>} Map of botId -> workspace configuration */
     this.workspaces = new Map();
+
+    /** @type {Map<string, Object>} Map of botId -> DockerManager for remote hosts */
+    this.dockerManagers = new Map();
   }
 
   /**
@@ -101,8 +105,13 @@ export class ContainerPool {
 
     const container = this.containers.get(botId);
 
+    // Use the correct DockerManager for health checks (may be a remote manager)
+    const manager = this.dockerManagers.has(botId)
+      ? this.dockerManagers.get(botId)
+      : this.dockerManager;
+
     // Verify container is healthy
-    const isHealthy = await this.dockerManager.healthCheck(container);
+    const isHealthy = await manager.healthCheck(container);
 
     if (isHealthy) {
       return container;
@@ -119,7 +128,7 @@ export class ContainerPool {
       );
     }
 
-    // Recycle and recreate the container
+    // Recycle and recreate the container (preserve remote docker manager)
     await this.recycleContainer(botId);
     return this.initializeContainer(botId, this.botConfigs.get(botId), this.workspaces.get(botId));
   }
@@ -129,6 +138,8 @@ export class ContainerPool {
    *
    * Creates and starts a container with the specified configuration.
    * If a container already exists for this bot, it will be recycled first.
+   * Supports remote Docker hosts via the options.dockerHost parameter,
+   * enabling distributed container placement across worker nodes.
    *
    * @param {string} botId - Bot identifier
    * @param {Object} botConfig - Bot configuration
@@ -140,10 +151,13 @@ export class ContainerPool {
    * @param {Array<string>} [botConfig.sandbox.packages] - Packages to install
    * @param {Object} workspace - Workspace configuration
    * @param {string} workspace.root - Root path for workspace mount
+   * @param {Object} [options={}] - Additional options
+   * @param {string} [options.dockerHost] - Docker host override for remote workers
+   *   (e.g., 'tcp://127.0.0.1:54321' for SSH-tunneled remote Docker)
    * @returns {Promise<Object>} Docker container object
    * @throws {ContainerPoolError} When container creation fails
    */
-  async initializeContainer(botId, botConfig, workspace) {
+  async initializeContainer(botId, botConfig, workspace, options = {}) {
     if (!botId || typeof botId !== 'string') {
       throw new ContainerPoolError('Bot ID must be a non-empty string', {
         operation: 'initializeContainer',
@@ -170,16 +184,19 @@ export class ContainerPool {
         await this.recycleContainer(botId);
       }
 
+      // Determine which DockerManager to use
+      const manager = this._getDockerManager(botId, options.dockerHost);
+
       // Ensure botConfig has the correct id
       const config = { ...botConfig, id: botId };
 
       // Create and start the container
-      const container = await this.dockerManager.createContainer(config, workspace);
-      await this.dockerManager.startContainer(container);
+      const container = await manager.createContainer(config, workspace);
+      await manager.startContainer(container);
 
       // Install packages if specified
       if (botConfig.sandbox?.packages?.length > 0) {
-        await this.dockerManager.installPackages(container, botConfig.sandbox.packages);
+        await manager.installPackages(container, botConfig.sandbox.packages);
       }
 
       // Store in pool
@@ -189,6 +206,9 @@ export class ContainerPool {
 
       return container;
     } catch (err) {
+      // Clean up remote docker manager on failure
+      this.dockerManagers.delete(botId);
+
       if (err instanceof ContainerPoolError || err instanceof DockerError) {
         throw err;
       }
@@ -225,9 +245,14 @@ export class ContainerPool {
       return;
     }
 
+    // Use the correct DockerManager for this bot (may be remote)
+    const manager = this.dockerManagers.has(botId)
+      ? this.dockerManagers.get(botId)
+      : this.dockerManager;
+
     try {
       // Stop and remove the container
-      await this.dockerManager.stopContainer(container);
+      await manager.stopContainer(container);
     } catch (err) {
       // Log but don't fail if stop/remove fails (container might already be gone)
       if (err instanceof DockerError && err.message?.includes('No such container')) {
@@ -238,8 +263,9 @@ export class ContainerPool {
       }
     }
 
-    // Remove from pool
+    // Remove from pool and clean up remote docker manager
     this.containers.delete(botId);
+    this.dockerManagers.delete(botId);
   }
 
   /**
@@ -262,7 +288,10 @@ export class ContainerPool {
 
     for (const [botId, container] of this.containers.entries()) {
       try {
-        const isHealthy = await this.dockerManager.healthCheck(container);
+        const manager = this.dockerManagers.has(botId)
+          ? this.dockerManagers.get(botId)
+          : this.dockerManager;
+        const isHealthy = await manager.healthCheck(container);
 
         if (isHealthy) {
           results.healthy.push(botId);
@@ -301,7 +330,10 @@ export class ContainerPool {
 
     for (const [botId, container] of this.containers.entries()) {
       try {
-        await this.dockerManager.stopContainer(container);
+        const manager = this.dockerManagers.has(botId)
+          ? this.dockerManagers.get(botId)
+          : this.dockerManager;
+        await manager.stopContainer(container);
       } catch (err) {
         // Collect errors but continue cleanup
         errors.push({ botId, error: err.message });
@@ -312,6 +344,7 @@ export class ContainerPool {
     this.containers.clear();
     this.botConfigs.clear();
     this.workspaces.clear();
+    this.dockerManagers.clear();
 
     // If there were errors, log them
     if (errors.length > 0) {
@@ -347,5 +380,57 @@ export class ContainerPool {
    */
   getBotIds() {
     return Array.from(this.containers.keys());
+  }
+
+  /**
+   * Get the appropriate DockerManager for a bot, creating a remote one if needed
+   *
+   * If a dockerHost is provided, creates a new DockerManager instance pointing
+   * at the remote Docker daemon. Otherwise returns the default local manager.
+   *
+   * @param {string} botId - Bot identifier
+   * @param {string} [dockerHost] - Docker host URL (e.g., 'tcp://127.0.0.1:54321')
+   * @returns {Object} DockerManager instance
+   * @private
+   */
+  _getDockerManager(botId, dockerHost) {
+    if (!dockerHost) {
+      return this.dockerManager;
+    }
+
+    // Parse the Docker host URL into connection options
+    const dockerOpts = this._parseDockerHost(dockerHost);
+    const manager = new DockerManager(dockerOpts);
+    this.dockerManagers.set(botId, manager);
+    return manager;
+  }
+
+  /**
+   * Parse a Docker host URL into dockerode connection options
+   *
+   * Supports formats:
+   * - `tcp://host:port` → { host, port }
+   * - `unix:///path/to/socket` → { socketPath }
+   * - `/path/to/socket` → socketPath string
+   *
+   * @param {string} dockerHost - Docker host URL
+   * @returns {Object|string} Dockerode connection options
+   * @private
+   */
+  _parseDockerHost(dockerHost) {
+    if (dockerHost.startsWith('tcp://')) {
+      const url = new URL(dockerHost);
+      return {
+        host: url.hostname,
+        port: parseInt(url.port, 10) || 2375,
+      };
+    }
+
+    if (dockerHost.startsWith('unix://')) {
+      return { socketPath: dockerHost.slice(7) };
+    }
+
+    // Assume it's a socket path
+    return dockerHost;
   }
 }
