@@ -359,8 +359,8 @@ export class MCPManager {
       { capabilities: {} }
     );
 
-    // Connect client to transport
-    await client.connect(transport);
+    // Connect client to transport with timeout
+    await this._connectWithTimeout(client, transport);
 
     // Discover tools
     let tools = [];
@@ -378,6 +378,38 @@ export class MCPManager {
 
     // Set up crash detection
     this._setupCrashHandler(server);
+  }
+
+  /**
+   * Connect client to transport with a timeout
+   *
+   * Races the actual connection against a timeout to prevent a hung or
+   * unresponsive MCP server from stalling startServer() indefinitely.
+   *
+   * @param {Client} client - MCP SDK client
+   * @param {StdioClientTransport} transport - Stdio transport
+   * @returns {Promise<void>}
+   * @throws {MCPManagerError} If connection times out
+   * @private
+   */
+  async _connectWithTimeout(client, transport) {
+    let timer;
+    const timeoutPromise = new Promise((_resolve, reject) => {
+      timer = setTimeout(() => {
+        reject(
+          new MCPManagerError(
+            `Connection timed out after ${this.connectTimeoutMs}ms`,
+            { operation: 'connect' }
+          )
+        );
+      }, this.connectTimeoutMs);
+    });
+
+    try {
+      await Promise.race([client.connect(transport), timeoutPromise]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
