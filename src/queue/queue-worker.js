@@ -603,13 +603,9 @@ export class QueueWorker {
    *
    * If the message has not exceeded the retry limit, the message row is
    * atomically reset to 'pending' with an incremented retry_count and a
-   * future next_attempt_at timestamp (exponential backoff). This avoids the
-   * previous enqueue-then-delete pattern, which was non-atomic and could
-   * lose or duplicate messages on crash.
-   *
-   * Retry count is tracked by a composite content key so that counts
-   * persist across any re-enqueued message IDs and old entries are cleaned
-   * up, preventing memory leaks.
+   * future next_attempt_at timestamp (exponential backoff). The dequeue
+   * query filters on next_attempt_at, so the message won't be picked up
+   * until the backoff period has elapsed — even across worker restarts.
    *
    * @param {string} botId - Bot identifier
    * @param {Object} queueMessage - The dequeued message that failed
@@ -645,28 +641,24 @@ export class QueueWorker {
       );
 
       // Atomically reset the same row back to 'pending' with a future
-      // next_attempt_at so the poller/dequeue will pick it up after the
-      // backoff period. This is crash-safe: the row is always in a valid
-      // state and cannot be lost or duplicated.
-      setTimeout(async () => {
-        if (this.state !== WORKER_STATES.RUNNING) {
-          return;
-        }
-
-        try {
-          await this.storage.query(
-            `UPDATE message_queue
-             SET status = 'pending',
-                 started_at = NULL,
-                 error = NULL
-             WHERE id = $1`,
-            [queueMessage.id]
-          );
-        } catch (retryErr) {
-          this._log(`Failed to reset message ${queueMessage.id} for retry: ${retryErr.message}`);
-          await this._markFailedSafe(queueMessage.id, err);
-        }
-      }, delay);
+      // next_attempt_at so the dequeue query will skip it until the
+      // backoff period has elapsed. This is crash-safe: the row is always
+      // in a valid state and cannot be lost or duplicated.
+      try {
+        await this.storage.query(
+          `UPDATE message_queue
+           SET status = 'pending',
+               started_at = NULL,
+               error = NULL,
+               retry_count = $1,
+               next_attempt_at = NOW() + ($2 || ' milliseconds')::interval
+           WHERE id = $3`,
+          [newCount, String(delay), queueMessage.id]
+        );
+      } catch (retryErr) {
+        this._log(`Failed to reset message ${queueMessage.id} for retry: ${retryErr.message}`);
+        await this._markFailedSafe(queueMessage.id, err);
+      }
     } else {
       this._log(
         `Message ${queueMessage.id} exceeded retry limit (${this.retryAttempts}), marking as failed`

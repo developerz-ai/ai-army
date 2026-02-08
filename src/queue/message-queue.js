@@ -130,11 +130,14 @@ export class MessageQueue {
       const result = await this.storage.transaction(async client => {
         // Select the next pending message, locking it for this transaction.
         // SKIP LOCKED ensures concurrent workers don't block on the same row.
+        // Filter out messages whose next_attempt_at hasn't arrived yet (exponential backoff).
         // ORDER BY priority DESC (highest first), enqueued_at ASC (FIFO within same priority)
         const { rows } = await client.query(
           `SELECT *
            FROM message_queue
-           WHERE bot_id = $1 AND status = $2
+           WHERE bot_id = $1
+             AND status = $2
+             AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
            ORDER BY priority DESC, enqueued_at ASC
            LIMIT 1
            FOR UPDATE SKIP LOCKED`,
@@ -434,6 +437,8 @@ export class MessageQueue {
       error: row.error,
       channelName: row.channel_name || null,
       threadTs: row.thread_ts || null,
+      retryCount: row.retry_count ?? 0,
+      nextAttemptAt: row.next_attempt_at || null,
     };
   }
 

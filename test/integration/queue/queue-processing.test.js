@@ -9,7 +9,7 @@
  * - Mock MessageProcessor (to avoid real LLM API calls)
  *
  * Test categories:
- * 1. Full pipeline - enqueue → worker dequeue → process → mark completed
+ * 1. Full pipeline - enqueue -> worker dequeue -> process -> mark completed
  * 2. LISTEN/NOTIFY - real-time message processing via PostgreSQL notifications
  * 3. Concurrency control - respects per-bot concurrency limits
  * 4. Retry logic - automatic retry with exponential backoff on failures
@@ -97,20 +97,22 @@ describe('Queue Processing Integration', { skip: !DB_AVAILABLE }, () => {
   let concurrencyController;
   let mockProcessor;
 
+  /** Track all workers created during a test so we can stop them all in afterEach */
+  let activeWorkers;
+
   before(async () => {
     storage = await setupTestDatabase();
   });
 
   after(async () => {
-    if (queueWorker && queueWorker.getState() !== WORKER_STATES.STOPPED) {
-      await queueWorker.stop();
-    }
     if (storage) {
       await cleanupTestDatabase(storage);
     }
   });
 
   beforeEach(async () => {
+    activeWorkers = [];
+
     // Clean message queue table between tests
     await storage.query('DELETE FROM message_queue');
 
@@ -125,12 +127,17 @@ describe('Queue Processing Integration', { skip: !DB_AVAILABLE }, () => {
       retryAttempts: 2,
       retryDelay: 100,
     });
+    activeWorkers.push(queueWorker);
   });
 
   afterEach(async () => {
-    if (queueWorker && queueWorker.getState() !== WORKER_STATES.STOPPED) {
-      await queueWorker.stop();
+    // Stop ALL workers created during this test (prevents leaked LISTEN clients)
+    for (const worker of activeWorkers) {
+      if (worker && worker.getState() !== WORKER_STATES.STOPPED) {
+        await worker.stop();
+      }
     }
+    activeWorkers = [];
   });
 
   // ──────────────────────────────────────────────────────────────
@@ -262,6 +269,7 @@ describe('Queue Processing Integration', { skip: !DB_AVAILABLE }, () => {
       const strictWorker = new QueueWorker(messageQueue, mockProcessor, strictController, storage, {
         pollInterval: 5000,
       });
+      activeWorkers.push(strictWorker);
 
       // Enqueue 3 messages
       await messageQueue.enqueue('test-bot', createTestMessage({ text: 'M1' }), 0);
@@ -286,6 +294,7 @@ describe('Queue Processing Integration', { skip: !DB_AVAILABLE }, () => {
       const strictWorker = new QueueWorker(messageQueue, mockProcessor, strictController, storage, {
         pollInterval: 5000,
       });
+      activeWorkers.push(strictWorker);
 
       await messageQueue.enqueue('test-bot', createTestMessage({ text: 'M1' }), 0);
       await messageQueue.enqueue('test-bot', createTestMessage({ text: 'M2' }), 0);
@@ -344,34 +353,27 @@ describe('Queue Processing Integration', { skip: !DB_AVAILABLE }, () => {
           retryDelay: 100,
         }
       );
+      activeWorkers.push(retryWorker);
 
       await messageQueue.enqueue('test-bot', createTestMessage(), 0);
       await retryWorker.start();
 
-      // First attempt
+      // First attempt - fails, message reset to pending with next_attempt_at = now + 100ms
       await retryWorker.processNext('test-bot');
 
-      // Wait for retry delay
+      // Wait for the first retry delay (100ms) to expire
       await new Promise(resolve => setTimeout(resolve, 150));
 
-      // Second attempt (retry 1)
+      // Second attempt (retry 1) - fails, message reset with next_attempt_at = now + 200ms
       await retryWorker.processNext('test-bot');
 
-      await new Promise(resolve => setTimeout(resolve, 150));
+      // Wait for the second retry delay (200ms) to expire
+      await new Promise(resolve => setTimeout(resolve, 250));
 
-      // Third attempt (retry 2 - should mark failed)
+      // Third attempt (retry 2 - exceeds retryAttempts, should mark failed)
       await retryWorker.processNext('test-bot');
 
-      // Verify it was marked as failed
-      await waitFor(
-        async () => {
-          const stats = await messageQueue.getStats('test-bot');
-          return stats.failed > 0;
-        },
-        2000,
-        100
-      );
-
+      // The message should now be marked as failed immediately (no async delay)
       const stats = await messageQueue.getStats('test-bot');
       assert.equal(stats.failed, 1);
 
@@ -401,29 +403,21 @@ describe('Queue Processing Integration', { skip: !DB_AVAILABLE }, () => {
           retryDelay: 100,
         }
       );
+      activeWorkers.push(retryWorker);
 
       await messageQueue.enqueue('test-bot', createTestMessage(), 0);
       await retryWorker.start();
 
-      // First attempt (fails)
+      // First attempt (fails) - message reset to pending with next_attempt_at = now + 100ms
       await retryWorker.processNext('test-bot');
 
-      // Wait for re-enqueue
+      // Wait for retry delay to expire
       await new Promise(resolve => setTimeout(resolve, 150));
 
       // Second attempt (succeeds)
       await retryWorker.processNext('test-bot');
 
-      // Verify completed
-      await waitFor(
-        async () => {
-          const stats = await messageQueue.getStats('test-bot');
-          return stats.completed > 0;
-        },
-        2000,
-        100
-      );
-
+      // Verify completed (markCompleted is synchronous in processNext, no waitFor needed)
       const stats = await messageQueue.getStats('test-bot');
       assert.equal(stats.completed, 1);
       assert.equal(stats.failed, 0);
@@ -438,7 +432,7 @@ describe('Queue Processing Integration', { skip: !DB_AVAILABLE }, () => {
 
   describe('queue persistence', () => {
     test('pending messages survive worker restart', async () => {
-      // Enqueue messages
+      // Enqueue messages before starting the worker to avoid LISTEN/NOTIFY auto-processing
       await messageQueue.enqueue('test-bot', createTestMessage({ text: 'M1' }), 0);
       await messageQueue.enqueue('test-bot', createTestMessage({ text: 'M2' }), 0);
 
@@ -454,10 +448,11 @@ describe('Queue Processing Integration', { skip: !DB_AVAILABLE }, () => {
       const newWorker = new QueueWorker(
         messageQueue,
         mockProcessor,
-        concurrencyController,
+        new ConcurrencyController({ defaultMaxConcurrent: 3 }),
         storage,
         { pollInterval: 5000 }
       );
+      activeWorkers.push(newWorker);
 
       await newWorker.start();
       await newWorker.processNext('test-bot');
@@ -503,20 +498,15 @@ describe('Queue Processing Integration', { skip: !DB_AVAILABLE }, () => {
           retryAttempts: 0, // No retries
         }
       );
+      activeWorkers.push(failWorker);
 
       await messageQueue.enqueue('test-bot', createTestMessage(), 0);
       await failWorker.start();
       await failWorker.processNext('test-bot');
 
-      // Wait for failure to be marked
-      await waitFor(
-        async () => {
-          const stats = await messageQueue.getStats('test-bot');
-          return stats.failed > 0;
-        },
-        2000,
-        100
-      );
+      // With retryAttempts: 0, markFailed is called synchronously in processNext
+      const stats = await messageQueue.getStats('test-bot');
+      assert.equal(stats.failed, 1);
 
       // Query database for error details
       const { rows } = await storage.query(
@@ -613,15 +603,15 @@ describe('Queue Processing Integration', { skip: !DB_AVAILABLE }, () => {
     test('does not clear processing messages', async () => {
       await messageQueue.enqueue('test-bot', createTestMessage(), 0);
 
-      // Dequeue (status becomes processing)
+      // Dequeue (status becomes processing) then process completes (status becomes completed)
       await queueWorker.start();
       await queueWorker.processNext('test-bot');
 
-      // Try to clear
+      // Try to clear - should find 0 pending messages to clear
       const cleared = await messageQueue.clearQueue('test-bot');
       assert.equal(cleared, 0);
 
-      // Verify it's still there (as processing or completed)
+      // Verify the message is still there (as completed since mock processor succeeds)
       const stats = await messageQueue.getStats('test-bot');
       assert.ok(stats.processing > 0 || stats.completed > 0);
     });

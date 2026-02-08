@@ -105,6 +105,11 @@ function createMockListenClient() {
       }
       handlers[event].push(handler);
     }),
+    removeAllListeners: mock.fn(event => {
+      if (event) {
+        delete handlers[event];
+      }
+    }),
     _handlers: handlers,
     _emit(event, data) {
       if (handlers[event]) {
@@ -649,7 +654,7 @@ describe('QueueWorker', () => {
       assert.equal(worker.getRetryCount(42), 0); // Cleaned up
     });
 
-    test('resets message to pending on retryable failure after delay', async () => {
+    test('resets message to pending on retryable failure immediately', async () => {
       const msg = createMockQueueMessage({ id: 42 });
       mockQueue.dequeue = mock.fn(async () => msg);
       mockProcessor.processMessage = mock.fn(async () => {
@@ -658,18 +663,19 @@ describe('QueueWorker', () => {
 
       await worker.processNext('test-bot');
 
-      // Retry is scheduled asynchronously with setTimeout
-      // The reset won't happen immediately
+      // Retry count should be tracked immediately
       assert.equal(worker.getRetryCount(42), 1);
 
-      // Wait for the retry delay
-      await new Promise(resolve => setTimeout(resolve, 150));
-
-      // Should have reset the same row back to pending (atomic update, not enqueue+delete)
+      // Should have reset the same row back to pending with next_attempt_at (synchronous UPDATE)
       const updateCalls = mockStorage.query.mock.calls.filter(c =>
         c.arguments[0].includes('UPDATE message_queue')
       );
       assert.ok(updateCalls.length >= 1, 'Should have issued an UPDATE to reset the message');
+
+      // Verify the UPDATE sets retry_count and next_attempt_at
+      const updateSql = updateCalls[0].arguments[0];
+      assert.ok(updateSql.includes('retry_count'), 'UPDATE should set retry_count');
+      assert.ok(updateSql.includes('next_attempt_at'), 'UPDATE should set next_attempt_at');
     });
 
     test('getRetryCount returns 0 for unknown message', () => {
