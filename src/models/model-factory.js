@@ -3,13 +3,16 @@
  *
  * Provides a unified factory for creating language model instances across
  * Anthropic, OpenAI, OpenRouter, and Ollama providers. Uses the Vercel AI SDK
- * provider packages under the hood.
+ * provider packages under the hood. Supports fallback logic for resilient
+ * model creation across multiple provider/model combinations.
  *
  * @module models/model-factory
  */
 
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
+
+import { FALLBACK_STATUS_CODES, DEFAULT_MAX_FALLBACK_ATTEMPTS } from './capabilities.js';
 
 /**
  * Custom error class for model creation errors
@@ -154,6 +157,159 @@ export class ModelFactory {
    */
   static isProviderSupported(provider) {
     return SUPPORTED_PROVIDERS.includes(provider);
+  }
+
+  /**
+   * Create a model with automatic fallback support
+   *
+   * Attempts to create and optionally validate the primary model. If creation
+   * fails, iterates through fallback configurations in order until one succeeds
+   * or all options are exhausted.
+   *
+   * @param {Object} config - Model configuration with fallbacks
+   * @param {string} config.provider - Primary provider identifier
+   * @param {string} config.model - Primary model name
+   * @param {string} [config.apiKey] - API key for the primary provider
+   * @param {Object} [config.options={}] - Additional provider options
+   * @param {Array<Object>} [config.fallbacks=[]] - Fallback model configurations
+   * @param {string} config.fallbacks[].provider - Fallback provider identifier
+   * @param {string} config.fallbacks[].model - Fallback model name
+   * @param {string} [config.fallbacks[].apiKey] - Fallback API key
+   * @param {Object} [config.fallbacks[].options] - Fallback provider options
+   * @param {Function} [config.onFallback] - Callback invoked when a fallback is used
+   * @returns {Object} Result object with { model, provider, modelName, fallbackUsed, attempts }
+   * @throws {ModelFactoryError} If all attempts (primary + fallbacks) fail
+   *
+   * @example
+   * const result = ModelFactory.createModelWithFallback({
+   *   provider: 'anthropic',
+   *   model: 'claude-sonnet-4-5',
+   *   apiKey: 'sk-ant-...',
+   *   fallbacks: [
+   *     { provider: 'openrouter', model: 'anthropic/claude-sonnet-4-5', apiKey: 'sk-or-...' },
+   *     { provider: 'ollama', model: 'llama3.2:latest' },
+   *   ],
+   * });
+   * console.log(result.fallbackUsed); // false if primary succeeded
+   */
+  static createModelWithFallback(config) {
+    if (!config || typeof config !== 'object') {
+      throw new ModelFactoryError('Configuration object is required for createModelWithFallback');
+    }
+
+    const { provider, model: modelName, apiKey, options = {}, fallbacks = [], onFallback } = config;
+
+    if (!provider || !modelName) {
+      throw new ModelFactoryError(
+        'Primary provider and model are required in fallback configuration',
+        { provider, modelName }
+      );
+    }
+
+    const maxAttempts = Math.min(1 + fallbacks.length, DEFAULT_MAX_FALLBACK_ATTEMPTS + 1);
+    const errors = [];
+
+    // Build the ordered list of attempts: primary first, then fallbacks
+    const attempts = [
+      { provider, model: modelName, apiKey, options },
+      ...fallbacks.slice(0, maxAttempts - 1),
+    ];
+
+    for (let i = 0; i < attempts.length; i++) {
+      const attempt = attempts[i];
+      const isFallback = i > 0;
+
+      try {
+        const createdModel = ModelFactory.createModel(
+          attempt.provider,
+          attempt.model,
+          attempt.apiKey,
+          attempt.options || {}
+        );
+
+        // Notify about fallback usage
+        if (isFallback && typeof onFallback === 'function') {
+          onFallback({
+            originalProvider: provider,
+            originalModel: modelName,
+            fallbackProvider: attempt.provider,
+            fallbackModel: attempt.model,
+            attemptIndex: i,
+            errors: errors.map(e => e.message),
+          });
+        }
+
+        return {
+          model: createdModel,
+          provider: attempt.provider,
+          modelName: attempt.model,
+          fallbackUsed: isFallback,
+          attempts: i + 1,
+        };
+      } catch (err) {
+        errors.push(err);
+      }
+    }
+
+    // All attempts failed
+    const errorMessages = errors.map((e, i) => {
+      const attempt = attempts[i];
+      return `  [${i + 1}] ${attempt.provider}/${attempt.model}: ${e.message}`;
+    });
+
+    throw new ModelFactoryError(
+      `All model creation attempts failed (${errors.length} tried):\n${errorMessages.join('\n')}`,
+      {
+        provider,
+        modelName,
+        cause: errors[0],
+      }
+    );
+  }
+
+  /**
+   * Check if an error is eligible for fallback
+   *
+   * Determines whether an error (typically from an API call) should trigger
+   * a fallback attempt based on HTTP status code or error type.
+   *
+   * @param {Error} error - The error to check
+   * @returns {boolean} True if the error should trigger a fallback
+   *
+   * @example
+   * try {
+   *   await generateText({ model, prompt: 'Hello' });
+   * } catch (err) {
+   *   if (ModelFactory.isFallbackEligible(err)) {
+   *     // Try fallback provider
+   *   }
+   * }
+   */
+  static isFallbackEligible(error) {
+    if (!error) {
+      return false;
+    }
+
+    // Check for HTTP status codes that warrant fallback
+    const statusCode = error.statusCode || error.status || error.code;
+    if (typeof statusCode === 'number' && FALLBACK_STATUS_CODES.includes(statusCode)) {
+      return true;
+    }
+
+    // Check for common transient error patterns
+    const message = (error.message || '').toLowerCase();
+    const transientPatterns = [
+      'rate limit',
+      'too many requests',
+      'service unavailable',
+      'timeout',
+      'econnrefused',
+      'econnreset',
+      'enotfound',
+      'network error',
+    ];
+
+    return transientPatterns.some(pattern => message.includes(pattern));
   }
 }
 

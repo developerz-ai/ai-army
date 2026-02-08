@@ -70,7 +70,73 @@ const BuiltinToolSchema = z.enum(['bash', 'readFile', 'writeFile', 'glob', 'grep
 // =============================================================================
 
 /**
+ * Schema for Anthropic provider configuration
+ */
+const AnthropicProviderSchema = z.object({
+  type: z.literal('anthropic'),
+  apiKey: z.string().optional(),
+  baseUrl: z.string().url().optional(),
+  baseURL: z.string().url().optional(),
+});
+
+/**
+ * Schema for OpenAI provider configuration
+ */
+const OpenAIProviderSchema = z.object({
+  type: z.literal('openai'),
+  apiKey: z.string().optional(),
+  baseUrl: z.string().url().optional(),
+  baseURL: z.string().url().optional(),
+  organization: z.string().optional(),
+});
+
+/**
+ * Schema for OpenRouter provider configuration
+ */
+const OpenRouterProviderSchema = z.object({
+  type: z.literal('openrouter'),
+  apiKey: z.string().optional(),
+  baseUrl: z.string().url().optional(),
+  baseURL: z.string().url().optional(),
+  siteUrl: z.string().url().optional(),
+  siteName: z.string().optional(),
+});
+
+/**
+ * Schema for Ollama provider configuration
+ */
+const OllamaProviderSchema = z.object({
+  type: z.literal('ollama'),
+  baseUrl: z.string().url().optional(),
+  baseURL: z.string().url().optional(),
+  apiKey: z.string().optional(),
+});
+
+/**
+ * Schema for Google provider configuration
+ */
+const GoogleProviderSchema = z.object({
+  type: z.literal('google'),
+  apiKey: z.string().optional(),
+  baseUrl: z.string().url().optional(),
+  baseURL: z.string().url().optional(),
+});
+
+/**
+ * Schema for custom provider configuration
+ */
+const CustomProviderSchema = z
+  .object({
+    type: z.literal('custom'),
+    apiKey: z.string().optional(),
+    baseUrl: z.string().url().optional(),
+    baseURL: z.string().url().optional(),
+  })
+  .passthrough(); // Custom providers may have arbitrary fields
+
+/**
  * Schema for provider configuration
+ * Validates base fields and allows provider-specific fields via passthrough.
  */
 const ProviderConfigSchema = z
   .object({
@@ -80,6 +146,20 @@ const ProviderConfigSchema = z
     baseURL: z.string().url().optional(), // Alternative naming
   })
   .passthrough(); // Allow additional provider-specific fields
+
+/**
+ * Provider-specific schemas indexed by provider type
+ * Used for stricter validation when the type is known.
+ * @type {Readonly<Object>}
+ */
+const ProviderSpecificSchemas = Object.freeze({
+  anthropic: AnthropicProviderSchema,
+  openai: OpenAIProviderSchema,
+  openrouter: OpenRouterProviderSchema,
+  ollama: OllamaProviderSchema,
+  google: GoogleProviderSchema,
+  custom: CustomProviderSchema,
+});
 
 // =============================================================================
 // Channel Configuration Schemas
@@ -415,6 +495,58 @@ export class ConfigValidator {
   }
 
   /**
+   * Validate a single provider configuration with provider-specific rules
+   *
+   * Uses the provider-specific schema if the type is known, otherwise falls
+   * back to the general ProviderConfigSchema.
+   *
+   * @param {Object} providerConfig - Provider configuration object
+   * @returns {Object} - { valid: boolean, errors: Array, data?: Object }
+   *
+   * @example
+   * const result = validator.validateProviderConfig({
+   *   type: 'anthropic',
+   *   apiKey: '${ANTHROPIC_API_KEY}',
+   * });
+   */
+  validateProviderConfig(providerConfig) {
+    if (!providerConfig || typeof providerConfig !== 'object') {
+      return {
+        valid: false,
+        errors: [
+          {
+            path: '(root)',
+            message: 'Provider configuration must be an object',
+            code: 'invalid_type',
+          },
+        ],
+        data: null,
+      };
+    }
+
+    // Try provider-specific schema first
+    const { type } = providerConfig;
+    const specificSchema = type ? ProviderSpecificSchemas[type] : null;
+    const schema = specificSchema || ProviderConfigSchema;
+
+    const result = schema.safeParse(providerConfig);
+
+    if (result.success) {
+      return {
+        valid: true,
+        errors: [],
+        data: result.data,
+      };
+    }
+
+    return {
+      valid: false,
+      errors: this._formatZodErrors(result.error),
+      data: null,
+    };
+  }
+
+  /**
    * Check required fields are present in a configuration object
    *
    * @param {Object} config - Configuration object
@@ -621,6 +753,13 @@ export {
   ChannelTypeSchema,
   BuiltinToolSchema,
   ProviderConfigSchema,
+  ProviderSpecificSchemas,
+  AnthropicProviderSchema,
+  OpenAIProviderSchema,
+  OpenRouterProviderSchema,
+  OllamaProviderSchema,
+  GoogleProviderSchema,
+  CustomProviderSchema,
   ChannelConfigSchema,
   McpServerConfigSchema,
   SandboxConfigSchema,
