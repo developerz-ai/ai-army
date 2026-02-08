@@ -292,9 +292,7 @@ export class QueueWorker {
           [queueMessage.id]
         );
       } catch (resetErr) {
-        this._log(
-          `Failed to reset message ${queueMessage.id} to pending: ${resetErr.message}`
-        );
+        this._log(`Failed to reset message ${queueMessage.id} to pending: ${resetErr.message}`);
         await this._markFailedSafe(queueMessage.id, startErr);
       }
       return false;
