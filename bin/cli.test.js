@@ -407,10 +407,21 @@ describe('CLI subprocess execution', () => {
     assert.ok(stdout.includes('Validating configuration'));
   });
 
-  test('status command outputs stub message', async () => {
-    const { stdout } = await execFileAsync('node', [CLI_PATH, 'status']);
+  test('status command is wired and functional (not a stub)', async () => {
+    // Without DATABASE_URL, the status command should exit with error (not stub behavior)
+    // This verifies the command is properly wired to runStatus() instead of just printing a stub message
+    const env = { ...process.env };
+    delete env.DATABASE_URL;
 
-    assert.ok(stdout.includes('Checking status'));
+    try {
+      await execFileAsync('node', [CLI_PATH, 'status'], { env });
+      assert.fail('Should have thrown due to missing DATABASE_URL');
+    } catch (err) {
+      // Should get a real error about DATABASE_URL, not "not yet implemented"
+      assert.ok(err.stderr.includes('DATABASE_URL'), 'Should require DATABASE_URL');
+      assert.ok(!err.stdout.includes('not yet implemented'), 'Should not be a stub');
+      assert.ok(!err.stdout.includes('Checking status'), 'Should not print stub message');
+    }
   });
 
   test('unknown command shows error', async () => {
