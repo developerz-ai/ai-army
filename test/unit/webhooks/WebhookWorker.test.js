@@ -316,7 +316,7 @@ describe('WebhookWorker', () => {
       let capturedSql;
       mockStorage.transaction = mock.fn(async callback => {
         const txClient = {
-          query: mock.fn(async (sql) => {
+          query: mock.fn(async sql => {
             capturedSql = sql;
             return { rows: [], rowCount: 0 };
           }),
@@ -335,7 +335,7 @@ describe('WebhookWorker', () => {
       let capturedSql;
       mockStorage.transaction = mock.fn(async callback => {
         const txClient = {
-          query: mock.fn(async (sql) => {
+          query: mock.fn(async sql => {
             capturedSql = sql;
             return { rows: [], rowCount: 0 };
           }),

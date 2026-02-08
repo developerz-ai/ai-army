@@ -480,10 +480,10 @@ export class WebhookWorker {
 
       if (selected.length > 0) {
         const ids = selected.map(r => r.id);
-        await client.query(
-          `UPDATE webhooks SET status = $1 WHERE id = ANY($2)`,
-          [WEBHOOK_STATUSES.SENDING, ids]
-        );
+        await client.query(`UPDATE webhooks SET status = $1 WHERE id = ANY($2)`, [
+          WEBHOOK_STATUSES.SENDING,
+          ids,
+        ]);
       }
 
       return selected;
