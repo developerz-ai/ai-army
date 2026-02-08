@@ -117,14 +117,7 @@ export class MessageQueue {
           `INSERT INTO message_queue (bot_id, channel_type, channel_id, user_id, message_text, priority)
            VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING id, bot_id, channel_type, channel_id, user_id, message_text, priority, status, enqueued_at`,
-          [
-            botId,
-            message.channelType,
-            message.channelId,
-            message.userId,
-            message.text,
-            priority,
-          ]
+          [botId, message.channelType, message.channelId, message.userId, message.text, priority]
         ));
       }
 

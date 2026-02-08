@@ -290,7 +290,7 @@ describe('QueueWorker', () => {
       await worker.start();
       const client = mockStorage._mockClient;
       const queries = client.query.mock.calls.map(c => c.arguments[0]);
-      assert.ok(queries.some(q => q.includes('LISTEN message_queue')));
+      assert.ok(queries.some(q => q.includes('LISTEN "message_queue"')));
     });
 
     test('sets up notification handler on client', async () => {
@@ -393,7 +393,7 @@ describe('QueueWorker', () => {
 
       await worker.stop();
       const queries = client.query.mock.calls.map(c => c.arguments[0]);
-      assert.ok(queries.some(q => q.includes('UNLISTEN message_queue')));
+      assert.ok(queries.some(q => q.includes('UNLISTEN "message_queue"')));
     });
 
     test('is idempotent when already stopped', async () => {

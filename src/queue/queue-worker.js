@@ -136,7 +136,14 @@ export class QueueWorker {
     this.retryDelay = options.retryDelay ?? DEFAULTS.retryDelay;
 
     /** @type {string} PostgreSQL LISTEN/NOTIFY channel name */
-    this.channel = options.channel ?? DEFAULTS.channel;
+    const rawChannel = options.channel ?? DEFAULTS.channel;
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(rawChannel)) {
+      throw new QueueWorkerError(
+        `Invalid channel name "${rawChannel}": must be a valid PostgreSQL identifier (letters, digits, underscores)`,
+        { operation: 'constructor' }
+      );
+    }
+    this.channel = rawChannel;
 
     /** @type {Function|null} Optional logger */
     this.logger = options.logger || null;
@@ -392,8 +399,8 @@ export class QueueWorker {
         this._handleNotification(msg);
       });
 
-      // Start listening
-      await this._listenClient.query(`LISTEN ${this.channel}`);
+      // Start listening (channel is pre-validated in constructor; quote as identifier for safety)
+      await this._listenClient.query(`LISTEN "${this.channel}"`);
       this._log(`Listening on PostgreSQL channel "${this.channel}"`);
     } catch (err) {
       // Release client if acquired but LISTEN failed
@@ -424,7 +431,7 @@ export class QueueWorker {
     }
 
     try {
-      await this._listenClient.query(`UNLISTEN ${this.channel}`);
+      await this._listenClient.query(`UNLISTEN "${this.channel}"`);
     } catch (_err) {
       // Ignore UNLISTEN errors during shutdown
     }
@@ -659,9 +666,9 @@ export class QueueWorker {
                started_at = NULL,
                error = NULL,
                retry_count = $1,
-               next_attempt_at = NOW() + ($2 || ' milliseconds')::interval
+               next_attempt_at = NOW() + ($2::integer * INTERVAL '1 millisecond')
            WHERE id = $3`,
-          [newCount, String(delay), queueMessage.id]
+          [newCount, delay, queueMessage.id]
         );
       } catch (retryErr) {
         this._log(`Failed to reset message ${queueMessage.id} for retry: ${retryErr.message}`);
