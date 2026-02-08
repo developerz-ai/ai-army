@@ -1,0 +1,4 @@
+- [Home](/)
+- [Docs](idea/00-overview.md)
+- [API](idea/10-rest-api.md)
+- [GitHub](https://github.com/developerz-ai/ai-army)
