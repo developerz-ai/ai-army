@@ -81,6 +81,7 @@ export class ToolRegistry {
    * @param {Object} [mcpManager=null] - McpManager instance for MCP server tools
    * @param {Object} [options={}] - Additional options
    * @param {Object} [options.skillRegistry=null] - SkillRegistry instance for resolving skill tools
+   * @param {Object} [options.eventEmitter=null] - BotEventEmitter instance for emitting tool events
    * @throws {ToolRegistryError} When containerPool is not provided
    */
   constructor(containerPool, mcpManager = null, options = {}) {
@@ -98,6 +99,9 @@ export class ToolRegistry {
 
     /** @type {Object|null} SkillRegistry for resolving skill tools */
     this.skillRegistry = options.skillRegistry || null;
+
+    /** @type {Object|null} BotEventEmitter for emitting tool events */
+    this.eventEmitter = options.eventEmitter || null;
 
     /**
      * Map of tool name to factory function
@@ -232,6 +236,10 @@ export class ToolRegistry {
         const toolConfig = botConfig.toolConfig?.[toolName];
         tools[toolName] = factory(this.containerPool, botId, toolConfig);
       } catch (err) {
+        this._emitEvent('toolError', botId, {
+          toolName,
+          error: err,
+        });
         throw new ToolRegistryError(
           `Failed to create tool "${toolName}" for bot "${botId}": ${err.message}`,
           {
@@ -252,6 +260,10 @@ export class ToolRegistry {
           tools[tool.name] = tool;
         }
       } catch (err) {
+        this._emitEvent('toolError', botId, {
+          toolName: 'mcp',
+          error: err,
+        });
         throw new ToolRegistryError(`Failed to get MCP tools for bot "${botId}": ${err.message}`, {
           operation: 'getToolsForBot',
           botId,
@@ -271,6 +283,10 @@ export class ToolRegistry {
           }
         }
       } catch (err) {
+        this._emitEvent('toolError', botId, {
+          toolName: 'skills',
+          error: err,
+        });
         throw new ToolRegistryError(
           `Failed to get skill tools for bot "${botId}": ${err.message}`,
           {
@@ -299,5 +315,26 @@ export class ToolRegistry {
    */
   static getBuiltinToolNames() {
     return [...BUILTIN_TOOL_NAMES];
+  }
+
+  /**
+   * Emit an event via the event emitter if available
+   *
+   * Safely calls the event emitter method, catching any errors to prevent
+   * event emission from breaking the main flow.
+   *
+   * @param {string} method - Event emitter method name
+   * @param {...*} args - Arguments to pass to the emitter method
+   * @private
+   */
+  _emitEvent(event, ...args) {
+    const method = `emit${event.charAt(0).toUpperCase()}${event.slice(1)}`;
+    if (this.eventEmitter && typeof this.eventEmitter[method] === 'function') {
+      try {
+        this.eventEmitter[method](...args);
+      } catch (_err) {
+        // Event emission should never break the main flow
+      }
+    }
   }
 }

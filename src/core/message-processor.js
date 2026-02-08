@@ -61,6 +61,7 @@ export class MessageProcessor {
    * @param {Object} storage - PostgresStorage instance for tool call logging
    * @param {Object} [options={}] - Configuration options
    * @param {Function|null} [options.logger=null] - Logger function for processing events
+   * @param {Object} [options.eventEmitter=null] - BotEventEmitter instance for emitting message events
    */
   constructor(sessionManager, agentRunner, storage, options = {}) {
     if (!sessionManager) {
@@ -90,6 +91,9 @@ export class MessageProcessor {
 
     /** @type {Function|null} Logger function */
     this.logger = options.logger || null;
+
+    /** @type {Object|null} BotEventEmitter for emitting message events */
+    this.eventEmitter = options.eventEmitter || null;
   }
 
   /**
@@ -137,6 +141,14 @@ export class MessageProcessor {
 
       this._log(`Processing message for bot "${botConfig.id}" ` + `session "${sessionId}"`);
 
+      // Emit message.received event
+      this._emitEvent('messageReceived', botConfig.id, {
+        userId: message.userId,
+        channelId: message.channelId,
+        text: message.text,
+        sessionId,
+      });
+
       // Step 2: Append user message to session
       await this.sessionManager.appendMessage(session, 'user', message.text);
 
@@ -159,12 +171,25 @@ export class MessageProcessor {
       // Step 6: Log tool calls for audit trail
       await this._logToolCalls(botConfig.id, sessionId, result.steps || [], result.toolCalls);
 
+      // Emit tool events for each tool call
+      this._emitToolEvents(botConfig.id, sessionId, result.steps || [], result.toolCalls);
+
       // Step 7: Append assistant response to session
       const appendOptions = {};
       if (result.toolCalls.length > 0) {
         appendOptions.toolCalls = result.toolCalls;
       }
       await this.sessionManager.appendMessage(session, 'assistant', result.text, appendOptions);
+
+      // Emit message.sent event
+      this._emitEvent('messageSent', botConfig.id, {
+        userId: message.userId,
+        channelId: message.channelId,
+        text: result.text,
+        sessionId,
+        durationMs,
+        toolCalls: result.toolCalls,
+      });
 
       return {
         text: result.text,
@@ -174,6 +199,13 @@ export class MessageProcessor {
         durationMs,
       };
     } catch (err) {
+      // Emit message.error event
+      this._emitEvent('messageError', botConfig.id, err, {
+        userId: message.userId,
+        channelId: message.channelId,
+        sessionId,
+      });
+
       if (err instanceof MessageProcessorError) {
         throw err;
       }
@@ -375,6 +407,83 @@ export class MessageProcessor {
       throw new MessageProcessorError('Message must have a string "text" property', {
         operation: 'processMessage',
       });
+    }
+  }
+
+  /**
+   * Emit tool events for each tool call in the processing result
+   *
+   * Iterates through steps and emits tool.called or tool.error events
+   * for each tool invocation.
+   *
+   * @param {string} botId - Bot identifier
+   * @param {string} sessionId - Session identifier
+   * @param {Array} steps - Agent execution steps
+   * @param {Array} topLevelToolCalls - Top-level tool calls
+   * @private
+   */
+  _emitToolEvents(botId, sessionId, steps, topLevelToolCalls) {
+    if (!this.eventEmitter) return;
+
+    // Emit events from steps (AI SDK provides per-step results)
+    if (Array.isArray(steps)) {
+      for (const step of steps) {
+        const stepToolCalls = step.toolCalls || [];
+        const stepToolResults = step.toolResults || [];
+
+        for (const toolCall of stepToolCalls) {
+          const matchingResult = stepToolResults.find(r => r.toolCallId === toolCall.toolCallId);
+          const isError = matchingResult?.isError === true;
+
+          if (isError) {
+            this._emitEvent('toolError', botId, {
+              toolName: toolCall.toolName,
+              args: toolCall.args || null,
+              error: matchingResult?.result || 'Unknown tool error',
+              sessionId,
+            });
+          } else {
+            this._emitEvent('toolCalled', botId, {
+              toolName: toolCall.toolName,
+              args: toolCall.args || null,
+              result: matchingResult?.result || null,
+              sessionId,
+            });
+          }
+        }
+      }
+    }
+
+    // Emit events from top-level tool calls if no steps were processed
+    if (Array.isArray(topLevelToolCalls) && (!Array.isArray(steps) || steps.length === 0)) {
+      for (const toolCall of topLevelToolCalls) {
+        this._emitEvent('toolCalled', botId, {
+          toolName: toolCall.toolName,
+          args: toolCall.args || null,
+          sessionId,
+        });
+      }
+    }
+  }
+
+  /**
+   * Emit an event via the event emitter if available
+   *
+   * Safely calls the event emitter method, catching any errors to prevent
+   * event emission from breaking the main flow.
+   *
+   * @param {string} method - Event emitter method name
+   * @param {...*} args - Arguments to pass to the emitter method
+   * @private
+   */
+  _emitEvent(event, ...args) {
+    const method = `emit${event.charAt(0).toUpperCase()}${event.slice(1)}`;
+    if (this.eventEmitter && typeof this.eventEmitter[method] === 'function') {
+      try {
+        this.eventEmitter[method](...args);
+      } catch (_err) {
+        // Event emission should never break the main flow
+      }
     }
   }
 

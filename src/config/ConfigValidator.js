@@ -344,6 +344,31 @@ const QueueConfigSchema = z.object({
 });
 
 // =============================================================================
+// Webhook Configuration Schema
+// =============================================================================
+
+/**
+ * Schema for a single webhook subscription in a bot config
+ */
+const WebhookSubscriptionSchema = z.object({
+  url: z.string().url('Webhook URL must be a valid URL'),
+  events: z.array(z.string().min(1)).min(1, 'At least one event is required'),
+  method: z.enum(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']).optional().default('POST'),
+  headers: z.record(z.string()).optional().default({}),
+  retries: z.number().int().min(1).max(10).optional().default(3),
+  timeout: z.number().int().positive().optional().default(5000),
+});
+
+/**
+ * Schema for the webhooks array in a bot config
+ *
+ * Each bot may define an array of webhook subscriptions. Each subscription
+ * specifies a destination URL, events to listen for, and optional delivery
+ * settings like retry count and timeout.
+ */
+const WebhookConfigSchema = z.array(WebhookSubscriptionSchema).optional().default([]);
+
+// =============================================================================
 // Template & Instance Configuration Schemas
 // =============================================================================
 
@@ -487,6 +512,9 @@ export const BotConfigSchema = z
 
     // Restrictions
     restrictions: RestrictionsConfigSchema.optional(),
+
+    // Webhooks
+    webhooks: WebhookConfigSchema,
 
     // Session compaction
     compactionThreshold: z.number().int().positive().optional().default(50000),
@@ -855,6 +883,44 @@ export class ConfigValidator {
   }
 
   /**
+   * Validate a webhook configuration array
+   *
+   * @param {Array<Object>} webhookConfigs - Array of webhook subscription objects
+   * @returns {Object} - { valid: boolean, errors: Array, data?: Array }
+   */
+  validateWebhookConfig(webhookConfigs) {
+    if (!Array.isArray(webhookConfigs)) {
+      return {
+        valid: false,
+        errors: [
+          {
+            path: '(root)',
+            message: 'Webhook configuration must be an array',
+            code: 'invalid_type',
+          },
+        ],
+        data: null,
+      };
+    }
+
+    const result = WebhookConfigSchema.safeParse(webhookConfigs);
+
+    if (result.success) {
+      return {
+        valid: true,
+        errors: [],
+        data: result.data,
+      };
+    }
+
+    return {
+      valid: false,
+      errors: this._formatZodErrors(result.error),
+      data: null,
+    };
+  }
+
+  /**
    * Validate cross-references between main config and bot configs
    *
    * @private
@@ -937,6 +1003,8 @@ export {
   MemoryConfigSchema,
   TemplateConfigSchema,
   InstanceConfigSchema,
+  WebhookConfigSchema,
+  WebhookSubscriptionSchema,
 };
 
 export default ConfigValidator;
