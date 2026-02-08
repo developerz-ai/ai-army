@@ -257,12 +257,21 @@ export class SecretsManager {
       const adapterKey = this._buildAdapterKey(ref);
       const value = await adapter.getSecret(adapterKey);
 
+      // Throw if adapter returned null/undefined for a required reference
+      // (i.e. no default value was specified via :- syntax)
+      if (value === null || value === undefined) {
+        if (ref.defaultValue === undefined) {
+          throw new Error(`Secret '${ref.raw}' resolved to null`);
+        }
+        return ref.defaultValue;
+      }
+
       // Cache the resolved value
-      if (this.cache && value !== null) {
+      if (this.cache) {
         this.cache.set(cacheKey, value);
       }
 
-      return value ?? '';
+      return value;
     } catch (err) {
       throw new SecretsManagerError(
         `Failed to resolve secret reference '${ref.raw}' via '${ref.adapter}' adapter`,
