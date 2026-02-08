@@ -344,6 +344,41 @@ const QueueConfigSchema = z.object({
 });
 
 // =============================================================================
+// Template & Instance Configuration Schemas
+// =============================================================================
+
+/**
+ * Schema for template configuration
+ *
+ * Templates define reusable bot configurations with optional `{{variable}}`
+ * placeholders in both config and soul content. Instances are created from
+ * templates with per-instance overrides.
+ */
+const TemplateConfigSchema = z.object({
+  id: z.string().min(1, 'Template ID is required'),
+  name: z.string().min(1, 'Template name is required'),
+  description: z.string().optional(),
+  config: z.object({}).passthrough(),
+  soulTemplate: z.string().optional(),
+});
+
+/**
+ * Schema for instance configuration
+ *
+ * Instances reference a template and provide per-instance overrides and
+ * variables. The orchestrator deep-merges template config + instance overrides
+ * and applies `{{variable}}` substitution at startup.
+ */
+const InstanceConfigSchema = z.object({
+  id: z.string().min(1, 'Instance ID is required'),
+  templateId: z.string().min(1, 'Template ID is required'),
+  name: z.string().optional(),
+  overrides: z.object({}).passthrough().optional().default({}),
+  variables: z.record(z.string()).optional(),
+  status: z.enum(['starting', 'running', 'stopped', 'error']).optional().default('stopped'),
+});
+
+// =============================================================================
 // Main Configuration Schema
 // =============================================================================
 
@@ -744,6 +779,82 @@ export class ConfigValidator {
   }
 
   /**
+   * Validate a template configuration
+   *
+   * @param {Object} templateConfig - Template configuration object
+   * @returns {Object} - { valid: boolean, errors: Array, data?: Object }
+   */
+  validateTemplateConfig(templateConfig) {
+    if (!templateConfig || typeof templateConfig !== 'object') {
+      return {
+        valid: false,
+        errors: [
+          {
+            path: '(root)',
+            message: 'Template configuration must be an object',
+            code: 'invalid_type',
+          },
+        ],
+        data: null,
+      };
+    }
+
+    const result = TemplateConfigSchema.safeParse(templateConfig);
+
+    if (result.success) {
+      return {
+        valid: true,
+        errors: [],
+        data: result.data,
+      };
+    }
+
+    return {
+      valid: false,
+      errors: this._formatZodErrors(result.error),
+      data: null,
+    };
+  }
+
+  /**
+   * Validate an instance configuration
+   *
+   * @param {Object} instanceConfig - Instance configuration object
+   * @returns {Object} - { valid: boolean, errors: Array, data?: Object }
+   */
+  validateInstanceConfig(instanceConfig) {
+    if (!instanceConfig || typeof instanceConfig !== 'object') {
+      return {
+        valid: false,
+        errors: [
+          {
+            path: '(root)',
+            message: 'Instance configuration must be an object',
+            code: 'invalid_type',
+          },
+        ],
+        data: null,
+      };
+    }
+
+    const result = InstanceConfigSchema.safeParse(instanceConfig);
+
+    if (result.success) {
+      return {
+        valid: true,
+        errors: [],
+        data: result.data,
+      };
+    }
+
+    return {
+      valid: false,
+      errors: this._formatZodErrors(result.error),
+      data: null,
+    };
+  }
+
+  /**
    * Validate cross-references between main config and bot configs
    *
    * @private
@@ -824,6 +935,8 @@ export {
   QueueConfigSchema,
   WorkspaceConfigSchema,
   MemoryConfigSchema,
+  TemplateConfigSchema,
+  InstanceConfigSchema,
 };
 
 export default ConfigValidator;

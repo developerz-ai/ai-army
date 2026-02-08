@@ -26,6 +26,54 @@ import { runMigrate } from '../src/cli/MigrateCommand.js';
 import { runStart } from '../src/cli/StartCommand.js';
 import { runDev } from '../src/cli/DevCommand.js';
 import { runReload } from '../src/cli/ReloadCommand.js';
+import { runInstance } from '../src/cli/InstanceCommand.js';
+
+/**
+ * Collect repeatable --override values into an array
+ *
+ * Used as a commander option parser callback so multiple
+ * `--override key=value` flags accumulate into a single array.
+ *
+ * @param {string} value - New override "key=value" string
+ * @param {Array<string>} previous - Accumulated overrides so far
+ * @returns {Array<string>} Updated array of overrides
+ * @private
+ */
+function collectOverrides(value, previous) {
+  return [...previous, value];
+}
+
+/**
+ * Create a PostgresStorage, run a callback, then disconnect
+ *
+ * Handles DATABASE_URL validation, connection lifecycle, and error reporting
+ * so that each instance subcommand does not need to repeat this boilerplate.
+ *
+ * @param {Function} fn - Async function receiving the connected storage
+ * @returns {Promise<void>}
+ * @private
+ */
+async function withStorage(fn) {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    process.stderr.write('DATABASE_URL environment variable is required\n');
+    process.exitCode = 1;
+    return;
+  }
+
+  const { PostgresStorage } = await import('../src/adapters/storage/postgres.js');
+  const storage = new PostgresStorage(databaseUrl);
+
+  try {
+    await storage.connect();
+    await fn(storage);
+  } catch (err) {
+    process.stderr.write(`Error: ${err.message}\n`);
+    process.exitCode = 1;
+  } finally {
+    await storage.disconnect();
+  }
+}
 
 /**
  * Create and configure the CLI program
@@ -137,6 +185,103 @@ export function createProgram() {
       if (!result.success) {
         process.exitCode = 1;
       }
+    });
+
+  // === instance command ===
+  const instanceCmd = program
+    .command('instance')
+    .description('Manage template instances (create, list, scale, stop, rm)');
+
+  instanceCmd
+    .command('create <templateId> <instanceId>')
+    .description('Create a new instance from a template')
+    .option('-n, --name <name>', 'Human-readable instance name')
+    .option('-o, --override <key=value...>', 'Override values (repeatable)', collectOverrides, [])
+    .action(async (templateId, instanceId, options) => {
+      await withStorage(async storage => {
+        const result = await runInstance('create', {
+          templateId,
+          instanceId,
+          name: options.name,
+          overrides: options.override,
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
+    });
+
+  instanceCmd
+    .command('list')
+    .description('List all instances')
+    .option('-t, --template <templateId>', 'Filter by template ID')
+    .option('-s, --status <status>', 'Filter by status')
+    .action(async options => {
+      await withStorage(async storage => {
+        const result = await runInstance('list', {
+          templateId: options.template,
+          status: options.status,
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
+    });
+
+  instanceCmd
+    .command('scale <templateId>')
+    .description('Create multiple instances from a template')
+    .requiredOption('--count <n>', 'Number of instances to create', parseInt)
+    .option('-o, --override <key=value...>', 'Override values (repeatable)', collectOverrides, [])
+    .action(async (templateId, options) => {
+      await withStorage(async storage => {
+        const result = await runInstance('scale', {
+          templateId,
+          count: options.count,
+          overrides: options.override,
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
+    });
+
+  instanceCmd
+    .command('stop <instanceId>')
+    .description('Stop a running instance')
+    .action(async instanceId => {
+      await withStorage(async storage => {
+        const result = await runInstance('stop', {
+          instanceId,
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
+    });
+
+  instanceCmd
+    .command('rm <instanceId>')
+    .description('Remove (delete) an instance')
+    .action(async instanceId => {
+      await withStorage(async storage => {
+        const result = await runInstance('rm', {
+          instanceId,
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
     });
 
   return program;
