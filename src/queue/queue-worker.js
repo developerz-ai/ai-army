@@ -277,8 +277,28 @@ export class QueueWorker {
       return false;
     }
 
-    // Register with concurrency controller
-    this.concurrencyController.startProcessing(botId, queueMessage.id);
+    // Register with concurrency controller — wrapped in try/catch so that a
+    // failure here doesn't strand the row in 'processing' indefinitely.
+    try {
+      this.concurrencyController.startProcessing(botId, queueMessage.id);
+    } catch (startErr) {
+      this._log(
+        `Failed to register concurrency for message ${queueMessage.id}: ${startErr.message}`
+      );
+      // Reset the row back to 'pending' so it can be retried on next poll
+      try {
+        await this.storage.query(
+          `UPDATE message_queue SET status = 'pending', started_at = NULL WHERE id = $1`,
+          [queueMessage.id]
+        );
+      } catch (resetErr) {
+        this._log(
+          `Failed to reset message ${queueMessage.id} to pending: ${resetErr.message}`
+        );
+        await this._markFailedSafe(queueMessage.id, startErr);
+      }
+      return false;
+    }
 
     this._log(`Processing message ${queueMessage.id} for bot ${botId}`);
 
@@ -630,10 +650,13 @@ export class QueueWorker {
    */
   async _handleProcessingError(botId, queueMessage, err) {
     const retryKey = this._retryKey(botId, queueMessage);
-    // Check retry count by content key first (persists across re-enqueued messages),
-    // then fall back to message ID for backward compatibility
-    const retryCount =
+    // Use the persisted DB retry_count as the source of truth so that worker
+    // restarts (which clear in-memory _retryCounts) don't reset the counter.
+    // Fall back to in-memory counts only when the DB value is absent/zero.
+    const persistedCount = queueMessage.retryCount || 0;
+    const inMemoryCount =
       this._retryCounts.get(retryKey) || this._retryCounts.get(queueMessage.id) || 0;
+    const retryCount = Math.max(persistedCount, inMemoryCount);
     const canRetry = retryCount < this.retryAttempts;
 
     this._log(
