@@ -1585,11 +1585,10 @@ export class Orchestrator {
         }
       }
 
-      // Build a logger adapter for worker components that expect
-      // { info, warn, error } methods instead of a single function
-      const workerLogger = this.logger
-        ? { info: this.logger, warn: this.logger, error: this.logger }
-        : console;
+      // Normalize logger into a structured { info, warn, error, debug } object
+      // for worker components. Handles both function loggers (e.g. console.log)
+      // and structured loggers (e.g. console or winston-like objects).
+      const workerLogger = this._createWorkerLogger();
 
       // Create SSHTunnelManager if not injected
       if (!this.sshTunnelManager) {
@@ -2182,6 +2181,55 @@ export class Orchestrator {
     if (this.logger) {
       this.logger(message);
     }
+  }
+
+  /**
+   * Create a normalized logger object for worker components.
+   *
+   * Worker components (SSHTunnelManager, WorkerAssigner, etc.) expect a
+   * structured logger with info/warn/error/debug methods. This method
+   * normalizes both function-style loggers (e.g. console.log) and
+   * structured loggers (e.g. console or winston-like objects) into a
+   * consistent shape.
+   *
+   * @returns {{ info: Function, warn: Function, error: Function, debug: Function }}
+   * @private
+   */
+  _createWorkerLogger() {
+    if (!this.logger) {
+      return console;
+    }
+
+    // If the logger is already a structured object with log methods, use it
+    if (typeof this.logger === 'object' && typeof this.logger.info === 'function') {
+      return {
+        info: (...args) => this.logger.info(...args),
+        warn: typeof this.logger.warn === 'function'
+          ? (...args) => this.logger.warn(...args)
+          : (...args) => this.logger.info(...args),
+        error: typeof this.logger.error === 'function'
+          ? (...args) => this.logger.error(...args)
+          : (...args) => this.logger.info(...args),
+        debug: typeof this.logger.debug === 'function'
+          ? (...args) => this.logger.debug(...args)
+          : () => {},
+      };
+    }
+
+    // If the logger is a function (e.g. console.log), wrap it to provide
+    // all expected methods with consistent multi-arg support
+    if (typeof this.logger === 'function') {
+      const fn = this.logger;
+      return {
+        info: (...args) => fn(...args),
+        warn: (...args) => fn(...args),
+        error: (...args) => fn(...args),
+        debug: () => {},
+      };
+    }
+
+    // Fallback to console
+    return console;
   }
 }
 
