@@ -1504,11 +1504,12 @@ describe('FileToolsError', () => {
     assert.equal(err.filePath, '/home/agent/test.txt');
   });
 
-  test('stores cause for error chaining', () => {
+  test('stores cause via standard Error options', () => {
     const original = new Error('original');
     const err = new FileToolsError('wrapped', { cause: original });
 
     assert.equal(err.cause, original);
+    assert.ok(err.cause instanceof Error);
   });
 
   test('defaults optional fields to undefined', () => {
@@ -1518,6 +1519,22 @@ describe('FileToolsError', () => {
     assert.equal(err.botId, undefined);
     assert.equal(err.filePath, undefined);
     assert.equal(err.cause, undefined);
+  });
+
+  test('stores all options together including cause', () => {
+    const cause = new Error('original');
+    const err = new FileToolsError('wrapper error', {
+      cause,
+      operation: 'readFile',
+      botId: 'test-bot',
+      filePath: '/home/agent/test.txt',
+    });
+
+    assert.equal(err.cause, cause);
+    assert.ok(err.cause instanceof Error);
+    assert.equal(err.operation, 'readFile');
+    assert.equal(err.botId, 'test-bot');
+    assert.equal(err.filePath, '/home/agent/test.txt');
   });
 });
 

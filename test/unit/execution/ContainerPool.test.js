@@ -674,13 +674,14 @@ describe('ContainerPoolError', () => {
     assert.equal(error.botId, 'my-bot');
   });
 
-  test('stores cause', () => {
+  test('stores cause via standard Error options', () => {
     const cause = new Error('Original error');
     const error = new ContainerPoolError('Test error', { cause });
     assert.equal(error.cause, cause);
+    assert.ok(error.cause instanceof Error);
   });
 
-  test('stores all options together', () => {
+  test('stores all options together including cause', () => {
     const cause = new Error('Original');
     const error = new ContainerPoolError('Multi-option error', {
       cause,
@@ -689,6 +690,7 @@ describe('ContainerPoolError', () => {
     });
 
     assert.equal(error.cause, cause);
+    assert.ok(error.cause instanceof Error);
     assert.equal(error.operation, 'initializeContainer');
     assert.equal(error.botId, 'test-bot');
   });

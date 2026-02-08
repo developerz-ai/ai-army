@@ -53,12 +53,11 @@ export class BashToolError extends Error {
    * @param {Error} [options.cause] - Original error that caused this
    */
   constructor(message, options = {}) {
-    super(message);
+    super(message, { cause: options.cause });
     this.name = 'BashToolError';
     this.operation = options.operation;
     this.botId = options.botId;
     this.command = options.command;
-    this.cause = options.cause;
   }
 }
 

@@ -41,12 +41,11 @@ export class ToolRegistryError extends Error {
    * @param {Error} [options.cause] - Original error that caused this
    */
   constructor(message, options = {}) {
-    super(message);
+    super(message, { cause: options.cause });
     this.name = 'ToolRegistryError';
     this.operation = options.operation;
     this.toolName = options.toolName;
     this.botId = options.botId;
-    this.cause = options.cause;
   }
 }
 

@@ -1153,11 +1153,12 @@ describe('AgentRunner', () => {
       assert.equal(err.botId, 'support-bot');
     });
 
-    test('stores cause for error chaining', () => {
+    test('stores cause via standard Error options', () => {
       const original = new Error('original');
       const err = new AgentRunnerError('wrapped', { cause: original });
 
       assert.equal(err.cause, original);
+      assert.ok(err.cause instanceof Error);
     });
 
     test('defaults optional fields to undefined', () => {
@@ -1166,6 +1167,20 @@ describe('AgentRunner', () => {
       assert.equal(err.operation, undefined);
       assert.equal(err.botId, undefined);
       assert.equal(err.cause, undefined);
+    });
+
+    test('stores all options together including cause', () => {
+      const cause = new Error('original');
+      const err = new AgentRunnerError('wrapper error', {
+        cause,
+        operation: 'run',
+        botId: 'test-bot',
+      });
+
+      assert.equal(err.cause, cause);
+      assert.ok(err.cause instanceof Error);
+      assert.equal(err.operation, 'run');
+      assert.equal(err.botId, 'test-bot');
     });
   });
 });

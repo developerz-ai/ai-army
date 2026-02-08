@@ -26,12 +26,11 @@ export class DockerError extends Error {
    * @param {Error} [options.cause] - Original error that caused this
    */
   constructor(message, options = {}) {
-    super(message);
+    super(message, { cause: options.cause });
     this.name = 'DockerError';
     this.operation = options.operation;
     this.containerId = options.containerId;
     this.botId = options.botId;
-    this.cause = options.cause;
   }
 }
 

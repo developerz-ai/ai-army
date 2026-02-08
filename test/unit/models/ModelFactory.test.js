@@ -375,10 +375,11 @@ describe('ModelFactory', () => {
       assert.equal(err.modelName, 'claude-sonnet-4-5');
     });
 
-    test('stores cause for error chaining', () => {
+    test('stores cause via standard Error options', () => {
       const originalError = new Error('original');
       const err = new ModelFactoryError('wrapped', { cause: originalError });
       assert.equal(err.cause, originalError);
+      assert.ok(err.cause instanceof Error);
     });
 
     test('defaults optional fields to undefined', () => {
@@ -386,6 +387,20 @@ describe('ModelFactory', () => {
       assert.equal(err.provider, undefined);
       assert.equal(err.modelName, undefined);
       assert.equal(err.cause, undefined);
+    });
+
+    test('stores all options together including cause', () => {
+      const cause = new Error('original');
+      const err = new ModelFactoryError('wrapper error', {
+        cause,
+        provider: 'anthropic',
+        modelName: 'claude-sonnet-4-5',
+      });
+
+      assert.equal(err.cause, cause);
+      assert.ok(err.cause instanceof Error);
+      assert.equal(err.provider, 'anthropic');
+      assert.equal(err.modelName, 'claude-sonnet-4-5');
     });
   });
 
