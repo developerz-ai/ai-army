@@ -43,10 +43,10 @@ services:
           cpus: "0.25"
 
   app:
-    image: node:22-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: ai-army-app
-    working_dir: /app
-    command: ["npx", "ai-army", "start"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -63,10 +63,14 @@ services:
     ports:
       - "${PORT:-3000}:3000"
     volumes:
-      - .:/app:ro
       - ./bots:/app/bots:ro
       - ./data:/app/data
-      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "node", "-e", "const http = require('http'); const req = http.request({port: process.env.PORT || 3000, path: '/health', timeout: 2000}, res => { process.exit(res.statusCode === 200 ? 0 : 1); }); req.on('error', () => process.exit(1)); req.end();"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped
     networks:
       - ai-army-net
