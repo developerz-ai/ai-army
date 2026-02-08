@@ -22,6 +22,7 @@ import {
   SecretsConfigSchema,
   SecretAdapterConfigSchema,
   SecretCacheConfigSchema,
+  QueueConfigSchema,
 } from '../../../src/config/ConfigValidator.js';
 
 describe('ConfigValidator', () => {
@@ -1148,6 +1149,99 @@ describe('Zod Schemas', () => {
       });
       // Should fall back to general ProviderConfigSchema which requires type
       assert.equal(result.valid, false);
+    });
+  });
+
+  // ===========================================================================
+  // QueueConfigSchema
+  // ===========================================================================
+
+  describe('QueueConfigSchema', () => {
+    test('accepts valid queue config', () => {
+      const result = QueueConfigSchema.safeParse({
+        enabled: true,
+        maxConcurrentPerBot: 5,
+        defaultPriority: 0,
+        retryAttempts: 3,
+        retryDelay: 5000,
+        pollInterval: 3000,
+      });
+      assert.ok(result.success);
+      assert.equal(result.data.enabled, true);
+      assert.equal(result.data.maxConcurrentPerBot, 5);
+    });
+
+    test('applies default values for optional fields', () => {
+      const result = QueueConfigSchema.safeParse({});
+      assert.ok(result.success);
+      assert.equal(result.data.enabled, false);
+      assert.equal(result.data.maxConcurrentPerBot, 3);
+      assert.equal(result.data.defaultPriority, 0);
+      assert.equal(result.data.retryAttempts, 3);
+      assert.equal(result.data.retryDelay, 5000);
+      assert.equal(result.data.pollInterval, 5000);
+    });
+
+    test('rejects non-integer maxConcurrentPerBot', () => {
+      const result = QueueConfigSchema.safeParse({
+        maxConcurrentPerBot: 2.5,
+      });
+      assert.equal(result.success, false);
+    });
+
+    test('rejects zero maxConcurrentPerBot', () => {
+      const result = QueueConfigSchema.safeParse({
+        maxConcurrentPerBot: 0,
+      });
+      assert.equal(result.success, false);
+    });
+
+    test('rejects negative retryAttempts', () => {
+      const result = QueueConfigSchema.safeParse({
+        retryAttempts: -1,
+      });
+      assert.equal(result.success, false);
+    });
+
+    test('accepts zero retryAttempts (no retries)', () => {
+      const result = QueueConfigSchema.safeParse({
+        retryAttempts: 0,
+      });
+      assert.ok(result.success);
+      assert.equal(result.data.retryAttempts, 0);
+    });
+
+    test('rejects non-positive pollInterval', () => {
+      const result = QueueConfigSchema.safeParse({
+        pollInterval: 0,
+      });
+      assert.equal(result.success, false);
+    });
+  });
+
+  // ===========================================================================
+  // MainConfigSchema with queue
+  // ===========================================================================
+
+  describe('MainConfigSchema queue integration', () => {
+    test('accepts main config with queue section', () => {
+      const validator = new ConfigValidator();
+      const result = validator.validateMainConfig({
+        queue: {
+          enabled: true,
+          maxConcurrentPerBot: 5,
+        },
+      });
+      assert.ok(result.valid);
+      assert.equal(result.data.queue.enabled, true);
+      assert.equal(result.data.queue.maxConcurrentPerBot, 5);
+    });
+
+    test('accepts main config without queue section', () => {
+      const validator = new ConfigValidator();
+      const result = validator.validateMainConfig({});
+      assert.ok(result.valid);
+      assert.equal(result.data.queue, undefined);
     });
   });
 });

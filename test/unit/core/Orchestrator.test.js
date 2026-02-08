@@ -2485,6 +2485,579 @@ describe('Orchestrator', () => {
       assert.equal(status.mcpServerCount, 0);
     });
   });
+
+  // ===========================================================================
+  // Queue Integration
+  // ===========================================================================
+
+  describe('queue integration', () => {
+    /**
+     * Create a mock MessageQueue
+     * @param {Object} [overrides={}] - Override defaults
+     * @returns {Object} Mock MessageQueue
+     */
+    function createMockMessageQueue(overrides = {}) {
+      return {
+        enqueue: mock.fn(async () => ({
+          id: 1,
+          botId: 'test-bot',
+          status: 'pending',
+          enqueuedAt: new Date(),
+        })),
+        dequeue: mock.fn(async () => null),
+        getQueueDepth: mock.fn(async () => 0),
+        clearQueue: mock.fn(async () => 0),
+        markCompleted: mock.fn(async () => true),
+        markFailed: mock.fn(async () => true),
+        getStats: mock.fn(async () => ({
+          pending: 0,
+          processing: 0,
+          completed: 0,
+          failed: 0,
+        })),
+        ...overrides,
+      };
+    }
+
+    /**
+     * Create a mock QueueWorker
+     * @param {Object} [overrides={}] - Override defaults
+     * @returns {Object} Mock QueueWorker
+     */
+    function createMockQueueWorker(overrides = {}) {
+      let state = 'stopped';
+      return {
+        start: mock.fn(async () => {
+          state = 'running';
+        }),
+        stop: mock.fn(async () => {
+          state = 'stopped';
+        }),
+        getState: mock.fn(() => state),
+        processNext: mock.fn(async () => false),
+        ...overrides,
+      };
+    }
+
+    /**
+     * Create a mock ConcurrencyController
+     * @param {Object} [overrides={}] - Override defaults
+     * @returns {Object} Mock ConcurrencyController
+     */
+    function createMockConcurrencyController(overrides = {}) {
+      return {
+        canProcess: mock.fn(() => true),
+        startProcessing: mock.fn(),
+        finishProcessing: mock.fn(() => true),
+        getActiveCount: mock.fn(() => 0),
+        reset: mock.fn(),
+        getSummary: mock.fn(() => ({ bots: {}, total: 0 })),
+        ...overrides,
+      };
+    }
+
+    test('constructor accepts queue-related options', () => {
+      const mq = createMockMessageQueue();
+      const qw = createMockQueueWorker();
+      const cc = createMockConcurrencyController();
+      const orch = new Orchestrator({
+        ...opts,
+        messageQueue: mq,
+        queueWorker: qw,
+        concurrencyController: cc,
+      });
+
+      assert.equal(orch.messageQueue, mq);
+      assert.equal(orch.queueWorker, qw);
+      assert.equal(orch.concurrencyController, cc);
+    });
+
+    test('constructor defaults queue properties to null', () => {
+      const orch = new Orchestrator({ logger: null });
+      assert.equal(orch.messageQueue, null);
+      assert.equal(orch.queueWorker, null);
+      assert.equal(orch.concurrencyController, null);
+    });
+
+    test('constructor accepts queue factory options', () => {
+      const mqFactory = mock.fn();
+      const qwFactory = mock.fn();
+      const ccFactory = mock.fn();
+      const orch = new Orchestrator({
+        ...opts,
+        messageQueueFactory: mqFactory,
+        queueWorkerFactory: qwFactory,
+        concurrencyControllerFactory: ccFactory,
+      });
+
+      assert.equal(orch.messageQueueFactory, mqFactory);
+      assert.equal(orch.queueWorkerFactory, qwFactory);
+      assert.equal(orch.concurrencyControllerFactory, ccFactory);
+    });
+
+    test('starts queue worker when queue is enabled', async () => {
+      const qw = createMockQueueWorker();
+      const mq = createMockMessageQueue();
+      const cc = createMockConcurrencyController();
+
+      const mainConfig = createMainConfig({
+        queue: { enabled: true, maxConcurrentPerBot: 5 },
+      });
+      const configLoader = createMockConfigLoader({ mainConfig });
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader,
+        messageQueue: mq,
+        queueWorker: qw,
+        concurrencyController: cc,
+        messageProcessor: createMockMessageProcessor(),
+      });
+
+      await orch.start();
+
+      assert.equal(qw.start.mock.calls.length, 1);
+      assert.equal(qw.getState(), 'running');
+
+      await orch.stop();
+    });
+
+    test('does not start queue worker when queue is disabled', async () => {
+      const qw = createMockQueueWorker();
+
+      const mainConfig = createMainConfig({
+        queue: { enabled: false },
+      });
+      const configLoader = createMockConfigLoader({ mainConfig });
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader,
+        queueWorker: qw,
+        messageProcessor: createMockMessageProcessor(),
+      });
+
+      await orch.start();
+
+      assert.equal(qw.start.mock.calls.length, 0);
+
+      await orch.stop();
+    });
+
+    test('does not start queue worker when no queue config', async () => {
+      const qw = createMockQueueWorker();
+
+      const orch = new Orchestrator({
+        ...opts,
+        queueWorker: qw,
+        messageProcessor: createMockMessageProcessor(),
+      });
+
+      await orch.start();
+
+      assert.equal(qw.start.mock.calls.length, 0);
+
+      await orch.stop();
+    });
+
+    test('stops queue worker during shutdown', async () => {
+      const qw = createMockQueueWorker();
+      const cc = createMockConcurrencyController();
+
+      const mainConfig = createMainConfig({
+        queue: { enabled: true },
+      });
+      const configLoader = createMockConfigLoader({ mainConfig });
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader,
+        messageQueue: createMockMessageQueue(),
+        queueWorker: qw,
+        concurrencyController: cc,
+        messageProcessor: createMockMessageProcessor(),
+      });
+
+      await orch.start();
+      await orch.stop();
+
+      assert.equal(qw.stop.mock.calls.length, 1);
+      assert.equal(cc.reset.mock.calls.length, 1);
+    });
+
+    test('skips queue worker stop when no worker exists', async () => {
+      // No queue configured, no worker
+      const orch = new Orchestrator(opts);
+
+      await orch.start();
+      await orch.stop();
+
+      assert.equal(orch.state, 'stopped');
+    });
+
+    test('queue worker failure does not block startup', async () => {
+      const qw = createMockQueueWorker({
+        start: mock.fn(async () => {
+          throw new Error('LISTEN failed');
+        }),
+      });
+
+      const mainConfig = createMainConfig({
+        queue: { enabled: true },
+      });
+      const configLoader = createMockConfigLoader({ mainConfig });
+
+      const logs = [];
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader,
+        messageQueue: createMockMessageQueue(),
+        queueWorker: qw,
+        concurrencyController: createMockConcurrencyController(),
+        messageProcessor: createMockMessageProcessor(),
+        logger: msg => logs.push(msg),
+      });
+
+      await orch.start();
+
+      assert.equal(orch.state, 'running');
+      assert.ok(logs.some(l => l.includes('Failed to start queue worker')));
+
+      await orch.stop();
+    });
+
+    test('creates queue components from factories when not injected', async () => {
+      const mq = createMockMessageQueue();
+      const cc = createMockConcurrencyController();
+      const qw = createMockQueueWorker();
+
+      const mqFactory = mock.fn(() => mq);
+      const ccFactory = mock.fn(() => cc);
+      const qwFactory = mock.fn(() => qw);
+
+      const mainConfig = createMainConfig({
+        queue: { enabled: true, maxConcurrentPerBot: 5 },
+      });
+      const configLoader = createMockConfigLoader({ mainConfig });
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader,
+        messageProcessor: createMockMessageProcessor(),
+        messageQueueFactory: mqFactory,
+        queueWorkerFactory: qwFactory,
+        concurrencyControllerFactory: ccFactory,
+      });
+
+      await orch.start();
+
+      assert.equal(mqFactory.mock.calls.length, 1);
+      assert.equal(ccFactory.mock.calls.length, 1);
+      assert.equal(qwFactory.mock.calls.length, 1);
+      assert.equal(orch.messageQueue, mq);
+      assert.equal(orch.concurrencyController, cc);
+      assert.equal(orch.queueWorker, qw);
+      assert.equal(qw.start.mock.calls.length, 1);
+
+      await orch.stop();
+    });
+
+    test('skips queue when enabled but no storage', async () => {
+      const mainConfig = createMainConfig({
+        queue: { enabled: true },
+      });
+      const configLoader = createMockConfigLoader({ mainConfig });
+
+      const logs = [];
+      const orch = new Orchestrator({
+        logger: msg => logs.push(msg),
+        configLoader,
+        configValidator: opts.configValidator,
+        botManager: opts.botManager,
+        migrationRunner: opts.migrationRunner,
+        // no storage
+        messageProcessor: createMockMessageProcessor(),
+      });
+
+      await orch.start();
+
+      assert.equal(orch.state, 'running');
+      assert.ok(logs.some(l => l.includes('no storage configured')));
+
+      await orch.stop();
+    });
+
+    test('skips queue when enabled but no MessageProcessor', async () => {
+      const mainConfig = createMainConfig({
+        queue: { enabled: true },
+      });
+      const configLoader = createMockConfigLoader({ mainConfig });
+
+      const logs = [];
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader,
+        // no messageProcessor
+        logger: msg => logs.push(msg),
+      });
+
+      await orch.start();
+
+      assert.equal(orch.state, 'running');
+      assert.ok(logs.some(l => l.includes('no MessageProcessor')));
+
+      await orch.stop();
+    });
+
+    test('getStatus() reports queueEnabled and queueWorkerRunning', async () => {
+      const qw = createMockQueueWorker();
+
+      const mainConfig = createMainConfig({
+        queue: { enabled: true },
+      });
+      const configLoader = createMockConfigLoader({ mainConfig });
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader,
+        messageQueue: createMockMessageQueue(),
+        queueWorker: qw,
+        concurrencyController: createMockConcurrencyController(),
+        messageProcessor: createMockMessageProcessor(),
+      });
+
+      await orch.start();
+
+      const status = orch.getStatus();
+      assert.equal(status.queueEnabled, true);
+      assert.equal(status.queueWorkerRunning, true);
+
+      await orch.stop();
+    });
+
+    test('getStatus() reports queueEnabled false when no queue config', () => {
+      const status = orchestrator.getStatus();
+      assert.equal(status.queueEnabled, false);
+      assert.equal(status.queueWorkerRunning, false);
+    });
+  });
+
+  // ===========================================================================
+  // _handleChannelMessage() with queue
+  // ===========================================================================
+
+  describe('_handleChannelMessage() with queue', () => {
+    test('enqueues message when queue is enabled instead of direct processing', async () => {
+      const MockAdapter = createMockChannelAdapterClass();
+      const messageQueue = {
+        enqueue: mock.fn(async () => ({
+          id: 1,
+          botId: 'test-bot',
+          status: 'pending',
+        })),
+      };
+
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+        },
+        queue: { enabled: true, defaultPriority: 5 },
+      });
+
+      const configLoader = createMockConfigLoader({ mainConfig });
+      const messageRouter = createMockMessageRouter();
+      const messageProcessor = createMockMessageProcessor();
+
+      // Create QueueWorker mock that doesn't need storage
+      const queueWorker = {
+        start: mock.fn(async () => {}),
+        stop: mock.fn(async () => {}),
+        getState: mock.fn(() => 'running'),
+      };
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader,
+        messageRouter,
+        messageProcessor,
+        messageQueue,
+        queueWorker,
+        concurrencyController: {
+          canProcess: mock.fn(() => true),
+          reset: mock.fn(),
+        },
+      });
+      orch.registerChannelAdapter('slack', MockAdapter);
+
+      await orch.start();
+
+      const adapter = orch.channels.get('slack-main');
+      await adapter.messageHandler({
+        type: 'slack',
+        userId: 'U123',
+        channelId: 'C456',
+        text: 'Hello bot!',
+        isDM: false,
+      });
+
+      // Should have enqueued, not processed directly
+      assert.equal(messageQueue.enqueue.mock.calls.length, 1);
+      const [botId, msg, priority] = messageQueue.enqueue.mock.calls[0].arguments;
+      assert.equal(botId, 'test-bot');
+      assert.equal(msg.channelType, 'slack');
+      assert.equal(msg.channelId, 'C456');
+      assert.equal(msg.userId, 'U123');
+      assert.equal(msg.text, 'Hello bot!');
+      assert.equal(msg.channelName, 'slack-main');
+      assert.equal(priority, 5);
+
+      // processMessage should NOT have been called (queue handles it)
+      assert.equal(messageProcessor.processMessage.mock.calls.length, 0);
+
+      // No response sent directly (queue worker will handle response)
+      assert.equal(adapter.sentMessages.length, 0);
+
+      await orch.stop();
+    });
+
+    test('processes directly when queue is disabled', async () => {
+      const MockAdapter = createMockChannelAdapterClass();
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+        },
+        // No queue config
+      });
+
+      const configLoader = createMockConfigLoader({ mainConfig });
+      const messageRouter = createMockMessageRouter();
+      const messageProcessor = createMockMessageProcessor();
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader,
+        messageRouter,
+        messageProcessor,
+      });
+      orch.registerChannelAdapter('slack', MockAdapter);
+
+      await orch.start();
+
+      const adapter = orch.channels.get('slack-main');
+      await adapter.messageHandler({
+        type: 'slack',
+        userId: 'U123',
+        channelId: 'C456',
+        text: 'Hello!',
+        isDM: false,
+      });
+
+      // Should have processed directly
+      assert.equal(messageProcessor.processMessage.mock.calls.length, 1);
+      assert.equal(adapter.sentMessages.length, 1);
+
+      await orch.stop();
+    });
+
+    test('falls back to direct processing when queue enabled but no messageQueue', async () => {
+      const MockAdapter = createMockChannelAdapterClass();
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+        },
+        queue: { enabled: true },
+      });
+
+      const configLoader = createMockConfigLoader({ mainConfig });
+      const messageRouter = createMockMessageRouter();
+      const messageProcessor = createMockMessageProcessor();
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader,
+        messageRouter,
+        messageProcessor,
+      });
+      orch.registerChannelAdapter('slack', MockAdapter);
+
+      await orch.start();
+
+      // Force messageQueue to null AFTER start to simulate queue startup failure
+      // (the handler should fall through to direct processing)
+      orch.messageQueue = null;
+
+      const adapter = orch.channels.get('slack-main');
+      await adapter.messageHandler({
+        type: 'slack',
+        userId: 'U123',
+        channelId: 'C456',
+        text: 'Hello!',
+        isDM: false,
+      });
+
+      // Should fall through to direct processing
+      assert.equal(messageProcessor.processMessage.mock.calls.length, 1);
+
+      await orch.stop();
+    });
+
+    test('logs enqueue and does not send response back when queueing', async () => {
+      const MockAdapter = createMockChannelAdapterClass();
+      const messageQueue = {
+        enqueue: mock.fn(async () => ({
+          id: 1,
+          botId: 'test-bot',
+          status: 'pending',
+        })),
+      };
+
+      const mainConfig = createMainConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+        },
+        queue: { enabled: true },
+      });
+
+      const configLoader = createMockConfigLoader({ mainConfig });
+      const logs = [];
+
+      const queueWorker = {
+        start: mock.fn(async () => {}),
+        stop: mock.fn(async () => {}),
+        getState: mock.fn(() => 'running'),
+      };
+
+      const orch = new Orchestrator({
+        ...opts,
+        configLoader,
+        messageRouter: createMockMessageRouter(),
+        messageProcessor: createMockMessageProcessor(),
+        messageQueue,
+        queueWorker,
+        concurrencyController: { canProcess: mock.fn(() => true), reset: mock.fn() },
+        logger: msg => logs.push(msg),
+      });
+      orch.registerChannelAdapter('slack', MockAdapter);
+
+      await orch.start();
+
+      const adapter = orch.channels.get('slack-main');
+      await adapter.messageHandler({
+        type: 'slack',
+        userId: 'U123',
+        channelId: 'C456',
+        text: 'Queued message',
+        isDM: false,
+      });
+
+      // Check that enqueue log was emitted
+      assert.ok(logs.some(l => l.includes('Enqueued message')));
+      // No response sent
+      assert.equal(adapter.sentMessages.length, 0);
+
+      await orch.stop();
+    });
+  });
 });
 
 // =============================================================================
