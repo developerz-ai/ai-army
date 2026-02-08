@@ -76,7 +76,7 @@ EXPOSE 3000
 
 # Health check — lightweight TCP probe on the app port
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD node -e "const http = require('http'); const req = http.request({port: ${PORT}, timeout: 2000}, res => { process.exit(res.statusCode === 200 ? 0 : 1); }); req.on('error', () => process.exit(1)); req.end();"
+    CMD node -e "const http = require('http'); const req = http.request({port: process.env.PORT || 3000, timeout: 2000}, res => { process.exit(res.statusCode === 200 ? 0 : 1); }); req.on('error', () => process.exit(1)); req.end();"
 
 # Use tini as init process for proper signal forwarding and zombie reaping
 ENTRYPOINT ["/sbin/tini", "--"]

@@ -65,6 +65,7 @@ services:
     volumes:
       - ./bots:/app/bots:ro
       - ./data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
       test: ["CMD", "node", "-e", "const http = require('http'); const req = http.request({port: process.env.PORT || 3000, path: '/health', timeout: 2000}, res => { process.exit(res.statusCode === 200 ? 0 : 1); }); req.on('error', () => process.exit(1)); req.end();"]
       interval: 30s
