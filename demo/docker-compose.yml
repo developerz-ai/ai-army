@@ -11,8 +11,6 @@
 #   - Docker with Compose V2
 #   - Copy .env.example to .env and set ANTHROPIC_API_KEY
 
-version: '3.8'
-
 services:
   postgres:
     image: postgres:18-alpine
