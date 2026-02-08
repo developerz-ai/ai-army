@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS webhooks (
   attempts INTEGER NOT NULL DEFAULT 0,     -- Number of delivery attempts so far
   max_attempts INTEGER NOT NULL DEFAULT 3, -- Maximum delivery attempts before marking failed
   last_attempt_at TIMESTAMPTZ,             -- When the last delivery attempt was made
+  next_attempt_at TIMESTAMPTZ,             -- Earliest time this webhook may be retried (NULL = immediately eligible)
 
   response_code INTEGER,                   -- HTTP response status code from last attempt
   response_body TEXT,                      -- HTTP response body from last attempt
@@ -33,7 +34,7 @@ CREATE TABLE IF NOT EXISTS webhooks (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
   CONSTRAINT wh_status_check CHECK (status IN ('pending', 'sending', 'success', 'failed')),
-  CONSTRAINT wh_method_check CHECK (method IN ('POST', 'PUT', 'PATCH', 'DELETE')),
+  CONSTRAINT wh_method_check CHECK (method IN ('GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE')),
   CONSTRAINT wh_attempts_check CHECK (attempts >= 0),
   CONSTRAINT wh_max_attempts_check CHECK (max_attempts >= 1)
 );
@@ -43,7 +44,8 @@ COMMENT ON COLUMN webhooks.id IS 'Auto-incrementing webhook delivery identifier'
 COMMENT ON COLUMN webhooks.bot_id IS 'Bot that triggered this webhook event';
 COMMENT ON COLUMN webhooks.event IS 'Event type (e.g., message.sent, bot.started, tool.error)';
 COMMENT ON COLUMN webhooks.url IS 'Destination URL for the webhook delivery';
-COMMENT ON COLUMN webhooks.method IS 'HTTP method: POST, PUT, PATCH, or DELETE';
+COMMENT ON COLUMN webhooks.method IS 'HTTP method: GET, HEAD, POST, PUT, PATCH, or DELETE';
+COMMENT ON COLUMN webhooks.next_attempt_at IS 'Earliest time this webhook may be retried (NULL means immediately eligible)';
 COMMENT ON COLUMN webhooks.headers IS 'JSONB request headers (Authorization, Content-Type, etc.)';
 COMMENT ON COLUMN webhooks.payload IS 'JSONB request body payload sent to the webhook URL';
 COMMENT ON COLUMN webhooks.status IS 'Delivery lifecycle: pending -> sending -> success/failed';
@@ -68,6 +70,10 @@ CREATE INDEX IF NOT EXISTS idx_wh_created_at ON webhooks(created_at);
 -- Partial index for fast pending/sending webhook lookup (worker hot path)
 CREATE INDEX IF NOT EXISTS idx_wh_pending ON webhooks(created_at ASC)
   WHERE status IN ('pending', 'sending');
+
+-- Index for efficient retry scheduling (next_attempt_at filtering)
+CREATE INDEX IF NOT EXISTS idx_wh_next_attempt ON webhooks(next_attempt_at ASC)
+  WHERE status = 'pending' AND next_attempt_at IS NOT NULL;
 
 -- ============================================================================
 -- LISTEN/NOTIFY Trigger - Real-time notification on new webhooks

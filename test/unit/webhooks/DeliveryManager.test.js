@@ -176,6 +176,21 @@ describe('DeliveryManager', () => {
       assert.ok(result.retryIn > 0);
     });
 
+    test('persists next_attempt_at when scheduling retry', async () => {
+      mockFetch = createMockFetch({ status: 500, body: 'Server Error' });
+      deliveryManager = new DeliveryManager(mockStorage, { fetchFn: mockFetch });
+
+      const webhook = createTestWebhook({ attempts: 0, maxAttempts: 3 });
+      await deliveryManager.deliver(webhook);
+
+      // The retry update is the second query call (first is 'sending')
+      const retryCall = mockStorage.query.mock.calls[1];
+      const params = retryCall.arguments[1];
+      // params[5] is next_attempt_at (Date), params[6] is webhookId
+      assert.ok(params[5] instanceof Date, 'next_attempt_at should be a Date');
+      assert.ok(params[5].getTime() > Date.now() - 1000, 'next_attempt_at should be in the future');
+    });
+
     test('marks as failed on 5xx when max attempts exhausted', async () => {
       mockFetch = createMockFetch({ status: 500, body: 'Server Error' });
       deliveryManager = new DeliveryManager(mockStorage, { fetchFn: mockFetch });

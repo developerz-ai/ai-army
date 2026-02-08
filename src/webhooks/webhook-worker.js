@@ -457,21 +457,37 @@ export class WebhookWorker {
   /**
    * Claim pending webhooks using SELECT ... FOR UPDATE SKIP LOCKED
    *
-   * Atomically selects and marks pending webhooks as ready for delivery.
-   * Uses SKIP LOCKED to allow safe concurrent processing across workers.
+   * Atomically selects and marks pending webhooks as ready for delivery
+   * within an explicit transaction. Uses SKIP LOCKED to allow safe
+   * concurrent processing across workers. The row locks are held through
+   * the status update to 'sending', ensuring no other worker can pick up
+   * the same rows.
    *
    * @returns {Promise<Array<Object>>} Array of claimed webhook records
    * @private
    */
   async _claimPendingWebhooks() {
-    const { rows } = await this.storage.query(
-      `SELECT * FROM webhooks
-       WHERE status = $1
-       ORDER BY created_at ASC
-       LIMIT $2
-       FOR UPDATE SKIP LOCKED`,
-      [WEBHOOK_STATUSES.PENDING, this.batchSize]
-    );
+    const rows = await this.storage.transaction(async client => {
+      const { rows: selected } = await client.query(
+        `SELECT * FROM webhooks
+         WHERE status = $1
+           AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
+         ORDER BY created_at ASC
+         LIMIT $2
+         FOR UPDATE SKIP LOCKED`,
+        [WEBHOOK_STATUSES.PENDING, this.batchSize]
+      );
+
+      if (selected.length > 0) {
+        const ids = selected.map(r => r.id);
+        await client.query(
+          `UPDATE webhooks SET status = $1 WHERE id = ANY($2)`,
+          [WEBHOOK_STATUSES.SENDING, ids]
+        );
+      }
+
+      return selected;
+    });
 
     return rows.map(row => this._transformRow(row));
   }
@@ -517,6 +533,7 @@ export class WebhookWorker {
       attempts: row.attempts,
       maxAttempts: row.max_attempts,
       lastAttemptAt: row.last_attempt_at,
+      nextAttemptAt: row.next_attempt_at,
       responseCode: row.response_code,
       responseBody: row.response_body,
       error: row.error,

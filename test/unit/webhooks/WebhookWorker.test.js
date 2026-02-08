@@ -49,6 +49,12 @@ function createMockStorage(overrides = {}) {
 
   return {
     query: mock.fn(async () => ({ rows: [], rowCount: 0 })),
+    transaction: mock.fn(async callback => {
+      const txClient = {
+        query: mock.fn(async () => ({ rows: [], rowCount: 0 })),
+      };
+      return callback(txClient);
+    }),
     pool: {
       connect: mock.fn(async () => mockClient),
     },
@@ -277,7 +283,13 @@ describe('WebhookWorker', () => {
     test('returns 0 when no pending webhooks', async () => {
       await worker.start();
 
-      mockStorage.query = mock.fn(async () => ({ rows: [], rowCount: 0 }));
+      mockStorage.transaction = mock.fn(async callback => {
+        const txClient = {
+          query: mock.fn(async () => ({ rows: [], rowCount: 0 })),
+        };
+        return callback(txClient);
+      });
+
       const count = await worker.processPending();
       assert.equal(count, 0);
     });
@@ -286,21 +298,54 @@ describe('WebhookWorker', () => {
       await worker.start();
 
       const rows = [createMockWebhookRow({ id: 1 }), createMockWebhookRow({ id: 2 })];
-      mockStorage.query = mock.fn(async () => ({ rows, rowCount: 2 }));
+      mockStorage.transaction = mock.fn(async callback => {
+        const txClient = {
+          query: mock.fn(async () => ({ rows, rowCount: 2 })),
+        };
+        return callback(txClient);
+      });
 
       const count = await worker.processPending();
       assert.equal(count, 2);
       assert.equal(mockDeliveryManager.deliver.mock.callCount(), 2);
     });
 
-    test('uses FOR UPDATE SKIP LOCKED query', async () => {
+    test('uses FOR UPDATE SKIP LOCKED query within a transaction', async () => {
       await worker.start();
 
-      mockStorage.query = mock.fn(async () => ({ rows: [], rowCount: 0 }));
+      let capturedSql;
+      mockStorage.transaction = mock.fn(async callback => {
+        const txClient = {
+          query: mock.fn(async (sql) => {
+            capturedSql = sql;
+            return { rows: [], rowCount: 0 };
+          }),
+        };
+        return callback(txClient);
+      });
+
       await worker.processPending();
 
-      const [sql] = mockStorage.query.mock.calls[0].arguments;
-      assert.ok(sql.includes('FOR UPDATE SKIP LOCKED'));
+      assert.ok(capturedSql.includes('FOR UPDATE SKIP LOCKED'));
+    });
+
+    test('filters by next_attempt_at for retry scheduling', async () => {
+      await worker.start();
+
+      let capturedSql;
+      mockStorage.transaction = mock.fn(async callback => {
+        const txClient = {
+          query: mock.fn(async (sql) => {
+            capturedSql = sql;
+            return { rows: [], rowCount: 0 };
+          }),
+        };
+        return callback(txClient);
+      });
+
+      await worker.processPending();
+
+      assert.ok(capturedSql.includes('next_attempt_at'));
     });
 
     test('limits batch size', async () => {
@@ -310,11 +355,20 @@ describe('WebhookWorker', () => {
       });
       await w.start();
 
-      mockStorage.query = mock.fn(async () => ({ rows: [], rowCount: 0 }));
+      let capturedParams;
+      mockStorage.transaction = mock.fn(async callback => {
+        const txClient = {
+          query: mock.fn(async (_sql, params) => {
+            capturedParams = params;
+            return { rows: [], rowCount: 0 };
+          }),
+        };
+        return callback(txClient);
+      });
+
       await w.processPending();
 
-      const [, params] = mockStorage.query.mock.calls[0].arguments;
-      assert.equal(params[1], 5);
+      assert.equal(capturedParams[1], 5);
       await w.stop();
     });
 
@@ -326,7 +380,12 @@ describe('WebhookWorker', () => {
       });
 
       const rows = [createMockWebhookRow()];
-      mockStorage.query = mock.fn(async () => ({ rows, rowCount: 1 }));
+      mockStorage.transaction = mock.fn(async callback => {
+        const txClient = {
+          query: mock.fn(async () => ({ rows, rowCount: 1 })),
+        };
+        return callback(txClient);
+      });
 
       // Should not throw
       const count = await worker.processPending();

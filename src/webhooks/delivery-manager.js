@@ -236,6 +236,7 @@ export class DeliveryManager {
         responseCode,
         responseBody: this._truncateBody(responseBody),
         error: errorMessage,
+        nextAttemptAt: new Date(Date.now() + backoff),
       });
 
       this._log(
@@ -278,6 +279,7 @@ export class DeliveryManager {
    * @param {number|null} [fields.responseCode] - HTTP response code
    * @param {string|null} [fields.responseBody] - HTTP response body
    * @param {string|null} [fields.error] - Error message
+   * @param {Date|null} [fields.nextAttemptAt] - Earliest time for next retry attempt
    * @returns {Promise<void>}
    * @private
    */
@@ -290,14 +292,16 @@ export class DeliveryManager {
              last_attempt_at = NOW(),
              response_code = COALESCE($3, response_code),
              response_body = COALESCE($4, response_body),
-             error = $5
-         WHERE id = $6`,
+             error = $5,
+             next_attempt_at = $6
+         WHERE id = $7`,
         [
           status,
           fields.attempts ?? null,
           fields.responseCode ?? null,
           fields.responseBody ?? null,
           fields.error ?? null,
+          fields.nextAttemptAt ?? null,
           webhookId,
         ]
       );
