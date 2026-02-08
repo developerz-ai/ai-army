@@ -127,7 +127,13 @@ export class QueueRouter {
    * @returns {Promise<boolean>} True if the request was handled, false if no route matched
    */
   async handleRequest(req, res) {
-    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    // Defensively parse the URL to avoid crashes from malformed Host headers
+    let url;
+    try {
+      url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    } catch (_err) {
+      url = new URL(req.url, 'http://localhost');
+    }
     const { pathname } = url;
     const method = (typeof req.method === 'string' ? req.method : '').toUpperCase();
     if (!method) return false;
