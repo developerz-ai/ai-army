@@ -5,6 +5,7 @@
  * - Bots: name, status, active session counts
  * - Database: connection status, total sessions, messages processed
  * - Channels: name, connection status
+ * - Workers: distributed worker nodes, load, health status
  *
  * Accepts dependency injection for all managers and an output stream,
  * making it fully testable without real infrastructure.
@@ -39,7 +40,10 @@ const ICONS = {
   started: '\u2705',
   ready: '\u2705',
   loaded: '\u2705',
+  healthy: '\u2705',
   stopped: '\u23F8\uFE0F ',
+  degraded: '\u26A0\uFE0F ',
+  offline: '\u274C',
   error: '\u274C',
   initializing: '\u23F3',
   loading: '\u23F3',
@@ -207,15 +211,51 @@ function channelStatusLabel(status) {
 }
 
 /**
+ * Collect worker status information from the WorkerRegistry
+ *
+ * @param {Object} workerRegistry - WorkerRegistry instance
+ * @returns {Promise<Array<Object>>} Array of worker status entries
+ * @private
+ */
+async function collectWorkerStatus(workerRegistry) {
+  const workers = await workerRegistry.listWorkers();
+  return workers.map(w => ({
+    id: w.id,
+    type: w.type,
+    status: w.status,
+    currentLoad: w.currentLoad,
+    maxContainers: w.maxContainers,
+    host: w.host,
+  }));
+}
+
+/**
+ * Map worker status to a human-readable label
+ *
+ * @param {string} status - Worker status
+ * @returns {string} Display label
+ * @private
+ */
+function workerStatusLabel(status) {
+  const labels = {
+    healthy: 'healthy',
+    degraded: 'degraded',
+    offline: 'offline',
+  };
+  return labels[status] || status;
+}
+
+/**
  * Display the full system status
  *
- * Queries BotManager, PostgresStorage, and ChannelManager for current
- * state and writes a human-readable summary to the output stream.
+ * Queries BotManager, PostgresStorage, ChannelManager, and WorkerRegistry
+ * for current state and writes a human-readable summary to the output stream.
  *
  * @param {Object} options - Status command options
  * @param {Object} options.storage - PostgresStorage instance
  * @param {Object} options.botManager - BotManager instance
  * @param {Object} options.channelManager - ChannelManager instance
+ * @param {Object} [options.workerRegistry] - WorkerRegistry instance (optional)
  * @param {Object} [options.output=process.stdout] - Writable stream for output
  * @returns {Promise<void>}
  * @throws {StatusCommandError} If required dependencies are missing
@@ -224,6 +264,7 @@ export async function showStatus({
   storage,
   botManager,
   channelManager,
+  workerRegistry,
   output = process.stdout,
 } = {}) {
   if (!botManager) {
@@ -292,6 +333,30 @@ export async function showStatus({
     }
   } catch (err) {
     write(`  \u274C Error loading channel status: ${err.message}\n`);
+  }
+
+  // === Workers Section ===
+  if (workerRegistry) {
+    write('\nWorkers:\n');
+    try {
+      const workerEntries = await collectWorkerStatus(workerRegistry);
+
+      if (workerEntries.length === 0) {
+        write('  No workers registered\n');
+      } else {
+        for (const entry of workerEntries) {
+          const icon = getStatusIcon(entry.status);
+          const label = workerStatusLabel(entry.status);
+          const loadLabel = pluralize(entry.currentLoad, 'container', 'containers');
+          write(
+            `  ${icon} ${entry.id} (${entry.type}, ${label}) - ` +
+              `${entry.currentLoad}/${entry.maxContainers} ${loadLabel}\n`
+          );
+        }
+      }
+    } catch (err) {
+      write(`  \u274C Error loading worker status: ${err.message}\n`);
+    }
   }
 
   write('\n');

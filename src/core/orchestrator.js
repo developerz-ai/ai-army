@@ -36,6 +36,9 @@ import { WebhookManager } from '../webhooks/webhook-manager.js';
 import { WebhookWorker } from '../webhooks/webhook-worker.js';
 import { DeliveryManager } from '../webhooks/delivery-manager.js';
 import { ChannelManager } from './channel-manager.js';
+import { WorkerRegistry, WORKER_TYPES } from './worker-registry.js';
+import { WorkerAssigner } from './worker-assigner.js';
+import { SSHTunnelManager } from '../worker/ssh-tunnel.js';
 
 /**
  * Orchestrator lifecycle states
@@ -127,6 +130,13 @@ export class Orchestrator {
    * @param {Object} [options.channelManager] - Pre-configured ChannelManager instance (for DI/testing)
    * @param {Function} [options.channelManagerFactory] - Factory (opts) => ChannelManager
    * @param {number} [options.healthCheckInterval=30000] - Interval in ms between channel health checks (0 to disable)
+   * @param {Object} [options.workerRegistry] - Pre-configured WorkerRegistry instance (for DI/testing)
+   * @param {Function} [options.workerRegistryFactory] - Factory (storage, opts) => WorkerRegistry
+   * @param {Object} [options.workerAssigner] - Pre-configured WorkerAssigner instance (for DI/testing)
+   * @param {Function} [options.workerAssignerFactory] - Factory (registry, opts) => WorkerAssigner
+   * @param {Object} [options.sshTunnelManager] - Pre-configured SSHTunnelManager instance (for DI/testing)
+   * @param {Function} [options.sshTunnelManagerFactory] - Factory (opts) => SSHTunnelManager
+   * @param {string} [options.workersConfigPath] - Path to workers.json config file
    */
   constructor(options = {}) {
     this.configPath = options.configPath || './config.json';
@@ -198,6 +208,15 @@ export class Orchestrator {
     this.healthCheckInterval = options.healthCheckInterval ?? 30000;
     this._healthCheckTimer = null;
 
+    // Worker distribution system
+    this.workerRegistry = options.workerRegistry || null;
+    this.workerAssigner = options.workerAssigner || null;
+    this.sshTunnelManager = options.sshTunnelManager || null;
+    this.workerRegistryFactory = options.workerRegistryFactory || null;
+    this.workerAssignerFactory = options.workerAssignerFactory || null;
+    this.sshTunnelManagerFactory = options.sshTunnelManagerFactory || null;
+    this.workersConfigPath = options.workersConfigPath || null;
+
     // Adapter registries
     this.channelAdapters = new Map();
     this.secretAdapters = new Map();
@@ -251,6 +270,9 @@ export class Orchestrator {
 
       // Step 4: Create component instances (BotManager, SessionManager, SecretsManager)
       await this._createComponents();
+
+      // Step 4a: Initialize worker distribution system
+      await this._initializeWorkers();
 
       // Step 4b: Start MCP servers
       await this._startMCPServers();
@@ -364,6 +386,13 @@ export class Orchestrator {
       await this._stopBots();
     } catch (err) {
       errors.push({ component: 'bots', error: err });
+    }
+
+    // Step 3b: Stop worker distribution system
+    try {
+      await this._stopWorkers();
+    } catch (err) {
+      errors.push({ component: 'workers', error: err });
     }
 
     // Step 4: Stop MCP servers
@@ -583,6 +612,9 @@ export class Orchestrator {
         ? this.webhookWorker.getState() === 'running'
         : false,
       healthMonitorActive: this._healthCheckTimer !== null,
+      workerRegistryReady: !!this.workerRegistry,
+      workerAssignerReady: !!this.workerAssigner,
+      sshTunnelManagerReady: !!this.sshTunnelManager,
     };
   }
 
@@ -1508,6 +1540,242 @@ export class Orchestrator {
     } catch (err) {
       this._log(`⚠️ Failed to configure webhooks for bot '${botId}': ${err.message}`);
     }
+  }
+
+  // ==========================================================================
+  // Private: Worker Distribution Lifecycle
+  // ==========================================================================
+
+  /**
+   * Initialize the worker distribution system
+   *
+   * Loads worker configuration from the main config's `workers` section
+   * or from a separate `workers.json` file. Creates WorkerRegistry,
+   * SSHTunnelManager, and WorkerAssigner instances (unless injected),
+   * then registers all configured workers and sets up SSH tunnels for
+   * remote workers.
+   *
+   * Always registers a local worker if no workers are configured,
+   * ensuring at least one worker is available for bot placement.
+   *
+   * Worker initialization failure is non-fatal — the system falls back
+   * to local-only Docker management.
+   *
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _initializeWorkers() {
+    if (!this.storage) {
+      this._log('⏭️ No storage configured, skipping worker initialization');
+      return;
+    }
+
+    this._log('👷 Initializing worker distribution system...');
+
+    try {
+      // Load worker configs from main config or workers.json
+      const workersConfig = await this._loadWorkersConfig();
+
+      // Create WorkerRegistry if not injected
+      if (!this.workerRegistry) {
+        if (this.workerRegistryFactory) {
+          this.workerRegistry = this.workerRegistryFactory(this.storage, {});
+        } else {
+          this.workerRegistry = new WorkerRegistry(this.storage);
+        }
+      }
+
+      // Build a logger adapter for worker components that expect
+      // { info, warn, error } methods instead of a single function
+      const workerLogger = this.logger
+        ? { info: this.logger, warn: this.logger, error: this.logger }
+        : console;
+
+      // Create SSHTunnelManager if not injected
+      if (!this.sshTunnelManager) {
+        if (this.sshTunnelManagerFactory) {
+          this.sshTunnelManager = this.sshTunnelManagerFactory({
+            logger: this.logger,
+          });
+        } else {
+          this.sshTunnelManager = new SSHTunnelManager({
+            logger: workerLogger,
+          });
+        }
+      }
+
+      // Create WorkerAssigner if not injected
+      if (!this.workerAssigner) {
+        const assignmentRules = workersConfig.assignmentRules || [];
+        if (this.workerAssignerFactory) {
+          this.workerAssigner = this.workerAssignerFactory(this.workerRegistry, {
+            sshTunnelManager: this.sshTunnelManager,
+            assignmentRules,
+            logger: workerLogger,
+          });
+        } else {
+          this.workerAssigner = new WorkerAssigner(this.workerRegistry, {
+            sshTunnelManager: this.sshTunnelManager,
+            assignmentRules,
+            logger: workerLogger,
+          });
+        }
+      }
+
+      // Register configured workers
+      const workerDefs = workersConfig.workers || [];
+      let registeredCount = 0;
+      let hasLocal = false;
+
+      for (const workerDef of workerDefs) {
+        try {
+          // Check if worker already exists (e.g., from a previous startup)
+          const existing = await this.workerRegistry.getWorker(workerDef.id);
+          if (existing) {
+            await this.workerRegistry.updateHeartbeat(workerDef.id);
+            this._log(`  ✅ Worker already registered: ${workerDef.id}`);
+          } else {
+            await this.workerRegistry.registerWorker({
+              id: workerDef.id,
+              host: workerDef.host || 'localhost',
+              type: workerDef.type || WORKER_TYPES.LOCAL,
+              maxContainers: workerDef.maxContainers || 10,
+            });
+            this._log(`  ✅ Registered worker: ${workerDef.id}`);
+          }
+
+          if (workerDef.type === WORKER_TYPES.LOCAL || !workerDef.type) {
+            hasLocal = true;
+          }
+
+          // Set up SSH tunnel for remote workers
+          if (workerDef.type === WORKER_TYPES.REMOTE && workerDef.host) {
+            try {
+              await this.sshTunnelManager.createTunnel({
+                workerId: workerDef.id,
+                host: workerDef.host,
+                port: workerDef.port || 22,
+                username: workerDef.user || workerDef.username || 'deploy',
+                privateKeyPath: workerDef.keyPath || workerDef.privateKeyPath,
+                privateKey: workerDef.privateKey,
+              });
+              this._log(`  🔗 SSH tunnel established for worker: ${workerDef.id}`);
+            } catch (tunnelErr) {
+              this._log(
+                `  ⚠️ Failed to create SSH tunnel for worker '${workerDef.id}': ${tunnelErr.message}`
+              );
+            }
+          }
+
+          registeredCount++;
+        } catch (err) {
+          this._log(`  ❌ Failed to register worker '${workerDef.id}': ${err.message}`);
+        }
+      }
+
+      // Register a default local worker if none configured
+      if (!hasLocal && workerDefs.length === 0) {
+        try {
+          const existing = await this.workerRegistry.getWorker('local');
+          if (existing) {
+            await this.workerRegistry.updateHeartbeat('local');
+          } else {
+            await this.workerRegistry.registerWorker({
+              id: 'local',
+              host: 'localhost',
+              type: WORKER_TYPES.LOCAL,
+              maxContainers: 10,
+            });
+          }
+          registeredCount++;
+          this._log('  ✅ Registered default local worker');
+        } catch (err) {
+          this._log(`  ⚠️ Failed to register default local worker: ${err.message}`);
+        }
+      }
+
+      this._log(`👷 Worker system initialized with ${registeredCount} worker(s)`);
+    } catch (err) {
+      // Worker initialization failure is non-fatal
+      this._log(`⚠️ Worker initialization failed: ${err.message}`);
+      this._log('⚠️ Falling back to local-only Docker management');
+    }
+  }
+
+  /**
+   * Load worker configuration from main config or workers.json file
+   *
+   * Checks for workers configuration in the following order:
+   * 1. Main config `workers` section
+   * 2. Separate `workers.json` file (via `workersConfigPath` option)
+   * 3. Empty default (no workers configured)
+   *
+   * @returns {Promise<Object>} Workers configuration with `workers` array and optional `assignmentRules`
+   * @private
+   */
+  async _loadWorkersConfig() {
+    // Check main config for workers section
+    if (this.config.workers) {
+      const workersSection = this.config.workers;
+      return {
+        workers: Array.isArray(workersSection) ? workersSection : workersSection.nodes || [],
+        assignmentRules: workersSection.assignmentRules || [],
+      };
+    }
+
+    // Try loading workers.json file
+    const workersPath = this.workersConfigPath;
+    if (workersPath) {
+      try {
+        const workersFileConfig = await this.configLoader.load(workersPath);
+        return {
+          workers: workersFileConfig.workers || [],
+          assignmentRules: workersFileConfig.assignmentRules || [],
+        };
+      } catch (err) {
+        this._log(`⚠️ Failed to load workers config from '${workersPath}': ${err.message}`);
+      }
+    }
+
+    // Try default workers.json location (only if the file exists)
+    try {
+      const defaultPath = path.resolve(path.dirname(this.configPath), 'workers.json');
+      await fs.access(defaultPath);
+      const workersFileConfig = await this.configLoader.load(defaultPath);
+      return {
+        workers: workersFileConfig.workers || [],
+        assignmentRules: workersFileConfig.assignmentRules || [],
+      };
+    } catch {
+      // No workers.json file found — that's fine
+    }
+
+    return { workers: [], assignmentRules: [] };
+  }
+
+  /**
+   * Stop the worker distribution system
+   *
+   * Closes all SSH tunnels and cleans up worker resources.
+   * Worker registry data persists in the database for the next startup.
+   *
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _stopWorkers() {
+    if (this.sshTunnelManager) {
+      this._log('🔗 Closing SSH tunnels...');
+      try {
+        const closed = await this.sshTunnelManager.closeAll();
+        if (closed.length > 0) {
+          this._log(`✅ Closed ${closed.length} SSH tunnel(s)`);
+        }
+      } catch (err) {
+        this._log(`⚠️ Error closing SSH tunnels: ${err.message}`);
+      }
+    }
+
+    this._log('👷 Worker distribution system stopped');
   }
 
   // ==========================================================================
