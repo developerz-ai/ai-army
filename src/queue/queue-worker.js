@@ -666,7 +666,7 @@ export class QueueWorker {
                started_at = NULL,
                error = NULL,
                retry_count = $1,
-               next_attempt_at = NOW() + ($2::integer * INTERVAL '1 millisecond')
+               next_attempt_at = NOW() + make_interval(secs => $2::numeric / 1000.0)
            WHERE id = $3`,
           [newCount, delay, queueMessage.id]
         );
