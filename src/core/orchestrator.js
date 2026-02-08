@@ -45,6 +45,14 @@ import { MetricsCollector } from '../monitoring/MetricsCollector.js';
 import { Alerter } from '../monitoring/Alerter.js';
 import { AuditLogger } from '../audit/audit-logger.js';
 import { AuditRetention } from '../audit/audit-retention.js';
+import { APIServer } from '../api/api-server.js';
+import { AdminRouter } from '../api/AdminRouter.js';
+import { HealthRouter } from '../api/routers/health-router.js';
+import { BotRouter } from '../api/routers/bot-router.js';
+import { SessionRouter } from '../api/routers/session-router.js';
+import { QueueRouter } from '../api/routers/queue-router.js';
+import { MetricsRouter } from '../api/routers/metrics-router.js';
+import { AuditRouter } from '../api/routers/audit-router.js';
 
 /**
  * Orchestrator lifecycle states
@@ -153,6 +161,8 @@ export class Orchestrator {
    * @param {Function} [options.auditLoggerFactory] - Factory (storage, opts) => AuditLogger
    * @param {Object} [options.auditRetention] - Pre-configured AuditRetention instance (for DI/testing)
    * @param {Function} [options.auditRetentionFactory] - Factory (auditLogger, opts) => AuditRetention
+   * @param {Object} [options.apiServer] - Pre-configured APIServer instance (for DI/testing)
+   * @param {Function} [options.apiServerFactory] - Factory (routers, config) => APIServer
    */
   constructor(options = {}) {
     this.configPath = options.configPath || './config.json';
@@ -244,6 +254,10 @@ export class Orchestrator {
     this.auditLoggerFactory = options.auditLoggerFactory || null;
     this.auditRetention = options.auditRetention || null;
     this.auditRetentionFactory = options.auditRetentionFactory || null;
+
+    // REST API server
+    this.apiServer = options.apiServer || null;
+    this.apiServerFactory = options.apiServerFactory || null;
 
     // Adapter registries
     this.channelAdapters = new Map();
@@ -343,6 +357,9 @@ export class Orchestrator {
         await this.auditRetention.start();
       }
 
+      // Step 13: Start REST API server (if api.enabled in config)
+      await this._startAPIServer();
+
       this.state = ORCHESTRATOR_STATES.RUNNING;
       this.startedAt = new Date();
 
@@ -403,7 +420,14 @@ export class Orchestrator {
 
     const errors = [];
 
-    // Step 0: Stop audit retention scheduler
+    // Step 0: Stop REST API server
+    try {
+      await this._stopAPIServer();
+    } catch (err) {
+      errors.push({ component: 'apiServer', error: err });
+    }
+
+    // Step 0a: Stop audit retention scheduler
     try {
       if (this.auditRetention) {
         this.auditRetention.stop();
@@ -668,6 +692,8 @@ export class Orchestrator {
       workerRegistryReady: !!this.workerRegistry,
       workerAssignerReady: !!this.workerAssigner,
       sshTunnelManagerReady: !!this.sshTunnelManager,
+      apiServerRunning: this.apiServer ? this.apiServer.running : false,
+      apiServerPort: this.apiServer ? this.apiServer.port : null,
     };
   }
 
@@ -2234,6 +2260,232 @@ export class Orchestrator {
         this._log(`❌ Health check failed for channel '${name}': ${err.message}`);
       }
     }
+  }
+
+  // ==========================================================================
+  // Private: REST API Server Lifecycle
+  // ==========================================================================
+
+  /**
+   * Check whether the REST API server is enabled in the config
+   *
+   * @returns {boolean} True if api.enabled is true in config
+   * @private
+   */
+  _isAPIEnabled() {
+    return this.config?.api?.enabled === true;
+  }
+
+  /**
+   * Start the REST API server if api.enabled in config
+   *
+   * Creates the APIServer with all available routers (AdminRouter,
+   * HealthRouter, BotRouter, SessionRouter, QueueRouter, MetricsRouter,
+   * AuditRouter), then starts listening on the configured port/host.
+   *
+   * API server startup failure is non-fatal — the system continues
+   * without the REST API.
+   *
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _startAPIServer() {
+    if (!this._isAPIEnabled()) {
+      return;
+    }
+
+    const apiConfig = this.config.api;
+    const port = apiConfig.port || 3000;
+    const host = apiConfig.host || '0.0.0.0';
+
+    this._log('🌐 Starting REST API server...');
+
+    try {
+      // Build the list of routers based on available components
+      const routers = [];
+
+      // AdminRouter — requires the orchestrator itself
+      try {
+        const adminRouter = new AdminRouter({
+          orchestrator: this,
+          apiKey: null, // Auth handled at APIServer level
+          logger: this.logger,
+          auditLogger: this.auditLogger,
+        });
+        routers.push(adminRouter);
+      } catch (err) {
+        this._log(`  ⚠️ Failed to create AdminRouter: ${err.message}`);
+      }
+
+      // HealthRouter — requires HealthMonitor
+      if (this.healthMonitor) {
+        try {
+          const healthRouter = new HealthRouter({
+            healthMonitor: this.healthMonitor,
+            logger: this.logger,
+          });
+          routers.push(healthRouter);
+        } catch (err) {
+          this._log(`  ⚠️ Failed to create HealthRouter: ${err.message}`);
+        }
+      }
+
+      // BotRouter — requires BotManager
+      if (this.botManager) {
+        try {
+          const botRouter = new BotRouter({
+            botManager: this.botManager,
+            sessionManager: this.sessionManager,
+            messageProcessor: this.messageProcessor,
+            storage: this.storage,
+            logger: this.logger,
+            auditLogger: this.auditLogger,
+          });
+          routers.push(botRouter);
+        } catch (err) {
+          this._log(`  ⚠️ Failed to create BotRouter: ${err.message}`);
+        }
+      }
+
+      // SessionRouter — requires SessionManager and storage
+      if (this.sessionManager && this.storage) {
+        try {
+          const sessionRouter = new SessionRouter({
+            sessionManager: this.sessionManager,
+            storage: this.storage,
+            logger: this.logger,
+            auditLogger: this.auditLogger,
+          });
+          routers.push(sessionRouter);
+        } catch (err) {
+          this._log(`  ⚠️ Failed to create SessionRouter: ${err.message}`);
+        }
+      }
+
+      // QueueRouter — requires MessageQueue
+      if (this.messageQueue) {
+        try {
+          const queueRouter = new QueueRouter({
+            messageQueue: this.messageQueue,
+            logger: this.logger,
+            auditLogger: this.auditLogger,
+          });
+          routers.push(queueRouter);
+        } catch (err) {
+          this._log(`  ⚠️ Failed to create QueueRouter: ${err.message}`);
+        }
+      }
+
+      // MetricsRouter — requires MetricsCollector
+      if (this.metricsCollector) {
+        try {
+          const metricsRouter = new MetricsRouter({
+            metricsCollector: this.metricsCollector,
+            botManager: this.botManager,
+            logger: this.logger,
+          });
+          routers.push(metricsRouter);
+        } catch (err) {
+          this._log(`  ⚠️ Failed to create MetricsRouter: ${err.message}`);
+        }
+      }
+
+      // AuditRouter — requires AuditLogger
+      if (this.auditLogger) {
+        try {
+          const auditRouter = new AuditRouter({
+            auditLogger: this.auditLogger,
+            logger: this.logger,
+          });
+          routers.push(auditRouter);
+        } catch (err) {
+          this._log(`  ⚠️ Failed to create AuditRouter: ${err.message}`);
+        }
+      }
+
+      // Build auth config for APIServer
+      const authConfig = apiConfig.auth || {};
+      const authTokens = this._normalizeAuthTokens(authConfig.tokens || []);
+
+      // Build rate limit config
+      const rateLimitConfig = apiConfig.rateLimit || {};
+
+      // Build CORS config
+      const corsConfig = apiConfig.cors || {};
+
+      // Create APIServer
+      if (!this.apiServer) {
+        if (this.apiServerFactory) {
+          this.apiServer = this.apiServerFactory(routers, apiConfig);
+        } else {
+          this.apiServer = new APIServer({
+            routers,
+            auth: {
+              tokens: authTokens,
+              defaultRole: authConfig.defaultRole || 'viewer',
+              enabled: authConfig.enabled !== false,
+            },
+            rateLimit: {
+              max: rateLimitConfig.max || 100,
+              windowMs: rateLimitConfig.windowMs || 60000,
+              bypassIps: rateLimitConfig.bypassIps || [],
+              enabled: rateLimitConfig.enabled !== false,
+            },
+            cors: {
+              origins: corsConfig.origins || ['*'],
+              methods: corsConfig.methods,
+              headers: corsConfig.headers,
+            },
+            logger: this.logger,
+          });
+        }
+      }
+
+      await this.apiServer.start(port, host);
+      this._log(`🌐 REST API server listening on ${host}:${port} (${routers.length} router(s))`);
+    } catch (err) {
+      // API server failure is non-fatal
+      this._log(`⚠️ Failed to start REST API server: ${err.message}`);
+    }
+  }
+
+  /**
+   * Normalize auth tokens from config into the format expected by AuthMiddleware
+   *
+   * Supports both string arrays (e.g. ["token1", "token2"]) and object arrays
+   * (e.g. [{ token: "token1", role: "admin" }]).
+   *
+   * @param {Array<string|Object>} tokens - Token configurations
+   * @returns {Array<Object>} Normalized token objects with token and role
+   * @private
+   */
+  _normalizeAuthTokens(tokens) {
+    if (!Array.isArray(tokens)) {
+      return [];
+    }
+
+    return tokens.map(entry => {
+      if (typeof entry === 'string') {
+        return { token: entry, role: 'admin' };
+      }
+      return { token: entry.token, role: entry.role || 'admin' };
+    });
+  }
+
+  /**
+   * Stop the REST API server
+   *
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _stopAPIServer() {
+    if (!this.apiServer) {
+      return;
+    }
+
+    this._log('🌐 Stopping REST API server...');
+    await this.apiServer.stop();
+    this._log('✅ REST API server stopped');
   }
 
   /**

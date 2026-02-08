@@ -72,6 +72,9 @@ export async function runStart({
     write(`   Bots: ${status.botCount}\n`);
     write(`   Channels: ${status.channelCount}\n`);
     write(`   Database: ${status.databaseConnected ? 'connected' : 'not connected'}\n`);
+    if (status.apiServerRunning) {
+      write(`   API: http://${orch.apiServer?.host || '0.0.0.0'}:${status.apiServerPort}\n`);
+    }
 
     // Setup graceful shutdown handlers
     const shutdown = async signal => {

@@ -428,6 +428,80 @@ const QueueConfigSchema = z.object({
 });
 
 // =============================================================================
+// API Configuration Schema
+// =============================================================================
+
+/**
+ * Schema for API authentication token configuration
+ *
+ * Each token entry maps a token string to a role. When `tokens` is
+ * provided as an array of strings, each is treated as an admin token.
+ */
+const APIAuthConfigSchema = z.object({
+  enabled: z.boolean().optional().default(true),
+  tokens: z
+    .union([
+      z.array(z.string().min(1)),
+      z.array(
+        z.object({
+          token: z.string().min(1),
+          role: z.string().optional().default('admin'),
+        })
+      ),
+    ])
+    .optional()
+    .default([]),
+  defaultRole: z.string().optional().default('viewer'),
+});
+
+/**
+ * Schema for API rate limiting configuration
+ */
+const APIRateLimitConfigSchema = z.object({
+  enabled: z.boolean().optional().default(true),
+  max: z.number().int().positive().optional().default(100),
+  windowMs: z.number().int().positive().optional().default(60000),
+  bypassIps: z.array(z.string()).optional().default([]),
+});
+
+/**
+ * Schema for API CORS configuration
+ */
+const APICorsConfigSchema = z.object({
+  enabled: z.boolean().optional().default(true),
+  origins: z.array(z.string()).optional().default(['*']),
+  methods: z.array(z.string()).optional(),
+  headers: z.array(z.string()).optional(),
+});
+
+/**
+ * Schema for API server configuration
+ *
+ * Controls the REST API server lifecycle, authentication,
+ * rate limiting, and CORS settings.
+ *
+ * @example
+ * {
+ *   "api": {
+ *     "enabled": true,
+ *     "port": 3000,
+ *     "host": "0.0.0.0",
+ *     "auth": { "enabled": true, "tokens": ["${API_TOKEN}"] },
+ *     "rateLimit": { "enabled": true, "max": 100, "windowMs": 60000 },
+ *     "cors": { "enabled": true, "origins": ["*"] }
+ *   }
+ * }
+ */
+const APIConfigSchema = z.object({
+  enabled: z.boolean().optional().default(false),
+  port: z.number().int().positive().max(65535).optional().default(3000),
+  host: z.string().optional().default('0.0.0.0'),
+  auth: APIAuthConfigSchema.optional(),
+  rateLimit: APIRateLimitConfigSchema.optional(),
+  cors: APICorsConfigSchema.optional(),
+});
+
+// =============================================================================
 // Webhook Configuration Schema
 // =============================================================================
 
@@ -511,6 +585,8 @@ export const MainConfigSchema = z
     queue: QueueConfigSchema.optional(),
 
     audit: AuditConfigSchema.optional(),
+
+    api: APIConfigSchema.optional(),
 
     // Inline bot definitions (alternative to separate files)
     bots: z.record(z.any()).optional(),
@@ -1047,6 +1123,44 @@ export class ConfigValidator {
   }
 
   /**
+   * Validate an API server configuration
+   *
+   * @param {Object} apiConfig - API configuration object
+   * @returns {Object} - { valid: boolean, errors: Array, data?: Object }
+   */
+  validateAPIConfig(apiConfig) {
+    if (!apiConfig || typeof apiConfig !== 'object') {
+      return {
+        valid: false,
+        errors: [
+          {
+            path: '(root)',
+            message: 'API configuration must be an object',
+            code: 'invalid_type',
+          },
+        ],
+        data: null,
+      };
+    }
+
+    const result = APIConfigSchema.safeParse(apiConfig);
+
+    if (result.success) {
+      return {
+        valid: true,
+        errors: [],
+        data: result.data,
+      };
+    }
+
+    return {
+      valid: false,
+      errors: this._formatZodErrors(result.error),
+      data: null,
+    };
+  }
+
+  /**
    * Validate cross-references between main config and bot configs
    *
    * @private
@@ -1149,6 +1263,10 @@ export {
   AuditConfigSchema,
   AuditEventsConfigSchema,
   AuditRetentionConfigSchema,
+  APIConfigSchema,
+  APIAuthConfigSchema,
+  APIRateLimitConfigSchema,
+  APICorsConfigSchema,
   WorkspaceConfigSchema,
   MemoryConfigSchema,
   TemplateConfigSchema,
