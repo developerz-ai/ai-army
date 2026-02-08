@@ -53,6 +53,7 @@ export class AdminRouter {
    * @param {Object} options.orchestrator - Orchestrator instance for reload/status
    * @param {string} [options.apiKey] - Admin API key for authentication
    * @param {Function} [options.logger] - Logger function (defaults to console.log)
+   * @param {Object} [options.auditLogger] - AuditLogger instance for recording audit events
    */
   constructor(options = {}) {
     if (!options.orchestrator) {
@@ -64,6 +65,9 @@ export class AdminRouter {
     this.orchestrator = options.orchestrator;
     this.apiKey = options.apiKey || process.env.ADMIN_API_KEY || null;
     this.logger = options.logger !== undefined ? options.logger : console.log;
+
+    /** @type {Object|null} AuditLogger for recording audit events */
+    this.auditLogger = options.auditLogger || null;
 
     /** @type {Route[]} */
     this.routes = [];
@@ -175,6 +179,23 @@ export class AdminRouter {
       const success = failed.length === 0;
       const statusCode = success ? 200 : 207;
 
+      const actor = this._extractActor(_req);
+      this._auditLog({
+        type: 'config.reloaded',
+        actor,
+        actorType: 'api',
+        resourceType: 'config',
+        resourceId: null,
+        action: 'reloaded',
+        metadata: {
+          success,
+          botsReloaded: reloaded.length,
+          failedCount: failed.length,
+        },
+        ipAddress: this._extractIp(_req),
+        userAgent: _req.headers?.['user-agent'] || null,
+      });
+
       return {
         statusCode,
         body: {
@@ -280,6 +301,19 @@ export class AdminRouter {
       await this.orchestrator.botManager.stopBot(botId);
       await this.orchestrator.botManager.startBot(botId);
 
+      const actor = this._extractActor(req);
+      this._auditLog({
+        type: 'bot.started',
+        actor,
+        actorType: 'api',
+        resourceType: 'bot',
+        resourceId: botId,
+        action: 'restarted',
+        metadata: { triggeredBy: 'admin_api' },
+        ipAddress: this._extractIp(req),
+        userAgent: req.headers?.['user-agent'] || null,
+      });
+
       return {
         statusCode: 200,
         body: {
@@ -373,6 +407,22 @@ export class AdminRouter {
         };
       }
 
+      const actor = this._extractActor(req);
+      this._auditLog({
+        type: 'bot.config_updated',
+        actor,
+        actorType: 'api',
+        resourceType: 'bot',
+        resourceId: botId,
+        action: 'config_reloaded',
+        metadata: {
+          needsContainerRestart,
+          triggeredBy: 'admin_api',
+        },
+        ipAddress: this._extractIp(req),
+        userAgent: req.headers?.['user-agent'] || null,
+      });
+
       return {
         statusCode: 200,
         body: {
@@ -436,6 +486,59 @@ export class AdminRouter {
       'Content-Length': Buffer.byteLength(json),
     });
     res.end(json);
+  }
+
+  /**
+   * Log an audit event if an audit logger is available
+   *
+   * Safely calls the audit logger, catching any errors to prevent
+   * audit logging from breaking the main flow.
+   *
+   * @param {Object} event - Audit event to log
+   * @private
+   */
+  _auditLog(event) {
+    if (this.auditLogger && typeof this.auditLogger.log === 'function') {
+      this.auditLogger.log(event).catch(_err => {
+        // Audit logging should never break the main flow
+      });
+    }
+  }
+
+  /**
+   * Extract the actor identity from an HTTP request
+   *
+   * Uses the Authorization header to identify the actor. Falls back
+   * to 'anonymous' if no auth header is present.
+   *
+   * @param {http.IncomingMessage} req - HTTP request
+   * @returns {string} Actor identifier
+   * @private
+   */
+  _extractActor(req) {
+    const authHeader = req?.headers?.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      return `api-key:${authHeader.slice(7, 15)}***`;
+    }
+    return 'anonymous';
+  }
+
+  /**
+   * Extract the client IP address from an HTTP request
+   *
+   * Checks X-Forwarded-For header first, then falls back to
+   * the socket remote address.
+   *
+   * @param {http.IncomingMessage} req - HTTP request
+   * @returns {string|null} Client IP address
+   * @private
+   */
+  _extractIp(req) {
+    const forwarded = req?.headers?.['x-forwarded-for'];
+    if (forwarded) {
+      return String(forwarded).split(',')[0].trim();
+    }
+    return req?.socket?.remoteAddress || null;
   }
 
   /**
