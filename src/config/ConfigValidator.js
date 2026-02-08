@@ -353,7 +353,7 @@ const QueueConfigSchema = z.object({
 const WebhookSubscriptionSchema = z.object({
   url: z.string().url('Webhook URL must be a valid URL'),
   events: z.array(z.string().min(1)).min(1, 'At least one event is required'),
-  method: z.enum(['POST', 'PUT', 'PATCH', 'DELETE']).optional().default('POST'),
+  method: z.enum(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']).optional().default('POST'),
   headers: z.record(z.string()).optional().default({}),
   retries: z.number().int().min(1).max(10).optional().default(3),
   timeout: z.number().int().positive().optional().default(5000),
