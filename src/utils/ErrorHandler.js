@@ -70,7 +70,12 @@ const ERROR_CLASS_MAP = {
   // Network / channel errors
   SlackAdapterError: 'network',
   DiscordAdapterError: 'network',
+  RESTAdapterError: 'network',
   ChannelManagerError: 'network',
+
+  // Secret adapter errors
+  BitwardenAdapterError: 'config',
+  OnePasswordAdapterError: 'config',
 };
 
 /**

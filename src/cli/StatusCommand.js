@@ -362,4 +362,70 @@ export async function showStatus({
   write('\n');
 }
 
+/**
+ * Run the status command from the CLI
+ *
+ * CLI-friendly entry point that shows database connection status
+ * when only a storage connection is available (no running managers).
+ * When botManager/channelManager are provided, delegates to {@link showStatus}
+ * for the full system view.
+ *
+ * @param {Object} options - Status command options
+ * @param {string} [options.configPath='./config.json'] - Path to config file
+ * @param {Object} [options.storage] - PostgresStorage instance (connected)
+ * @param {Object} [options.botManager] - BotManager instance (optional from CLI)
+ * @param {Object} [options.channelManager] - ChannelManager instance (optional from CLI)
+ * @param {Object} [options.workerRegistry] - WorkerRegistry instance (optional)
+ * @param {Object} [options.output=process.stdout] - Writable stream for output
+ * @returns {Promise<{ success: boolean }>} Result indicating success
+ */
+export async function runStatus({
+  configPath = './config.json',
+  storage,
+  botManager,
+  channelManager,
+  workerRegistry,
+  output = process.stdout,
+} = {}) {
+  const write = msg => output.write(msg);
+
+  // If full managers are available, delegate to the rich showStatus view
+  if (botManager && channelManager) {
+    try {
+      await showStatus({ storage, botManager, channelManager, workerRegistry, output });
+      return { success: true };
+    } catch (err) {
+      write(`❌ Status error: ${err.message}\n`);
+      return { success: false };
+    }
+  }
+
+  // CLI-only mode: show database status when managers aren't available
+  write('\n🤖 AI Army Status\n');
+  write(`  Config: ${configPath}\n`);
+
+  let dbHealthy = false;
+  write('\nDatabase:\n');
+  try {
+    const dbInfo = await collectDatabaseStatus(storage);
+
+    if (!dbInfo.connected) {
+      write('  ❌ Not connected\n');
+    } else {
+      dbHealthy = true;
+      const versionLabel = dbInfo.version ? `PostgreSQL ${dbInfo.version}` : 'PostgreSQL';
+      write(`  ✅ Connected to ${versionLabel}\n`);
+      write(`  📊 ${formatNumber(dbInfo.totalSessions)} total sessions\n`);
+      write(`  📝 ${formatNumber(dbInfo.messagesProcessed)} messages processed\n`);
+    }
+  } catch (err) {
+    write(`  ❌ Error checking database: ${err.message}\n`);
+  }
+
+  write('\nℹ️  Run with a running system (ai-army start) for full bot and channel status.\n');
+  write('\n');
+
+  return { success: dbHealthy };
+}
+
 export default showStatus;
