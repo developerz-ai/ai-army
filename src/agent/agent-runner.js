@@ -35,11 +35,10 @@ export class AgentRunnerError extends Error {
    * @param {Error} [options.cause] - Original error that caused this
    */
   constructor(message, options = {}) {
-    super(message);
+    super(message, { cause: options.cause });
     this.name = 'AgentRunnerError';
     this.operation = options.operation;
     this.botId = options.botId;
-    this.cause = options.cause;
   }
 }
 

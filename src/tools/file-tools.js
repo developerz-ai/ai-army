@@ -36,12 +36,11 @@ export class FileToolsError extends Error {
    * @param {Error} [options.cause] - Original error that caused this
    */
   constructor(message, options = {}) {
-    super(message);
+    super(message, { cause: options.cause });
     this.name = 'FileToolsError';
     this.operation = options.operation;
     this.botId = options.botId;
     this.filePath = options.filePath;
-    this.cause = options.cause;
   }
 }
 
