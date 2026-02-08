@@ -147,7 +147,7 @@ export class QueueWorker {
     /** @type {Object|null} Polling interval timer reference */
     this._pollTimer = null;
 
-    /** @type {Map<number, number>} Message ID -> retry count for in-flight retries */
+    /** @type {Map<string, number>} Content key -> retry count for in-flight retries */
     this._retryCounts = new Map();
 
     /** @type {Set<string>} Bot IDs with pending process requests (dedup rapid notifications) */
@@ -214,6 +214,9 @@ export class QueueWorker {
     // Clean up state
     this._retryCounts.clear();
     this._pendingBotIds.clear();
+
+    // Reset concurrency controller to release any held slots
+    this.concurrencyController.reset();
 
     this.state = WORKER_STATES.STOPPED;
     this._log('Queue worker stopped');
@@ -282,20 +285,22 @@ export class QueueWorker {
       await this.messageQueue.markCompleted(queueMessage.id);
       this._log(`Message ${queueMessage.id} completed for bot ${botId}`);
 
-      // Clear retry count on success
+      // Clear retry count on success (both content key and message ID)
+      this._retryCounts.delete(this._retryKey(botId, queueMessage));
       this._retryCounts.delete(queueMessage.id);
 
       return true;
     } catch (err) {
       return this._handleProcessingError(botId, queueMessage, err);
     } finally {
-      // Always release concurrency slot
-      this.concurrencyController.finishProcessing(botId, queueMessage.id);
-
-      // If more messages might be pending, schedule another attempt
-      if (this.state === WORKER_STATES.RUNNING) {
-        this._scheduleProcessNext(botId);
-      }
+      // Release concurrency slot via macrotask so that the slot remains occupied
+      // through the current microtask cycle. This ensures proper concurrency
+      // enforcement when multiple processNext calls are chained synchronously.
+      const releaseBotId = botId;
+      const releaseMessageId = queueMessage.id;
+      setTimeout(() => {
+        this.concurrencyController.finishProcessing(releaseBotId, releaseMessageId);
+      }, 0);
     }
   }
 
@@ -309,11 +314,25 @@ export class QueueWorker {
 
   /**
    * Get retry count for a specific message
-   * @param {number} messageId - Queue message ID
+   * @param {number|string} messageIdOrKey - Queue message ID or content key
    * @returns {number} Number of retries attempted
    */
-  getRetryCount(messageId) {
-    return this._retryCounts.get(messageId) || 0;
+  getRetryCount(messageIdOrKey) {
+    return this._retryCounts.get(messageIdOrKey) || 0;
+  }
+
+  /**
+   * Generate a content-based key for retry tracking
+   *
+   * Uses botId + userId + channelId + messageText so that retries are tracked
+   * across re-enqueued messages (which get new IDs).
+   *
+   * @param {string} botId - Bot identifier
+   * @param {Object} queueMessage - Queue message object
+   * @returns {string} Content-based retry key
+   */
+  _retryKey(botId, queueMessage) {
+    return `${botId}:${queueMessage.userId}:${queueMessage.channelId}:${queueMessage.messageText}`;
   }
 
   // ============================================================================
@@ -387,6 +406,13 @@ export class QueueWorker {
       await this._listenClient.query(`UNLISTEN ${DEFAULTS.channel}`);
     } catch (_err) {
       // Ignore UNLISTEN errors during shutdown
+    }
+
+    // Remove event listeners before releasing back to pool to prevent
+    // MaxListenersExceededWarning when the client is reused
+    if (typeof this._listenClient.removeAllListeners === 'function') {
+      this._listenClient.removeAllListeners('notification');
+      this._listenClient.removeAllListeners('error');
     }
 
     try {
@@ -542,8 +568,9 @@ export class QueueWorker {
 
     this._pendingBotIds.add(botId);
 
-    // Use Promise.resolve() for near-immediate but non-blocking execution
-    Promise.resolve().then(async () => {
+    // Use setTimeout for non-blocking execution, scheduled as a macrotask
+    // to avoid interfering with in-progress microtask chains (e.g. rapid enqueues)
+    setTimeout(async () => {
       try {
         await this.processNext(botId);
       } catch (err) {
@@ -551,7 +578,7 @@ export class QueueWorker {
       } finally {
         this._pendingBotIds.delete(botId);
       }
-    });
+    }, 0);
   }
 
   /**
@@ -567,7 +594,11 @@ export class QueueWorker {
    * @private
    */
   async _handleProcessingError(botId, queueMessage, err) {
-    const retryCount = this._retryCounts.get(queueMessage.id) || 0;
+    const retryKey = this._retryKey(botId, queueMessage);
+    // Check retry count by content key first (persists across re-enqueued messages),
+    // then fall back to message ID for backward compatibility
+    const retryCount =
+      this._retryCounts.get(retryKey) || this._retryCounts.get(queueMessage.id) || 0;
     const canRetry = retryCount < this.retryAttempts;
 
     this._log(
@@ -578,7 +609,12 @@ export class QueueWorker {
     if (canRetry) {
       // Calculate exponential backoff delay
       const delay = this.retryDelay * Math.pow(2, retryCount);
-      this._retryCounts.set(queueMessage.id, retryCount + 1);
+      const newCount = retryCount + 1;
+
+      // Track retry count by content key (persists across re-enqueued messages)
+      // and by message ID (for backward-compatible getRetryCount lookups)
+      this._retryCounts.set(retryKey, newCount);
+      this._retryCounts.set(queueMessage.id, newCount);
 
       this._log(`Scheduling retry for message ${queueMessage.id} in ${delay}ms`);
 
@@ -600,8 +636,8 @@ export class QueueWorker {
             queueMessage.priority
           );
 
-          // Mark the original message as failed (it has been re-enqueued as new)
-          await this.messageQueue.markFailed(queueMessage.id, err);
+          // Remove the original message (it has been re-enqueued as a new entry)
+          await this.storage.query('DELETE FROM message_queue WHERE id = $1', [queueMessage.id]);
         } catch (retryErr) {
           this._log(`Failed to re-enqueue message ${queueMessage.id}: ${retryErr.message}`);
           await this._markFailedSafe(queueMessage.id, err);
@@ -612,6 +648,7 @@ export class QueueWorker {
         `Message ${queueMessage.id} exceeded retry limit (${this.retryAttempts}), marking as failed`
       );
       await this._markFailedSafe(queueMessage.id, err);
+      this._retryCounts.delete(retryKey);
       this._retryCounts.delete(queueMessage.id);
     }
 

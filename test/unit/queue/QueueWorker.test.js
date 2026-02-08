@@ -501,6 +501,10 @@ describe('QueueWorker', () => {
       assert.equal(botId, 'test-bot');
       assert.equal(messageId, msg.id);
 
+      // finishProcessing is deferred via setTimeout(0) to hold the concurrency
+      // slot through the current microtask cycle (ensures correct concurrency
+      // enforcement when multiple processNext calls are chained synchronously)
+      await flushMicrotasks();
       assert.equal(mockConcurrency.finishProcessing.mock.callCount(), 1);
     });
 
@@ -513,6 +517,8 @@ describe('QueueWorker', () => {
 
       await worker.processNext('test-bot');
 
+      // finishProcessing is deferred via setTimeout(0) — see concurrency slot test above
+      await flushMicrotasks();
       assert.equal(mockConcurrency.finishProcessing.mock.callCount(), 1);
     });
 
