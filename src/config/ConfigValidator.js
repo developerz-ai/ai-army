@@ -328,6 +328,22 @@ const SecretsConfigSchema = z.object({
 });
 
 // =============================================================================
+// Queue Configuration Schema
+// =============================================================================
+
+/**
+ * Schema for message queue configuration
+ */
+const QueueConfigSchema = z.object({
+  enabled: z.boolean().optional().default(false),
+  maxConcurrentPerBot: z.number().int().positive().optional().default(3),
+  defaultPriority: z.number().int().min(0).optional().default(0),
+  retryAttempts: z.number().int().min(0).optional().default(3),
+  retryDelay: z.number().int().positive().optional().default(5000),
+  pollInterval: z.number().int().positive().optional().default(5000),
+});
+
+// =============================================================================
 // Main Configuration Schema
 // =============================================================================
 
@@ -347,6 +363,8 @@ export const MainConfigSchema = z
     mcpServers: z.record(McpServerConfigSchema).optional().default({}),
 
     secrets: SecretsConfigSchema.optional(),
+
+    queue: QueueConfigSchema.optional(),
 
     // Inline bot definitions (alternative to separate files)
     bots: z.record(z.any()).optional(),
@@ -768,6 +786,7 @@ export {
   SecretsConfigSchema,
   SecretAdapterConfigSchema,
   SecretCacheConfigSchema,
+  QueueConfigSchema,
   WorkspaceConfigSchema,
   MemoryConfigSchema,
 };

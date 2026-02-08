@@ -24,6 +24,9 @@ import { MigrationRunner } from '../database/MigrationRunner.js';
 import { MCPManager } from '../mcp/mcp-manager.js';
 import { SecretsManager } from '../secrets/secrets-manager.js';
 import { EnvAdapter } from '../adapters/secrets/env.js';
+import { MessageQueue } from '../queue/message-queue.js';
+import { QueueWorker } from '../queue/queue-worker.js';
+import { ConcurrencyController } from '../queue/concurrency-controller.js';
 
 /**
  * Orchestrator lifecycle states
@@ -93,6 +96,12 @@ export class Orchestrator {
    * @param {Object} [options.botReloader] - Pre-configured BotReloader instance (for DI/testing)
    * @param {Function} [options.botReloaderFactory] - Factory (botManager, config) => BotReloader.
    *   The factory must close over containerPool + soulLoader or supply them internally.
+   * @param {Object} [options.messageQueue] - Pre-configured MessageQueue instance (for DI/testing)
+   * @param {Object} [options.queueWorker] - Pre-configured QueueWorker instance (for DI/testing)
+   * @param {Object} [options.concurrencyController] - Pre-configured ConcurrencyController (for DI)
+   * @param {Function} [options.messageQueueFactory] - Factory (storage, config) => MessageQueue
+   * @param {Function} [options.queueWorkerFactory] - Factory (queue, processor, cc, storage, opts) => QueueWorker
+   * @param {Function} [options.concurrencyControllerFactory] - Factory (config) => ConcurrencyController
    */
   constructor(options = {}) {
     this.configPath = options.configPath || './config.json';
@@ -118,6 +127,11 @@ export class Orchestrator {
     // BotReloader for granular hot-reload
     this.botReloader = options.botReloader || null;
 
+    // Queue components for message queuing
+    this.messageQueue = options.messageQueue || null;
+    this.queueWorker = options.queueWorker || null;
+    this.concurrencyController = options.concurrencyController || null;
+
     // Factories for creating components when not injected
     this.storageFactory = options.storageFactory || null;
     this.botManagerFactory = options.botManagerFactory || null;
@@ -128,6 +142,9 @@ export class Orchestrator {
     this.mcpManagerFactory = options.mcpManagerFactory || null;
     this.botReloaderFactory = options.botReloaderFactory || null;
     this.secretsManagerFactory = options.secretsManagerFactory || null;
+    this.messageQueueFactory = options.messageQueueFactory || null;
+    this.queueWorkerFactory = options.queueWorkerFactory || null;
+    this.concurrencyControllerFactory = options.concurrencyControllerFactory || null;
 
     // Adapter registries
     this.channelAdapters = new Map();
@@ -207,6 +224,9 @@ export class Orchestrator {
       // Step 8: Wire channel handlers to MessageProcessor
       this._setupChannelHandlers();
 
+      // Step 9: Start message queue worker (if queue is enabled)
+      await this._startQueueWorker();
+
       this.state = ORCHESTRATOR_STATES.RUNNING;
       this.startedAt = new Date();
 
@@ -267,28 +287,35 @@ export class Orchestrator {
 
     const errors = [];
 
-    // Step 1: Stop all bots
+    // Step 1: Stop queue worker
+    try {
+      await this._stopQueueWorker();
+    } catch (err) {
+      errors.push({ component: 'queue', error: err });
+    }
+
+    // Step 2: Stop all bots
     try {
       await this._stopBots();
     } catch (err) {
       errors.push({ component: 'bots', error: err });
     }
 
-    // Step 2: Stop MCP servers
+    // Step 3: Stop MCP servers
     try {
       await this._stopMCPServers();
     } catch (err) {
       errors.push({ component: 'mcp', error: err });
     }
 
-    // Step 3: Close channels
+    // Step 4: Close channels
     try {
       await this._closeChannels();
     } catch (err) {
       errors.push({ component: 'channels', error: err });
     }
 
-    // Step 4: Disconnect database
+    // Step 5: Disconnect database
     try {
       await this._disconnectDatabase();
     } catch (err) {
@@ -476,6 +503,8 @@ export class Orchestrator {
       databaseConnected: this.storage ? this.storage.isConnected() : false,
       messageProcessorReady: !!this.messageProcessor,
       messageRouterReady: !!this.messageRouter,
+      queueEnabled: this._isQueueEnabled(),
+      queueWorkerRunning: this.queueWorker ? this.queueWorker.getState() === 'running' : false,
     };
   }
 
@@ -931,7 +960,25 @@ export class Orchestrator {
 
       const { bot } = routeResult;
 
-      // Step 2: Process message through MessageProcessor
+      // Step 2: Enqueue or process directly
+      if (this._isQueueEnabled() && this.messageQueue) {
+        // Queue-based processing: enqueue and let QueueWorker handle it
+        const priority = this.config.queue?.defaultPriority ?? 0;
+        await this.messageQueue.enqueue(
+          bot.id,
+          {
+            channelType: message.type,
+            channelId: message.channelId,
+            userId: message.userId,
+            text: message.text,
+          },
+          priority
+        );
+        this._log(`📥 Enqueued message for bot '${bot.id}' on channel '${channelName}'`);
+        return;
+      }
+
+      // Direct processing (queue disabled)
       const result = await this.messageProcessor.processMessage(bot.config, message);
 
       // Step 3: Send response back via channel adapter
@@ -941,6 +988,139 @@ export class Orchestrator {
     } catch (err) {
       this._log(`❌ Error handling message on channel '${channelName}': ${err.message}`);
     }
+  }
+
+  // ==========================================================================
+  // Private: Queue Lifecycle
+  // ==========================================================================
+
+  /**
+   * Check whether message queuing is enabled in the config
+   *
+   * @returns {boolean} True if queue.enabled is true in config
+   * @private
+   */
+  _isQueueEnabled() {
+    return this.config?.queue?.enabled === true;
+  }
+
+  /**
+   * Start the message queue worker if queue is enabled
+   *
+   * Creates MessageQueue, ConcurrencyController, and QueueWorker instances
+   * (unless injected), then starts the worker.
+   *
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _startQueueWorker() {
+    if (!this._isQueueEnabled()) {
+      return;
+    }
+
+    if (!this.storage) {
+      this._log('⏭️ Queue enabled but no storage configured, skipping queue worker');
+      return;
+    }
+
+    if (!this.messageProcessor) {
+      this._log('⏭️ Queue enabled but no MessageProcessor available, skipping queue worker');
+      return;
+    }
+
+    this._log('📬 Starting message queue worker...');
+
+    const queueConfig = this.config.queue;
+
+    try {
+      // Create MessageQueue if not injected
+      if (!this.messageQueue) {
+        if (this.messageQueueFactory) {
+          this.messageQueue = this.messageQueueFactory(this.storage, this.config);
+        } else {
+          this.messageQueue = new MessageQueue(this.storage, {
+            logger: this.logger,
+          });
+        }
+      }
+
+      // Create ConcurrencyController if not injected
+      if (!this.concurrencyController) {
+        if (this.concurrencyControllerFactory) {
+          this.concurrencyController = this.concurrencyControllerFactory(this.config);
+        } else {
+          this.concurrencyController = new ConcurrencyController({
+            defaultMaxConcurrent: queueConfig.maxConcurrentPerBot ?? 3,
+            logger: this.logger,
+          });
+        }
+      }
+
+      // Create QueueWorker if not injected
+      if (!this.queueWorker) {
+        const getBotConfig = botId => {
+          const botConfig = this.botConfigs.get(botId);
+          return botConfig || null;
+        };
+
+        if (this.queueWorkerFactory) {
+          this.queueWorker = this.queueWorkerFactory(
+            this.messageQueue,
+            this.messageProcessor,
+            this.concurrencyController,
+            this.storage,
+            {
+              pollInterval: queueConfig.pollInterval ?? 5000,
+              retryAttempts: queueConfig.retryAttempts ?? 3,
+              retryDelay: queueConfig.retryDelay ?? 5000,
+              logger: this.logger,
+              getBotConfig,
+            }
+          );
+        } else {
+          this.queueWorker = new QueueWorker(
+            this.messageQueue,
+            this.messageProcessor,
+            this.concurrencyController,
+            this.storage,
+            {
+              pollInterval: queueConfig.pollInterval ?? 5000,
+              retryAttempts: queueConfig.retryAttempts ?? 3,
+              retryDelay: queueConfig.retryDelay ?? 5000,
+              logger: this.logger,
+              getBotConfig,
+            }
+          );
+        }
+      }
+
+      await this.queueWorker.start();
+      this._log('📬 Message queue worker started');
+    } catch (err) {
+      this._log(`⚠️ Failed to start queue worker: ${err.message}`);
+      // Queue failure is non-fatal — fall back to direct processing
+    }
+  }
+
+  /**
+   * Stop the message queue worker
+   *
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _stopQueueWorker() {
+    if (!this.queueWorker) {
+      return;
+    }
+
+    this._log('📬 Stopping queue worker...');
+    await this.queueWorker.stop();
+
+    if (this.concurrencyController) {
+      this.concurrencyController.reset();
+    }
+
+    this._log('✅ Queue worker stopped');
   }
 
   // ==========================================================================
