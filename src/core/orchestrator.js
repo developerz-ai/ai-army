@@ -9,6 +9,7 @@
  * - Load and start all configured bots
  * - Initialize channel adapters
  * - Wire channel handlers to MessageProcessor pipeline
+ * - Initialize webhook event system and delivery worker
  * - Provide graceful shutdown
  * - Support hot reload of configuration
  *
@@ -30,6 +31,10 @@ import { ConcurrencyController } from '../queue/concurrency-controller.js';
 import { SkillRegistry } from '../skills/skill-registry.js';
 import { SkillLoader } from '../skills/skill-loader.js';
 import { TemplateManager } from './template-manager.js';
+import { BotEventEmitter } from './event-emitter.js';
+import { WebhookManager } from '../webhooks/webhook-manager.js';
+import { WebhookWorker } from '../webhooks/webhook-worker.js';
+import { DeliveryManager } from '../webhooks/delivery-manager.js';
 
 /**
  * Orchestrator lifecycle states
@@ -110,6 +115,14 @@ export class Orchestrator {
    * @param {Object} [options.skillLoader] - Pre-configured SkillLoader instance (for DI/testing)
    * @param {Object} [options.templateManager] - Pre-configured TemplateManager instance (for DI/testing)
    * @param {Function} [options.templateManagerFactory] - Factory (storage) => TemplateManager
+   * @param {Object} [options.eventEmitter] - Pre-configured BotEventEmitter instance (for DI/testing)
+   * @param {Object} [options.webhookManager] - Pre-configured WebhookManager instance (for DI/testing)
+   * @param {Object} [options.webhookWorker] - Pre-configured WebhookWorker instance (for DI/testing)
+   * @param {Object} [options.deliveryManager] - Pre-configured DeliveryManager instance (for DI/testing)
+   * @param {Function} [options.webhookManagerFactory] - Factory (storage, opts) => WebhookManager
+   * @param {Function} [options.webhookWorkerFactory] - Factory (deliveryManager, storage, opts) => WebhookWorker
+   * @param {Function} [options.deliveryManagerFactory] - Factory (storage, opts) => DeliveryManager
+   * @param {Function} [options.eventEmitterFactory] - Factory (opts) => BotEventEmitter
    */
   constructor(options = {}) {
     this.configPath = options.configPath || './config.json';
@@ -148,6 +161,16 @@ export class Orchestrator {
     // Template & instance system
     this.templateManager = options.templateManager || null;
     this.templateManagerFactory = options.templateManagerFactory || null;
+
+    // Webhook & event system
+    this.eventEmitter = options.eventEmitter || null;
+    this.webhookManager = options.webhookManager || null;
+    this.webhookWorker = options.webhookWorker || null;
+    this.deliveryManager = options.deliveryManager || null;
+    this.webhookManagerFactory = options.webhookManagerFactory || null;
+    this.webhookWorkerFactory = options.webhookWorkerFactory || null;
+    this.deliveryManagerFactory = options.deliveryManagerFactory || null;
+    this.eventEmitterFactory = options.eventEmitterFactory || null;
 
     // Factories for creating components when not injected
     this.storageFactory = options.storageFactory || null;
@@ -247,6 +270,9 @@ export class Orchestrator {
       // Step 9: Start message queue worker (if queue is enabled)
       await this._startQueueWorker();
 
+      // Step 10: Start webhook worker (if webhooks are configured)
+      await this._startWebhookWorker();
+
       this.state = ORCHESTRATOR_STATES.RUNNING;
       this.startedAt = new Date();
 
@@ -307,35 +333,42 @@ export class Orchestrator {
 
     const errors = [];
 
-    // Step 1: Stop queue worker
+    // Step 1: Stop webhook worker
+    try {
+      await this._stopWebhookWorker();
+    } catch (err) {
+      errors.push({ component: 'webhooks', error: err });
+    }
+
+    // Step 2: Stop queue worker
     try {
       await this._stopQueueWorker();
     } catch (err) {
       errors.push({ component: 'queue', error: err });
     }
 
-    // Step 2: Stop all bots
+    // Step 3: Stop all bots
     try {
       await this._stopBots();
     } catch (err) {
       errors.push({ component: 'bots', error: err });
     }
 
-    // Step 3: Stop MCP servers
+    // Step 4: Stop MCP servers
     try {
       await this._stopMCPServers();
     } catch (err) {
       errors.push({ component: 'mcp', error: err });
     }
 
-    // Step 4: Close channels
+    // Step 5: Close channels
     try {
       await this._closeChannels();
     } catch (err) {
       errors.push({ component: 'channels', error: err });
     }
 
-    // Step 5: Disconnect database
+    // Step 6: Disconnect database
     try {
       await this._disconnectDatabase();
     } catch (err) {
@@ -527,6 +560,11 @@ export class Orchestrator {
       queueWorkerRunning: this.queueWorker ? this.queueWorker.getState() === 'running' : false,
       skillCount: this.skillRegistry ? this.skillRegistry.getSkillCount() : 0,
       templateManagerReady: !!this.templateManager,
+      eventEmitterReady: !!this.eventEmitter,
+      webhookManagerReady: !!this.webhookManager,
+      webhookWorkerRunning: this.webhookWorker
+        ? this.webhookWorker.getState() === 'running'
+        : false,
     };
   }
 
@@ -679,6 +717,30 @@ export class Orchestrator {
         this.templateManager = this.templateManagerFactory(this.storage);
       } else {
         this.templateManager = new TemplateManager(this.storage);
+      }
+    }
+
+    // Create BotEventEmitter if not injected
+    if (!this.eventEmitter) {
+      if (this.eventEmitterFactory) {
+        this.eventEmitter = this.eventEmitterFactory({ logger: this.logger });
+      } else {
+        this.eventEmitter = new BotEventEmitter({ logger: this.logger });
+      }
+    }
+
+    // Create WebhookManager if not injected and storage is available
+    if (!this.webhookManager && this.storage) {
+      if (this.webhookManagerFactory) {
+        this.webhookManager = this.webhookManagerFactory(this.storage, {
+          eventEmitter: this.eventEmitter,
+          logger: this.logger,
+        });
+      } else {
+        this.webhookManager = new WebhookManager(this.storage, {
+          eventEmitter: this.eventEmitter,
+          logger: this.logger,
+        });
       }
     }
 
@@ -860,6 +922,7 @@ export class Orchestrator {
 
           await this.botManager.loadBot(botId, mergedConfig);
           this.botConfigs.set(botId, mergedConfig);
+          this._configureWebhooksForBot(botId, mergedConfig);
           loadedCount++;
           this._log(`  ✅ Loaded bot: ${botId}`);
         } catch (err) {
@@ -931,6 +994,7 @@ export class Orchestrator {
 
         await this.botManager.loadBot(instance.id, mergedConfig);
         this.botConfigs.set(instance.id, mergedConfig);
+        this._configureWebhooksForBot(instance.id, mergedConfig);
         loadedCount++;
         this._log(`  ✅ Loaded instance: ${instance.id}`);
       } catch (err) {
@@ -1286,6 +1350,113 @@ export class Orchestrator {
     }
 
     this._log('✅ Queue worker stopped');
+  }
+
+  // ==========================================================================
+  // Private: Webhook Lifecycle
+  // ==========================================================================
+
+  /**
+   * Start the webhook delivery worker if webhooks are configured
+   *
+   * Creates a DeliveryManager and WebhookWorker (unless injected), then
+   * starts the worker to process pending webhook deliveries.
+   *
+   * Webhook worker startup failure is non-fatal — webhooks will be queued
+   * but not delivered until the worker is restarted.
+   *
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _startWebhookWorker() {
+    if (!this.webhookManager) {
+      return;
+    }
+
+    if (!this.storage) {
+      this._log('⏭️ Webhooks configured but no storage available, skipping webhook worker');
+      return;
+    }
+
+    this._log('🔔 Starting webhook worker...');
+
+    try {
+      // Create DeliveryManager if not injected
+      if (!this.deliveryManager) {
+        if (this.deliveryManagerFactory) {
+          this.deliveryManager = this.deliveryManagerFactory(this.storage, {
+            logger: this.logger,
+          });
+        } else {
+          this.deliveryManager = new DeliveryManager(this.storage, {
+            logger: this.logger,
+          });
+        }
+      }
+
+      // Create WebhookWorker if not injected
+      if (!this.webhookWorker) {
+        if (this.webhookWorkerFactory) {
+          this.webhookWorker = this.webhookWorkerFactory(this.deliveryManager, this.storage, {
+            logger: this.logger,
+          });
+        } else {
+          this.webhookWorker = new WebhookWorker(this.deliveryManager, this.storage, {
+            logger: this.logger,
+          });
+        }
+      }
+
+      await this.webhookWorker.start();
+      this._log('🔔 Webhook worker started');
+    } catch (err) {
+      this._log(`⚠️ Failed to start webhook worker: ${err.message}`);
+      // Webhook worker failure is non-fatal — deliveries will accumulate
+      // in the database and be processed when the worker is restarted.
+    }
+  }
+
+  /**
+   * Stop the webhook delivery worker
+   *
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _stopWebhookWorker() {
+    if (!this.webhookWorker) {
+      return;
+    }
+
+    this._log('🔔 Stopping webhook worker...');
+    await this.webhookWorker.stop();
+    this._log('✅ Webhook worker stopped');
+  }
+
+  /**
+   * Configure webhook subscriptions for a bot from its config
+   *
+   * If the bot's merged config contains a `webhooks` array and a WebhookManager
+   * is available, registers the webhook subscriptions with the manager.
+   *
+   * @param {string} botId - Bot identifier
+   * @param {Object} botConfig - Merged bot configuration
+   * @private
+   */
+  _configureWebhooksForBot(botId, botConfig) {
+    if (!this.webhookManager) {
+      return;
+    }
+
+    const { webhooks } = botConfig;
+    if (!Array.isArray(webhooks) || webhooks.length === 0) {
+      return;
+    }
+
+    try {
+      this.webhookManager.configure(botId, webhooks);
+    } catch (err) {
+      this._log(`⚠️ Failed to configure webhooks for bot '${botId}': ${err.message}`);
+    }
   }
 
   // ==========================================================================
