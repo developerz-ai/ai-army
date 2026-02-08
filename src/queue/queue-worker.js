@@ -541,7 +541,9 @@ export class QueueWorker {
    * Poll for pending messages across all bots
    *
    * Queries the message_queue table for distinct bot_ids with pending messages
-   * and triggers processNext() for each one.
+   * whose backoff period (next_attempt_at) has elapsed, and triggers
+   * processNext() for each one. Messages still in exponential backoff are
+   * excluded to avoid unnecessary dequeue attempts.
    *
    * @returns {Promise<void>}
    * @private
@@ -553,7 +555,9 @@ export class QueueWorker {
 
     try {
       const { rows } = await this.storage.query(
-        `SELECT DISTINCT bot_id FROM message_queue WHERE status = $1`,
+        `SELECT DISTINCT bot_id FROM message_queue
+         WHERE status = $1
+           AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())`,
         [MESSAGE_STATUSES.PENDING]
       );
 
