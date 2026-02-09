@@ -186,7 +186,11 @@ export class RESTAdapter {
     }
 
     return new Promise((resolve, reject) => {
-      this.server.on('error', err => {
+      let settled = false;
+
+      const onError = err => {
+        if (settled) return;
+        settled = true;
         this.started = false;
         reject(
           new RESTAdapterError(`Failed to start REST adapter: ${err.message}`, {
@@ -194,9 +198,14 @@ export class RESTAdapter {
             operation: 'start',
           })
         );
-      });
+      };
+
+      this.server.once('error', onError);
 
       this.server.listen(this.config.port, this.config.host, () => {
+        if (settled) return;
+        settled = true;
+        this.server.removeListener('error', onError);
         this.started = true;
         resolve();
       });
@@ -311,8 +320,11 @@ export class RESTAdapter {
 
     // API key authentication
     if (this.config.apiKey) {
-      const providedKey =
-        req.headers['x-api-key'] || this._extractBearerToken(req.headers.authorization);
+      const rawApiKey = req.headers['x-api-key'];
+      const rawAuth = req.headers.authorization;
+      const apiKeyHeader = Array.isArray(rawApiKey) ? rawApiKey[0] : rawApiKey;
+      const authHeader = Array.isArray(rawAuth) ? rawAuth[0] : rawAuth;
+      const providedKey = apiKeyHeader || this._extractBearerToken(authHeader);
 
       if (providedKey !== this.config.apiKey) {
         this._sendJson(res, 401, { error: 'Unauthorized', message: 'Invalid or missing API key' });
