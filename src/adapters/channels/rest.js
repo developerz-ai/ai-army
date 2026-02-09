@@ -449,9 +449,12 @@ export class RESTAdapter {
       let size = 0;
       const maxSize = 1024 * 1024; // 1MB limit
 
+      let rejected = false;
       req.on('data', chunk => {
+        if (rejected) return;
         size += chunk.length;
         if (size > maxSize) {
+          rejected = true;
           reject(
             new RESTAdapterError('Request body too large', {
               operation: 'parseBody',
