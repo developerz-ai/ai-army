@@ -136,7 +136,7 @@ export class RESTAdapter {
         this.config.port = config.port;
       }
       if (config.host !== undefined) {
-        this.config.host = config.host || '0.0.0.0';
+        this.config.host = config.host ?? '0.0.0.0';
       }
       if (config.basePath !== undefined) {
         this.config.basePath = this._normalizeBasePath(config.basePath);
@@ -399,7 +399,14 @@ export class RESTAdapter {
     let body;
     try {
       body = await this._parseJsonBody(req);
-    } catch (_err) {
+    } catch (err) {
+      if (err instanceof RESTAdapterError && err.operation === 'parseBody') {
+        this._sendJson(res, 413, {
+          error: 'Payload Too Large',
+          message: 'Request body too large',
+        });
+        return;
+      }
       this._sendJson(res, 400, { error: 'Bad Request', message: 'Invalid JSON body' });
       return;
     }
@@ -544,6 +551,10 @@ export class RESTAdapter {
    * @private
    */
   _sendJson(res, statusCode, body) {
+    if (res.headersSent) {
+      res.end();
+      return;
+    }
     const json = JSON.stringify(body);
     res.writeHead(statusCode, {
       'Content-Type': 'application/json',
