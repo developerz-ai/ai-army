@@ -64,7 +64,7 @@ export class RESTAdapter {
   /**
    * Create a RESTAdapter instance
    * @param {Object} config - REST adapter configuration
-   * @param {number} config.port - Port to listen on
+   * @param {number} config.port - Port to listen on (use 0 for ephemeral port)
    * @param {string} [config.host='0.0.0.0'] - Host to bind to
    * @param {string} [config.basePath=''] - Base path prefix for endpoints
    * @param {string} [config.apiKey] - Optional API key for authentication
@@ -77,7 +77,7 @@ export class RESTAdapter {
       });
     }
 
-    if (!config.port || typeof config.port !== 'number') {
+    if (config.port == null || typeof config.port !== 'number') {
       throw new RESTAdapterError('port is required and must be a number', {
         operation: 'constructor',
         reason: 'Missing or invalid port in config',
@@ -132,7 +132,7 @@ export class RESTAdapter {
 
     // Merge runtime config overrides when provided by ChannelManager
     if (config && typeof config === 'object') {
-      if (config.port && typeof config.port === 'number') {
+      if (config.port != null && typeof config.port === 'number') {
         this.config.port = config.port;
       }
       if (config.host !== undefined) {

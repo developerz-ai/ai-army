@@ -220,16 +220,10 @@ describe('RESTAdapter', () => {
       );
     });
 
-    test('should throw if port is zero', () => {
-      assert.throws(
-        () => new RESTAdapter({ port: 0 }),
-        err => {
-          assert.ok(err instanceof RESTAdapterError);
-          assert.equal(err.operation, 'constructor');
-          assert.match(err.message, /port/);
-          return true;
-        }
-      );
+    test('should accept port 0 for ephemeral port binding', () => {
+      const adapter = new RESTAdapter({ port: 0 });
+      assert.ok(adapter);
+      assert.equal(adapter.config.port, 0);
     });
 
     test('should create instance with valid config', () => {
@@ -1165,6 +1159,26 @@ describe('RESTAdapter', () => {
       // Stop
       await adapter.stop();
       assert.equal(adapter.started, false);
+    });
+
+    test('should support port 0 for ephemeral port binding', async () => {
+      const adapter = new RESTAdapter({ port: 0 });
+      await adapter.initialize();
+      await adapter.start();
+
+      // The OS assigns an ephemeral port; verify the server is listening
+      const addr = adapter.server.address();
+      assert.ok(addr.port > 0, 'OS should assign a non-zero ephemeral port');
+
+      // Verify HTTP works on the ephemeral port
+      const res = await sendRequest({
+        port: addr.port,
+        path: '/messages/test-session',
+      });
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.body.ok, true);
+
+      await adapter.stop();
     });
 
     test('should allow message sending after init', async () => {
