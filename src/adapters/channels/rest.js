@@ -132,7 +132,13 @@ export class RESTAdapter {
 
     // Merge runtime config overrides when provided by ChannelManager
     if (config && typeof config === 'object') {
-      if (config.port != null && Number.isFinite(config.port)) {
+      if (config.port != null) {
+        if (!Number.isFinite(config.port)) {
+          throw new RESTAdapterError('port must be a finite number', {
+            operation: 'initialize',
+            reason: 'Invalid port in runtime config override',
+          });
+        }
         this.config.port = config.port;
       }
       if (config.host !== undefined) {

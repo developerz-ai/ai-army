@@ -342,15 +342,33 @@ describe('RESTAdapter', () => {
       assert.equal(adapter.server, server1);
     });
 
-    test('should ignore NaN port override in initialize config', async () => {
+    test('should throw RESTAdapterError for NaN port override in initialize config', async () => {
       const adapter = new RESTAdapter({ port: 3100 });
-      await adapter.initialize({ port: NaN });
+      await assert.rejects(
+        () => adapter.initialize({ port: NaN }),
+        err => {
+          assert.ok(err instanceof RESTAdapterError);
+          assert.equal(err.operation, 'initialize');
+          assert.match(err.message, /port must be a finite number/);
+          return true;
+        }
+      );
+      // Port should remain unchanged
       assert.equal(adapter.config.port, 3100);
     });
 
-    test('should ignore Infinity port override in initialize config', async () => {
+    test('should throw RESTAdapterError for Infinity port override in initialize config', async () => {
       const adapter = new RESTAdapter({ port: 3100 });
-      await adapter.initialize({ port: Infinity });
+      await assert.rejects(
+        () => adapter.initialize({ port: Infinity }),
+        err => {
+          assert.ok(err instanceof RESTAdapterError);
+          assert.equal(err.operation, 'initialize');
+          assert.match(err.message, /port must be a finite number/);
+          return true;
+        }
+      );
+      // Port should remain unchanged
       assert.equal(adapter.config.port, 3100);
     });
 
