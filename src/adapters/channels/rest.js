@@ -448,13 +448,16 @@ export class RESTAdapter {
       const chunks = [];
       let size = 0;
       const maxSize = 1024 * 1024; // 1MB limit
+      let settled = false;
 
-      let rejected = false;
-      req.on('data', chunk => {
-        if (rejected) return;
+      const onData = chunk => {
+        if (settled) return;
         size += chunk.length;
         if (size > maxSize) {
-          rejected = true;
+          settled = true;
+          req.removeListener('data', onData);
+          req.removeListener('end', onEnd);
+          req.removeListener('error', onError);
           reject(
             new RESTAdapterError('Request body too large', {
               operation: 'parseBody',
@@ -465,9 +468,11 @@ export class RESTAdapter {
           return;
         }
         chunks.push(chunk);
-      });
+      };
 
-      req.on('end', () => {
+      const onEnd = () => {
+        if (settled) return;
+        settled = true;
         const raw = Buffer.concat(chunks).toString('utf-8');
         if (!raw || raw.trim().length === 0) {
           resolve({});
@@ -478,9 +483,17 @@ export class RESTAdapter {
         } catch (err) {
           reject(err);
         }
-      });
+      };
 
-      req.on('error', reject);
+      const onError = err => {
+        if (settled) return;
+        settled = true;
+        reject(err);
+      };
+
+      req.on('data', onData);
+      req.on('end', onEnd);
+      req.on('error', onError);
     });
   }
 
