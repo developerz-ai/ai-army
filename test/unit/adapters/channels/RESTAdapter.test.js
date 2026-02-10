@@ -829,6 +829,18 @@ describe('RESTAdapter', () => {
         assert.match(res.body.message, /sessionId/);
       });
 
+      test('should return 400 for empty-string sessionId', async () => {
+        const res = await sendRequest({
+          port,
+          method: 'POST',
+          path: '/messages',
+          body: { sessionId: '', text: 'Hello' },
+        });
+
+        assert.equal(res.statusCode, 400);
+        assert.match(res.body.message, /sessionId/);
+      });
+
       test('should return 400 for non-string text', async () => {
         const res = await sendRequest({
           port,

@@ -411,10 +411,10 @@ export class RESTAdapter {
       return;
     }
 
-    if (!body.sessionId || typeof body.sessionId !== 'string') {
+    if (typeof body.sessionId !== 'string' || body.sessionId.length === 0) {
       this._sendJson(res, 400, {
         error: 'Bad Request',
-        message: 'sessionId is required and must be a string',
+        message: 'sessionId is required and must be a non-empty string',
       });
       return;
     }
