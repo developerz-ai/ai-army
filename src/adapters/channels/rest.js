@@ -87,7 +87,7 @@ export class RESTAdapter {
     this.config = {
       port: config.port,
       host: config.host || '0.0.0.0',
-      basePath: (config.basePath || '').replace(/\/+$/, ''),
+      basePath: this._normalizeBasePath(config.basePath),
       apiKey: config.apiKey || null,
     };
 
@@ -139,7 +139,7 @@ export class RESTAdapter {
         this.config.host = config.host || '0.0.0.0';
       }
       if (config.basePath !== undefined) {
-        this.config.basePath = (config.basePath || '').replace(/\/+$/, '');
+        this.config.basePath = this._normalizeBasePath(config.basePath);
       }
       if (config.apiKey !== undefined) {
         this.config.apiKey = config.apiKey || null;
@@ -367,7 +367,16 @@ export class RESTAdapter {
     const pollPattern = new RegExp(`^${this._escapeRegExp(basePath)}/messages/([^/]+)$`);
     const pollMatch = pathname.match(pollPattern);
     if (method === 'GET' && pollMatch) {
-      const sessionId = decodeURIComponent(pollMatch[1]);
+      let sessionId;
+      try {
+        sessionId = decodeURIComponent(pollMatch[1]);
+      } catch (_err) {
+        this._sendJson(res, 400, {
+          error: 'Bad Request',
+          message: 'Invalid URL encoding in session ID',
+        });
+        return;
+      }
       this._handlePollMessages(res, sessionId);
       return;
     }
@@ -450,7 +459,13 @@ export class RESTAdapter {
    */
   _handlePollMessages(res, sessionId) {
     const messages = this.responseBuffers.get(sessionId) || [];
-    this.responseBuffers.set(sessionId, []);
+
+    // Delete the buffer entry after draining to prevent unbounded map growth.
+    // Without this, repeated GET /messages/<random> requests would create and
+    // retain empty Map entries forever (memory leak under untrusted traffic).
+    if (this.responseBuffers.has(sessionId)) {
+      this.responseBuffers.delete(sessionId);
+    }
 
     this._sendJson(res, 200, {
       ok: true,
@@ -548,6 +563,25 @@ export class RESTAdapter {
     if (!authHeader || typeof authHeader !== 'string') return null;
     const match = authHeader.match(/^Bearer\s+(.+)$/i);
     return match ? match[1] : null;
+  }
+
+  /**
+   * Normalize a basePath value
+   *
+   * Ensures the path starts with a leading slash (unless empty) and
+   * strips trailing slashes. This prevents misconfiguration where
+   * `basePath: 'api/v1'` would cause all routes to 404.
+   *
+   * @param {string} [basePath] - Raw basePath value
+   * @returns {string} Normalized basePath
+   * @private
+   */
+  _normalizeBasePath(basePath) {
+    let normalized = (basePath || '').replace(/\/+$/, '');
+    if (normalized && !normalized.startsWith('/')) {
+      normalized = `/${normalized}`;
+    }
+    return normalized;
   }
 
   /**

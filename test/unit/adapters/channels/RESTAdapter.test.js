@@ -269,6 +269,21 @@ describe('RESTAdapter', () => {
       assert.equal(adapter.config.basePath, '/api');
     });
 
+    test('should add leading slash to basePath when missing', () => {
+      const adapter = new RESTAdapter({ port: 3100, basePath: 'api/v1' });
+      assert.equal(adapter.config.basePath, '/api/v1');
+    });
+
+    test('should normalize basePath with missing leading slash and trailing slash', () => {
+      const adapter = new RESTAdapter({ port: 3100, basePath: 'api/v1/' });
+      assert.equal(adapter.config.basePath, '/api/v1');
+    });
+
+    test('should keep empty basePath as empty string', () => {
+      const adapter = new RESTAdapter({ port: 3100, basePath: '' });
+      assert.equal(adapter.config.basePath, '');
+    });
+
     test('should accept extra config fields', () => {
       const adapter = new RESTAdapter({ port: 3100, extraField: 'ignored' });
       assert.ok(adapter);
@@ -821,6 +836,34 @@ describe('RESTAdapter', () => {
         assert.deepStrictEqual(res.body.messages, []);
       });
 
+      test('should not grow responseBuffers map when polling unknown sessions', async () => {
+        const sizeBefore = adapter.responseBuffers.size;
+
+        await sendRequest({ port, path: '/messages/random-session-1' });
+        await sendRequest({ port, path: '/messages/random-session-2' });
+        await sendRequest({ port, path: '/messages/random-session-3' });
+
+        assert.equal(adapter.responseBuffers.size, sizeBefore);
+      });
+
+      test('should delete buffer entry after draining messages', async () => {
+        await adapter.sendMessage('drain-sess', 'hello');
+        assert.equal(adapter.responseBuffers.has('drain-sess'), true);
+
+        await sendRequest({ port, path: '/messages/drain-sess' });
+        assert.equal(adapter.responseBuffers.has('drain-sess'), false);
+      });
+
+      test('should return 400 for malformed percent-encoded session ID', async () => {
+        const res = await sendRequest({
+          port,
+          path: '/messages/%E0%A4',
+        });
+
+        assert.equal(res.statusCode, 400);
+        assert.match(res.body.message, /URL encoding/i);
+      });
+
       test('should return buffered messages and drain the buffer', async () => {
         await adapter.sendMessage('sess-poll', 'reply-1');
         await adapter.sendMessage('sess-poll', 'reply-2');
@@ -1097,6 +1140,7 @@ describe('RESTAdapter', () => {
       assert.equal(typeof adapter._sendJson, 'function');
       assert.equal(typeof adapter._extractBearerToken, 'function');
       assert.equal(typeof adapter._escapeRegExp, 'function');
+      assert.equal(typeof adapter._normalizeBasePath, 'function');
     });
   });
 
@@ -1257,6 +1301,20 @@ describe('RESTAdapter', () => {
       assert.equal(adapter._extractBearerToken(null), null);
       assert.equal(adapter._extractBearerToken(undefined), null);
       assert.equal(adapter._extractBearerToken(123), null);
+    });
+
+    test('should handle _normalizeBasePath with various inputs', () => {
+      const adapter = new RESTAdapter({ port: 3100 });
+
+      assert.equal(adapter._normalizeBasePath('/api/v1'), '/api/v1');
+      assert.equal(adapter._normalizeBasePath('api/v1'), '/api/v1');
+      assert.equal(adapter._normalizeBasePath('/api/v1/'), '/api/v1');
+      assert.equal(adapter._normalizeBasePath('api/v1/'), '/api/v1');
+      assert.equal(adapter._normalizeBasePath(''), '');
+      assert.equal(adapter._normalizeBasePath(null), '');
+      assert.equal(adapter._normalizeBasePath(undefined), '');
+      assert.equal(adapter._normalizeBasePath('/'), '');
+      assert.equal(adapter._normalizeBasePath('///'), '');
     });
 
     test('should handle _escapeRegExp with special characters', () => {
