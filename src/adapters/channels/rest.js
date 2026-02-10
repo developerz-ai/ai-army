@@ -86,7 +86,7 @@ export class RESTAdapter {
 
     this.config = {
       port: config.port,
-      host: config.host || '0.0.0.0',
+      host: config.host ?? '0.0.0.0',
       basePath: this._normalizeBasePath(config.basePath),
       apiKey: config.apiKey || null,
     };
@@ -419,7 +419,7 @@ export class RESTAdapter {
       return;
     }
 
-    if (!body.text || typeof body.text !== 'string') {
+    if (typeof body.text !== 'string') {
       this._sendJson(res, 400, {
         error: 'Bad Request',
         message: 'text is required and must be a string',
