@@ -411,6 +411,8 @@ export class RESTAdapter {
       return;
     }
 
+    // sessionId must be a non-empty string — it is used as the channelId
+    // for routing and session lookups, so blank values are never valid.
     if (typeof body.sessionId !== 'string' || body.sessionId.length === 0) {
       this._sendJson(res, 400, {
         error: 'Bad Request',
@@ -419,6 +421,8 @@ export class RESTAdapter {
       return;
     }
 
+    // text allows empty strings (e.g. metadata-only messages); only the
+    // type is validated here, unlike sessionId which also requires length > 0.
     if (typeof body.text !== 'string') {
       this._sendJson(res, 400, {
         error: 'Bad Request',
