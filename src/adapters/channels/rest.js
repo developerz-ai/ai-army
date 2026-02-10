@@ -302,9 +302,11 @@ export class RESTAdapter {
 
     let pathname;
     try {
-      ({ pathname } = new URL(req.url, `http://${req.headers.host || 'localhost'}`));
-    } catch (_err) {
+      // Always use a fixed base — never trust the client-supplied Host header,
+      // which can contain invalid characters or alter the parsed pathname.
       ({ pathname } = new URL(req.url, 'http://localhost'));
+    } catch (_err) {
+      pathname = req.url?.split('?')[0] || '/';
     }
 
     // CORS headers
