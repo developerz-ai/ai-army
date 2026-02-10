@@ -117,12 +117,33 @@ export class RESTAdapter {
    * Creates the HTTP server and configures request routing.
    * Does not start listening — call start() after initialize().
    *
+   * Accepts an optional config parameter for consistency with the adapter
+   * contract used by ChannelManager (which calls `adapter.initialize(config)`).
+   * When provided, runtime config values are merged into the existing config.
+   *
+   * @param {Object} [config] - Optional runtime config overrides
    * @returns {Promise<void>}
    * @throws {RESTAdapterError} If initialization fails
    */
-  async initialize() {
+  async initialize(config) {
     if (this.initialized) {
       return;
+    }
+
+    // Merge runtime config overrides when provided by ChannelManager
+    if (config && typeof config === 'object') {
+      if (config.port && typeof config.port === 'number') {
+        this.config.port = config.port;
+      }
+      if (config.host !== undefined) {
+        this.config.host = config.host || '0.0.0.0';
+      }
+      if (config.basePath !== undefined) {
+        this.config.basePath = (config.basePath || '').replace(/\/+$/, '');
+      }
+      if (config.apiKey !== undefined) {
+        this.config.apiKey = config.apiKey || null;
+      }
     }
 
     try {
