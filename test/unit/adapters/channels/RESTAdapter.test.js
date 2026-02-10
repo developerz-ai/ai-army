@@ -220,6 +220,42 @@ describe('RESTAdapter', () => {
       );
     });
 
+    test('should throw if port is NaN', () => {
+      assert.throws(
+        () => new RESTAdapter({ port: NaN }),
+        err => {
+          assert.ok(err instanceof RESTAdapterError);
+          assert.equal(err.operation, 'constructor');
+          assert.match(err.message, /port/);
+          return true;
+        }
+      );
+    });
+
+    test('should throw if port is Infinity', () => {
+      assert.throws(
+        () => new RESTAdapter({ port: Infinity }),
+        err => {
+          assert.ok(err instanceof RESTAdapterError);
+          assert.equal(err.operation, 'constructor');
+          assert.match(err.message, /port/);
+          return true;
+        }
+      );
+    });
+
+    test('should throw if port is negative Infinity', () => {
+      assert.throws(
+        () => new RESTAdapter({ port: -Infinity }),
+        err => {
+          assert.ok(err instanceof RESTAdapterError);
+          assert.equal(err.operation, 'constructor');
+          assert.match(err.message, /port/);
+          return true;
+        }
+      );
+    });
+
     test('should accept port 0 for ephemeral port binding', () => {
       const adapter = new RESTAdapter({ port: 0 });
       assert.ok(adapter);
@@ -304,6 +340,24 @@ describe('RESTAdapter', () => {
       const server1 = adapter.server;
       await adapter.initialize();
       assert.equal(adapter.server, server1);
+    });
+
+    test('should ignore NaN port override in initialize config', async () => {
+      const adapter = new RESTAdapter({ port: 3100 });
+      await adapter.initialize({ port: NaN });
+      assert.equal(adapter.config.port, 3100);
+    });
+
+    test('should ignore Infinity port override in initialize config', async () => {
+      const adapter = new RESTAdapter({ port: 3100 });
+      await adapter.initialize({ port: Infinity });
+      assert.equal(adapter.config.port, 3100);
+    });
+
+    test('should accept valid port override in initialize config', async () => {
+      const adapter = new RESTAdapter({ port: 3100 });
+      await adapter.initialize({ port: 4200 });
+      assert.equal(adapter.config.port, 4200);
     });
   });
 

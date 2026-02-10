@@ -77,8 +77,8 @@ export class RESTAdapter {
       });
     }
 
-    if (config.port == null || typeof config.port !== 'number') {
-      throw new RESTAdapterError('port is required and must be a number', {
+    if (config.port == null || !Number.isFinite(config.port)) {
+      throw new RESTAdapterError('port is required and must be a finite number', {
         operation: 'constructor',
         reason: 'Missing or invalid port in config',
       });
@@ -132,7 +132,7 @@ export class RESTAdapter {
 
     // Merge runtime config overrides when provided by ChannelManager
     if (config && typeof config === 'object') {
-      if (config.port != null && typeof config.port === 'number') {
+      if (config.port != null && Number.isFinite(config.port)) {
         this.config.port = config.port;
       }
       if (config.host !== undefined) {
