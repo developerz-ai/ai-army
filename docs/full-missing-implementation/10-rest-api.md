@@ -79,8 +79,8 @@ const server = new APIServer({
   host: '0.0.0.0',
   authConfig: {
     tokens: [
-      { token: 'admin-token-123', role: 'admin', name: 'admin' },
-      { token: 'viewer-token-456', role: 'viewer', name: 'dashboard' }
+      { token: 'admin-token-123', role: 'admin' },
+      { token: 'viewer-token-456', role: 'viewer' }
     ]
   },
   rateLimitConfig: { maxRequests: 100, windowMs: 60000 }
@@ -168,8 +168,8 @@ curl -X POST http://localhost:3000/api/bots/work-bot/message \
 const authConfig = {
   enabled: true,
   tokens: [
-    { value: 'admin-token-123', role: 'admin' },
-    { value: 'viewer-token-456', role: 'viewer' }
+    { token: 'admin-token-123', role: 'admin' },
+    { token: 'viewer-token-456', role: 'viewer' }
   ]
 };
 
@@ -290,11 +290,11 @@ Note: WebSocket support is a planned enhancement but not critical for the core A
       "enabled": true,
       "tokens": [
         {
-          "value": "${API_TOKEN_1}",
+          "token": "${API_TOKEN_1}",
           "role": "admin"
         },
         {
-          "value": "${API_TOKEN_2}",
+          "token": "${API_TOKEN_2}",
           "role": "viewer"
         }
       ]
@@ -360,10 +360,10 @@ Note: WebSocket support is a planned enhancement but not critical for the core A
 ## Testing
 
 All components have comprehensive unit tests:
-- `src/api/api-server.test.js` - Server integration tests
-- `src/api/auth-middleware.test.js` - Authentication & authorization tests
-- `src/api/rate-limiter.test.js` - Rate limiting tests
-- `src/api/routers/*.test.js` - Individual router endpoint tests
+- `test/unit/api/APIServer.test.js` - Server integration tests
+- `test/unit/api/AuthMiddleware.test.js` - Authentication & authorization tests
+- `test/unit/api/RateLimiter.test.js` - Rate limiting tests
+- `test/unit/api/*-router.test.js` - Individual router endpoint tests
 
 Run with: `npm test`
 
