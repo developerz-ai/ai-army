@@ -64,10 +64,8 @@ DATABASE_URL=postgresql://ai_army:DB_PASSWORD_PLACEHOLDER@postgres:5432/ai_army
 PORT=3000
 API_TOKEN=API_TOKEN_PLACEHOLDER
 
-# Optional: Add your AI provider API keys
-# ZAI_API_KEY=your-zai-api-key-here
-# ZAI_BASE_URL=https://api.z.ai/api/paas/v4
-# OPENROUTER_API_KEY=your-openrouter-api-key-here
+# AI Provider API Key
+OPENROUTER_API_KEY=your-openrouter-api-key-here
 EOF
 
   sed -i "s/DB_PASSWORD_PLACEHOLDER/\$DB_PASSWORD/g" .env
@@ -82,14 +80,14 @@ else
   echo "  ✅ .env already exists (not overwriting)"
 fi
 
-# Update config.json for Z.AI
-echo "  → Configuring Z.AI provider..."
+# Update config.json for OpenRouter
+echo "  → Configuring OpenRouter provider..."
 cat > config.json << 'EOF'
 {
   "defaults": {
     "model": {
-      "provider": "zai",
-      "model": "glm-5"
+      "provider": "openrouter",
+      "model": "openrouter/aurora-alpha"
     },
     "sandbox": {
       "type": "docker",
@@ -97,10 +95,9 @@ cat > config.json << 'EOF'
     }
   },
   "providers": {
-    "zai": {
-      "type": "openai",
-      "apiKey": "\${ZAI_API_KEY}",
-      "baseURL": "\${ZAI_BASE_URL}"
+    "openrouter": {
+      "type": "openrouter",
+      "apiKey": "\${OPENROUTER_API_KEY}"
     }
   },
   "channels": {},
@@ -116,8 +113,8 @@ cat > bots/test-bot/config.json << 'EOF'
 {
   "id": "test-bot",
   "soul": "./soul.md",
-  "provider": "zai",
-  "model": "glm-5",
+  "provider": "openrouter",
+  "model": "openrouter/aurora-alpha",
   "tools": ["bash", "readFile", "writeFile"]
 }
 EOF
