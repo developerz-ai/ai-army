@@ -112,7 +112,8 @@ function resolveLevelIndex(minLevel) {
  * @param {string} [options.component] - Component name included in every log entry
  * @param {string} [options.level='info'] - Minimum log level: 'error' | 'warn' | 'info' | 'debug'
  * @param {boolean} [options.json] - Force JSON output (defaults to `true` when `NODE_ENV=production`)
- * @param {Function} [options.writer] - Output function (defaults to `console.log` for info/debug, `console.error` for error/warn)
+ * @param {Function} [options.writer] - Output function for all levels (overrides both stdout and stderr defaults)
+ * @param {Function} [options.errorWriter] - Output function for error/warn levels (defaults to `console.error`; ignored when `writer` is set)
  * @returns {Function & { info: Function, warn: Function, error: Function, debug: Function }}
  *
  * @example
@@ -133,9 +134,11 @@ export function createLogger(options = {}) {
   const minLevelIndex = resolveLevelIndex(options.level || 'info');
   const format = useJson ? formatJson : formatDev;
 
-  // Resolve writer functions — default to console.log/console.error
+  // Resolve writer functions — when a single `writer` is provided it handles
+  // every level; otherwise fall back to console.log / console.error (or an
+  // explicit `errorWriter` for warn+error output).
   const stdWriter = options.writer || console.log;
-  const errWriter = options.writer || console.error;
+  const errWriter = options.writer || options.errorWriter || console.error;
 
   /**
    * Emit a log entry if the level meets the minimum threshold

@@ -557,6 +557,49 @@ describe('Logger', () => {
       assert.ok(writer.calls[0].includes('[Test]'));
       assert.ok(writer.calls[0].includes('Test message'));
     });
+
+    test('uses errorWriter for warn/error when provided without writer', () => {
+      const stdCalls = [];
+      const errWriter = createMockWriter();
+
+      // Mock console.log BEFORE creating the logger so it captures the mock
+      const originalLog = console.log;
+      console.log = msg => stdCalls.push(msg);
+
+      const logger = createLogger({ level: 'debug', errorWriter: errWriter });
+
+      logger.debug('Debug msg');
+      logger.info('Info msg');
+      logger.warn('Warn msg');
+      logger.error('Error msg');
+
+      console.log = originalLog;
+
+      // info and debug go to console.log (default)
+      assert.equal(stdCalls.length, 2);
+      assert.ok(stdCalls[0].includes('Debug msg'));
+      assert.ok(stdCalls[1].includes('Info msg'));
+
+      // warn and error go to custom errorWriter
+      assert.equal(errWriter.calls.length, 2);
+      assert.ok(errWriter.calls[0].includes('Warn msg'));
+      assert.ok(errWriter.calls[1].includes('Error msg'));
+    });
+
+    test('writer option overrides errorWriter when both provided', () => {
+      const writer = createMockWriter();
+      const errWriter = createMockWriter();
+      const logger = createLogger({ level: 'debug', writer, errorWriter: errWriter });
+
+      logger.debug('Debug');
+      logger.info('Info');
+      logger.warn('Warn');
+      logger.error('Error');
+
+      // All output goes to the single writer, errorWriter is ignored
+      assert.equal(writer.calls.length, 4);
+      assert.equal(errWriter.calls.length, 0);
+    });
   });
 
   // ========================================================================
