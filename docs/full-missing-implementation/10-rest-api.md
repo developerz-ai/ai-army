@@ -163,8 +163,8 @@ curl -X POST http://localhost:3000/api/bots/work-bot/message \
 const authConfig = {
   enabled: true,
   tokens: [
-    { value: 'admin-token-123', roles: ['admin', 'viewer'] },
-    { value: 'viewer-token-456', roles: ['viewer'] }
+    { value: 'admin-token-123', role: 'admin' },
+    { value: 'viewer-token-456', role: 'viewer' }
   ]
 };
 
@@ -248,23 +248,23 @@ Note: WebSocket support is a planned enhancement but not critical for the core A
 
 ```
 ✅ src/api/api-server.js
-✅ src/api/api-server.test.js
 ✅ src/api/auth-middleware.js
-✅ src/api/auth-middleware.test.js
 ✅ src/api/rate-limiter.js
-✅ src/api/rate-limiter.test.js
 ✅ src/api/routers/bot-router.js
-✅ src/api/routers/bot-router.test.js
 ✅ src/api/routers/session-router.js
-✅ src/api/routers/session-router.test.js
 ✅ src/api/routers/queue-router.js
-✅ src/api/routers/queue-router.test.js
 ✅ src/api/routers/metrics-router.js
-✅ src/api/routers/metrics-router.test.js
 ✅ src/api/routers/health-router.js
-✅ src/api/routers/health-router.test.js
 ✅ src/api/routers/audit-router.js
-✅ src/api/routers/audit-router.test.js
+✅ test/unit/api/APIServer.test.js
+✅ test/unit/api/AuthMiddleware.test.js
+✅ test/unit/api/RateLimiter.test.js
+✅ test/unit/api/bot-router.test.js
+✅ test/unit/api/session-router.test.js
+✅ test/unit/api/queue-router.test.js
+✅ test/unit/api/metrics-router.test.js
+✅ test/unit/api/health-router.test.js
+✅ test/unit/api/audit-router.test.js
 ⏸️ src/api/websocket-server.js (Optional, low priority)
 ```
 
@@ -281,11 +281,11 @@ Note: WebSocket support is a planned enhancement but not critical for the core A
       "tokens": [
         {
           "value": "${API_TOKEN_1}",
-          "roles": ["admin"]
+          "role": "admin"
         },
         {
           "value": "${API_TOKEN_2}",
-          "roles": ["viewer"]
+          "role": "viewer"
         }
       ]
     },
