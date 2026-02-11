@@ -1,8 +1,8 @@
 {
   "id": "assistant",
   "soul": "./soul.md",
-  "provider": "anthropic",
-  "model": "claude-sonnet-4-5",
+  "provider": "openrouter",
+  "model": "openrouter/aurora-alpha",
   "tools": [
     "bash",
     "readFile",
