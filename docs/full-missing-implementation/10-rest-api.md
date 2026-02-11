@@ -77,7 +77,12 @@
 const server = new APIServer({
   port: 3000,
   host: '0.0.0.0',
-  authConfig: { tokens: ['token-123'] },
+  authConfig: {
+    tokens: [
+      { token: 'admin-token-123', role: 'admin', name: 'admin' },
+      { token: 'viewer-token-456', role: 'viewer', name: 'dashboard' }
+    ]
+  },
   rateLimitConfig: { maxRequests: 100, windowMs: 60000 }
 });
 
@@ -202,29 +207,34 @@ Features:
 
 ⏸️ **Not yet implemented** (Low priority, optional feature)
 
-For real-time updates, would need:
+For real-time updates, a WebSocket server could be added. This would require
+installing the [`ws`](https://www.npmjs.com/package/ws) package as an additional
+dependency (`npm install ws`), which is **not** currently included in the project.
+
+Conceptual design:
 ```javascript
 // src/api/websocket-server.js - NOT IMPLEMENTED
-import { WebSocketServer } from 'ws';
+// Requires: npm install ws
+// import { WebSocketServer } from 'ws';
 
 class WSServer {
   constructor(server) {
-    this.wss = new WebSocketServer({ server });
+    // this.wss = new WebSocketServer({ server });
     this.clients = new Map();
   }
 
   broadcast(event, data) {
     const message = JSON.stringify({ event, data });
-    this.wss.clients.forEach(client => {
-      if (client.readyState === 1) {
-        client.send(message);
-      }
-    });
+    // this.wss.clients.forEach(client => {
+    //   if (client.readyState === 1) {
+    //     client.send(message);
+    //   }
+    // });
   }
 }
 ```
 
-Note: WebSocket support is a planned enhancement but not critical for the core API functionality.
+Note: WebSocket support is a planned enhancement but not critical for the core API functionality. The `ws` package is listed under optional dependencies and must be installed separately before implementing this feature.
 
 ## Current State
 
