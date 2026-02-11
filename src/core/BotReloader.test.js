@@ -169,9 +169,9 @@ describe('BotReloader', () => {
       assert.equal(reloader.logger, logger);
     });
 
-    test('uses default logger when none provided', () => {
+    test('uses null logger when none provided', () => {
       const reloader = new BotReloader(botManager, containerPool, soulLoader);
-      assert.equal(typeof reloader.logger, 'function');
+      assert.equal(reloader.logger, null);
     });
   });
 

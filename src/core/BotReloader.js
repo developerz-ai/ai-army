@@ -49,7 +49,7 @@ export class BotReloader {
    * @param {Object} containerPool - ContainerPool instance for container management
    * @param {Object} soulLoader - SoulLoader instance for loading soul.md files
    * @param {Object} [options={}] - Configuration options
-   * @param {Function} [options.logger] - Logger function (defaults to console.log)
+   * @param {Function} [options.logger] - Logger function (defaults to null/no-op)
    */
   constructor(botManager, containerPool, soulLoader, options = {}) {
     if (!botManager) {
@@ -71,7 +71,7 @@ export class BotReloader {
     this.botManager = botManager;
     this.containerPool = containerPool;
     this.soulLoader = soulLoader;
-    this.logger = options.logger || (msg => console.log(msg));
+    this.logger = options.logger || null;
   }
 
   /**
