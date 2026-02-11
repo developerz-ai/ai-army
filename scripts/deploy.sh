@@ -100,6 +100,11 @@ cat > config.json << 'EOF'
       "apiKey": "\${OPENROUTER_API_KEY}"
     }
   },
+  "api": {
+    "enabled": true,
+    "port": 3000,
+    "host": "0.0.0.0"
+  },
   "channels": {},
   "mcpServers": {}
 }
