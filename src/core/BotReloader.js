@@ -49,7 +49,7 @@ export class BotReloader {
    * @param {Object} containerPool - ContainerPool instance for container management
    * @param {Object} soulLoader - SoulLoader instance for loading soul.md files
    * @param {Object} [options={}] - Configuration options
-   * @param {Function} [options.logger] - Logger function (defaults to null/no-op)
+   * @param {Function} [options.logger] - Logger function (defaults to no-op)
    */
   constructor(botManager, containerPool, soulLoader, options = {}) {
     if (!botManager) {
@@ -68,10 +68,16 @@ export class BotReloader {
       });
     }
 
+    if (options.logger !== undefined && typeof options.logger !== 'function') {
+      throw new BotReloaderError('Logger must be a function', {
+        operation: 'constructor',
+      });
+    }
+
     this.botManager = botManager;
     this.containerPool = containerPool;
     this.soulLoader = soulLoader;
-    this.logger = options.logger || null;
+    this.logger = typeof options.logger === 'function' ? options.logger : () => {};
   }
 
   /**
@@ -320,9 +326,7 @@ export class BotReloader {
    * @private
    */
   _log(message) {
-    if (this.logger) {
-      this.logger(message);
-    }
+    this.logger(message);
   }
 }
 

@@ -169,9 +169,23 @@ describe('BotReloader', () => {
       assert.equal(reloader.logger, logger);
     });
 
-    test('uses null logger when none provided', () => {
+    test('uses no-op logger when none provided', () => {
       const reloader = new BotReloader(botManager, containerPool, soulLoader);
-      assert.equal(reloader.logger, null);
+      assert.equal(typeof reloader.logger, 'function');
+      // Calling it should not throw
+      assert.doesNotThrow(() => reloader.logger('test message'));
+    });
+
+    test('throws BotReloaderError for non-function logger', () => {
+      assert.throws(
+        () => new BotReloader(botManager, containerPool, soulLoader, { logger: 'not-a-function' }),
+        err => {
+          assert.ok(err instanceof BotReloaderError);
+          assert.ok(err.message.includes('Logger must be a function'));
+          assert.equal(err.operation, 'constructor');
+          return true;
+        }
+      );
     });
   });
 
