@@ -53,6 +53,7 @@ import { SessionRouter } from '../api/routers/session-router.js';
 import { QueueRouter } from '../api/routers/queue-router.js';
 import { MetricsRouter } from '../api/routers/metrics-router.js';
 import { AuditRouter } from '../api/routers/audit-router.js';
+import { createLogger } from '../utils/logger.js';
 
 /**
  * Orchestrator lifecycle states
@@ -98,7 +99,7 @@ export class Orchestrator {
    * @param {string} [options.botsPath='./bots'] - Path to bots directory
    * @param {string} [options.dataPath='./data'] - Path to bot data/workspace directory
    * @param {string} [options.migrationsPath='./migrations'] - Path to migrations directory
-   * @param {Function|null} [options.logger=console.log] - Logger function (null to suppress)
+   * @param {Function|null} [options.logger] - Logger function or structured logger (null to suppress). Defaults to createLogger({ component: 'Orchestrator' })
    * @param {Object} [options.storage] - Pre-configured storage instance (for DI/testing)
    * @param {Object} [options.botManager] - Pre-configured BotManager instance (for DI/testing)
    * @param {Object} [options.sessionManager] - Pre-configured SessionManager (for DI/testing)
@@ -170,7 +171,8 @@ export class Orchestrator {
     this.dataPath = options.dataPath || './data';
     this.migrationsPath = options.migrationsPath || './migrations';
     this.skillsPath = options.skillsPath || './skills';
-    this.logger = options.logger !== undefined ? options.logger : console.log;
+    this.logger =
+      options.logger !== undefined ? options.logger : createLogger({ component: 'Orchestrator' });
 
     // Dependency injection support
     this.storage = options.storage || null;
@@ -2682,7 +2684,27 @@ export class Orchestrator {
       };
     }
 
-    // If the logger is a function (e.g. console.log), wrap it to provide
+    // If the logger is a function with structured methods (e.g. createLogger()),
+    // use the structured methods directly
+    if (typeof this.logger === 'function' && typeof this.logger.info === 'function') {
+      return {
+        info: (...args) => this.logger.info(...args),
+        warn:
+          typeof this.logger.warn === 'function'
+            ? (...args) => this.logger.warn(...args)
+            : (...args) => this.logger.info(...args),
+        error:
+          typeof this.logger.error === 'function'
+            ? (...args) => this.logger.error(...args)
+            : (...args) => this.logger.info(...args),
+        debug:
+          typeof this.logger.debug === 'function'
+            ? (...args) => this.logger.debug(...args)
+            : () => {},
+      };
+    }
+
+    // If the logger is a plain function (e.g. console.log), wrap it to provide
     // all expected methods with consistent multi-arg support
     if (typeof this.logger === 'function') {
       const fn = this.logger;
