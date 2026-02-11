@@ -299,9 +299,14 @@ describe('Orchestrator', () => {
       assert.equal(orch.logger, null);
     });
 
-    test('defaults logger to console.log when not specified', () => {
+    test('defaults logger to createLogger when not specified', () => {
       const orch = new Orchestrator({});
-      assert.equal(orch.logger, console.log);
+      assert.equal(typeof orch.logger, 'function');
+      // createLogger returns a callable with structured methods
+      assert.equal(typeof orch.logger.info, 'function');
+      assert.equal(typeof orch.logger.warn, 'function');
+      assert.equal(typeof orch.logger.error, 'function');
+      assert.equal(typeof orch.logger.debug, 'function');
     });
 
     test('accepts factories for deferred creation', () => {
