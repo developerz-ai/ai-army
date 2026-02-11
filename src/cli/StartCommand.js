@@ -26,6 +26,77 @@ export class StartCommandError extends Error {
 }
 
 /**
+ * Default development database password used in .env.example and docker-compose
+ * @constant {string}
+ */
+const DEFAULT_DEV_DB_PASSWORD = 'ai_army_dev';
+
+/**
+ * Hostnames that indicate a local/docker-internal database
+ * @constant {string[]}
+ */
+const LOCAL_DB_HOSTS = ['localhost', '127.0.0.1', 'postgres'];
+
+/**
+ * Check production environment for common misconfigurations.
+ *
+ * When NODE_ENV=production, warns about:
+ * - Empty API_TOKEN (API has no authentication)
+ * - Default DB_PASSWORD (insecure database credentials)
+ * - DATABASE_URL pointing to localhost or docker-internal hostname
+ *
+ * Warnings are informational only and do not block startup.
+ *
+ * @param {Object} options - Options
+ * @param {Function} options.write - Output function (msg => ...)
+ * @param {Object} [options.env=process.env] - Environment variables to check
+ * @returns {string[]} Array of warning messages emitted
+ */
+export function _checkProductionWarnings({ write, env = process.env } = {}) {
+  const warnings = [];
+
+  if (env.NODE_ENV !== 'production') {
+    return warnings;
+  }
+
+  // Check API_TOKEN
+  if (!env.API_TOKEN) {
+    warnings.push('API_TOKEN is not set — REST API has no authentication');
+  }
+
+  // Check DB_PASSWORD
+  if (env.DB_PASSWORD === DEFAULT_DEV_DB_PASSWORD) {
+    warnings.push(
+      `DB_PASSWORD is set to the default dev value ('${DEFAULT_DEV_DB_PASSWORD}') — use a strong password in production`
+    );
+  }
+
+  // Check DATABASE_URL for local/docker-internal hosts
+  if (env.DATABASE_URL) {
+    try {
+      const url = new URL(env.DATABASE_URL);
+      if (LOCAL_DB_HOSTS.includes(url.hostname)) {
+        warnings.push(
+          `DATABASE_URL points to '${url.hostname}' — use a remote database host in production`
+        );
+      }
+    } catch {
+      // If URL is malformed, skip host check — other validators will catch it
+    }
+  }
+
+  if (warnings.length > 0) {
+    write('\n⚠️  Production warnings:\n');
+    for (const warning of warnings) {
+      write(`   • ${warning}\n`);
+    }
+    write('\n');
+  }
+
+  return warnings;
+}
+
+/**
  * Run the start command
  *
  * Creates an Orchestrator with the given config path, starts it,
@@ -39,6 +110,7 @@ export class StartCommandError extends Error {
  * @param {Object} [options.orchestrator] - Pre-configured Orchestrator (for DI/testing)
  * @param {Function} [options.onShutdown] - Callback after graceful shutdown
  * @param {Object} [options.processRef=process] - Process reference for signal handling
+ * @param {Object} [options.env=process.env] - Environment variables (for DI/testing)
  * @returns {Promise<{ orchestrator: Object }>} Started orchestrator
  */
 export async function runStart({
@@ -49,10 +121,14 @@ export async function runStart({
   orchestrator,
   onShutdown,
   processRef = process,
+  env = process.env,
 } = {}) {
   const write = msg => output.write(msg);
 
   write('🚀 Starting AI Army in production mode...\n\n');
+
+  // Check for production misconfigurations before starting
+  _checkProductionWarnings({ write, env });
 
   // Create orchestrator if not injected
   const orch =

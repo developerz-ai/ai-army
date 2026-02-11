@@ -11,7 +11,11 @@
 
 import { test, describe, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { runStart, StartCommandError } from '../../../src/cli/StartCommand.js';
+import {
+  runStart,
+  StartCommandError,
+  _checkProductionWarnings,
+} from '../../../src/cli/StartCommand.js';
 import { OrchestratorError } from '../../../src/core/orchestrator.js';
 
 // ============================================================================
@@ -562,6 +566,278 @@ describe('StartCommand - runStart()', () => {
 
       assert.ok(result.orchestrator);
     });
+  });
+});
+
+// ============================================================================
+// Production Warnings Tests
+// ============================================================================
+
+describe('StartCommand - _checkProductionWarnings()', () => {
+  let out;
+
+  beforeEach(() => {
+    out = createOutputStream();
+  });
+
+  const write = out => msg => out.write(msg);
+
+  describe('non-production environments', () => {
+    test('returns no warnings when NODE_ENV is development', () => {
+      const env = { NODE_ENV: 'development' };
+      const warnings = _checkProductionWarnings({ write: write(out), env });
+      assert.equal(warnings.length, 0);
+      assert.equal(out.output(), '');
+    });
+
+    test('returns no warnings when NODE_ENV is test', () => {
+      const env = { NODE_ENV: 'test' };
+      const warnings = _checkProductionWarnings({ write: write(out), env });
+      assert.equal(warnings.length, 0);
+    });
+
+    test('returns no warnings when NODE_ENV is undefined', () => {
+      const env = {};
+      const warnings = _checkProductionWarnings({ write: write(out), env });
+      assert.equal(warnings.length, 0);
+    });
+
+    test('skips all checks when not in production', () => {
+      const env = {
+        NODE_ENV: 'development',
+        API_TOKEN: '',
+        DB_PASSWORD: 'ai_army_dev',
+        DATABASE_URL: 'postgresql://ai_army:ai_army_dev@localhost:5432/ai_army',
+      };
+      const warnings = _checkProductionWarnings({ write: write(out), env });
+      assert.equal(warnings.length, 0);
+    });
+  });
+
+  describe('API_TOKEN checks', () => {
+    test('warns when API_TOKEN is empty string', () => {
+      const env = { NODE_ENV: 'production', API_TOKEN: '' };
+      const warnings = _checkProductionWarnings({ write: write(out), env });
+      assert.ok(warnings.some(w => w.includes('API_TOKEN')));
+      assert.ok(out.output().includes('API_TOKEN'));
+    });
+
+    test('warns when API_TOKEN is not set', () => {
+      const env = { NODE_ENV: 'production' };
+      const warnings = _checkProductionWarnings({ write: write(out), env });
+      assert.ok(warnings.some(w => w.includes('API_TOKEN')));
+    });
+
+    test('does not warn when API_TOKEN is set', () => {
+      const env = {
+        NODE_ENV: 'production',
+        API_TOKEN: 'sk-prod-secure-token-12345',
+      };
+      const warnings = _checkProductionWarnings({ write: write(out), env });
+      assert.ok(!warnings.some(w => w.includes('API_TOKEN')));
+    });
+  });
+
+  describe('DB_PASSWORD checks', () => {
+    test('warns when DB_PASSWORD is the default dev value', () => {
+      const env = { NODE_ENV: 'production', DB_PASSWORD: 'ai_army_dev' };
+      const warnings = _checkProductionWarnings({ write: write(out), env });
+      assert.ok(warnings.some(w => w.includes('DB_PASSWORD')));
+      assert.ok(warnings.some(w => w.includes('ai_army_dev')));
+    });
+
+    test('does not warn when DB_PASSWORD is a strong password', () => {
+      const env = {
+        NODE_ENV: 'production',
+        DB_PASSWORD: 'super-secure-prod-password-2024!',
+      };
+      const warnings = _checkProductionWarnings({ write: write(out), env });
+      assert.ok(!warnings.some(w => w.includes('DB_PASSWORD')));
+    });
+
+    test('does not warn when DB_PASSWORD is not set', () => {
+      const env = { NODE_ENV: 'production' };
+      const warnings = _checkProductionWarnings({ write: write(out), env });
+      assert.ok(!warnings.some(w => w.includes('DB_PASSWORD')));
+    });
+  });
+
+  describe('DATABASE_URL checks', () => {
+    test('warns when DATABASE_URL points to localhost', () => {
+      const env = {
+        NODE_ENV: 'production',
+        DATABASE_URL: 'postgresql://ai_army:pass@localhost:5432/ai_army',
+      };
+      const warnings = _checkProductionWarnings({ write: write(out), env });
+      assert.ok(warnings.some(w => w.includes('localhost')));
+    });
+
+    test('warns when DATABASE_URL points to 127.0.0.1', () => {
+      const env = {
+        NODE_ENV: 'production',
+        DATABASE_URL: 'postgresql://ai_army:pass@127.0.0.1:5432/ai_army',
+      };
+      const warnings = _checkProductionWarnings({ write: write(out), env });
+      assert.ok(warnings.some(w => w.includes('127.0.0.1')));
+    });
+
+    test('warns when DATABASE_URL points to postgres (docker internal)', () => {
+      const env = {
+        NODE_ENV: 'production',
+        DATABASE_URL: 'postgresql://ai_army:pass@postgres:5432/ai_army',
+      };
+      const warnings = _checkProductionWarnings({ write: write(out), env });
+      assert.ok(warnings.some(w => w.includes('postgres')));
+    });
+
+    test('does not warn when DATABASE_URL points to a remote host', () => {
+      const env = {
+        NODE_ENV: 'production',
+        DATABASE_URL: 'postgresql://ai_army:pass@prod-db.internal:5432/ai_army',
+      };
+      const warnings = _checkProductionWarnings({ write: write(out), env });
+      assert.ok(!warnings.some(w => w.includes('DATABASE_URL')));
+    });
+
+    test('does not warn when DATABASE_URL is not set', () => {
+      const env = { NODE_ENV: 'production' };
+      const warnings = _checkProductionWarnings({ write: write(out), env });
+      assert.ok(!warnings.some(w => w.includes('DATABASE_URL')));
+    });
+
+    test('does not crash on malformed DATABASE_URL', () => {
+      const env = {
+        NODE_ENV: 'production',
+        DATABASE_URL: 'not-a-valid-url',
+      };
+      const warnings = _checkProductionWarnings({ write: write(out), env });
+      // Should not throw, and should not include a DATABASE_URL warning
+      assert.ok(!warnings.some(w => w.includes('DATABASE_URL')));
+    });
+  });
+
+  describe('combined warnings', () => {
+    test('reports all warnings when multiple issues exist', () => {
+      const env = {
+        NODE_ENV: 'production',
+        API_TOKEN: '',
+        DB_PASSWORD: 'ai_army_dev',
+        DATABASE_URL: 'postgresql://ai_army:ai_army_dev@postgres:5432/ai_army',
+      };
+      const warnings = _checkProductionWarnings({ write: write(out), env });
+      assert.equal(warnings.length, 3);
+      assert.ok(warnings.some(w => w.includes('API_TOKEN')));
+      assert.ok(warnings.some(w => w.includes('DB_PASSWORD')));
+      assert.ok(warnings.some(w => w.includes('DATABASE_URL')));
+    });
+
+    test('outputs warning header when warnings exist', () => {
+      const env = {
+        NODE_ENV: 'production',
+        API_TOKEN: '',
+      };
+      _checkProductionWarnings({ write: write(out), env });
+      assert.ok(out.output().includes('Production warnings'));
+    });
+
+    test('outputs bullet points for each warning', () => {
+      const env = {
+        NODE_ENV: 'production',
+        API_TOKEN: '',
+        DB_PASSWORD: 'ai_army_dev',
+      };
+      _checkProductionWarnings({ write: write(out), env });
+      const output = out.output();
+      const bulletCount = (output.match(/•/g) || []).length;
+      assert.equal(bulletCount, 2);
+    });
+
+    test('does not output header when no warnings', () => {
+      const env = {
+        NODE_ENV: 'production',
+        API_TOKEN: 'secure-token',
+        DB_PASSWORD: 'strong-password',
+        DATABASE_URL: 'postgresql://user:pass@remote-db.example.com:5432/db',
+      };
+      _checkProductionWarnings({ write: write(out), env });
+      assert.equal(out.output(), '');
+    });
+  });
+});
+
+describe('StartCommand - runStart() production warnings integration', () => {
+  let out;
+  let proc;
+
+  beforeEach(() => {
+    out = createOutputStream();
+    proc = createMockProcess();
+  });
+
+  test('shows production warnings before startup when NODE_ENV=production', async () => {
+    const orch = createMockOrchestrator();
+    const env = {
+      NODE_ENV: 'production',
+      API_TOKEN: '',
+      DB_PASSWORD: 'ai_army_dev',
+      DATABASE_URL: 'postgresql://ai_army:ai_army_dev@localhost:5432/ai_army',
+    };
+
+    await runStart({
+      orchestrator: orch,
+      output: out,
+      processRef: proc,
+      env,
+    });
+
+    const result = out.output();
+    assert.ok(result.includes('Production warnings'));
+    assert.ok(result.includes('API_TOKEN'));
+    assert.ok(result.includes('DB_PASSWORD'));
+    assert.ok(result.includes('localhost'));
+    // Warnings should appear before the "running" message
+    const warningIdx = result.indexOf('Production warnings');
+    const runningIdx = result.indexOf('AI Army is running');
+    assert.ok(warningIdx < runningIdx, 'Warnings should appear before running message');
+  });
+
+  test('does not show production warnings in development mode', async () => {
+    const orch = createMockOrchestrator();
+    const env = {
+      NODE_ENV: 'development',
+      API_TOKEN: '',
+      DB_PASSWORD: 'ai_army_dev',
+    };
+
+    await runStart({
+      orchestrator: orch,
+      output: out,
+      processRef: proc,
+      env,
+    });
+
+    const result = out.output();
+    assert.ok(!result.includes('Production warnings'));
+  });
+
+  test('does not block startup when warnings exist', async () => {
+    const orch = createMockOrchestrator();
+    const env = {
+      NODE_ENV: 'production',
+      API_TOKEN: '',
+      DB_PASSWORD: 'ai_army_dev',
+    };
+
+    const result = await runStart({
+      orchestrator: orch,
+      output: out,
+      processRef: proc,
+      env,
+    });
+
+    // Orchestrator should still have started
+    assert.equal(orch.start.mock.calls.length, 1);
+    assert.ok(result.orchestrator);
   });
 });
 
