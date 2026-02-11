@@ -76,17 +76,17 @@ fi
 echo ""
 
 echo "========================================="
-echo "6. Z.AI API Connectivity"
+echo "6. OpenRouter API Connectivity"
 echo "========================================="
-response=$(curl -s -w "\n%{http_code}" -X POST "https://api.z.ai/api/paas/v4/chat/completions" \
-  -H "Authorization: Bearer $ZAI_API_KEY" \
+response=$(curl -s -w "\n%{http_code}" -X POST "https://openrouter.ai/api/v1/chat/completions" \
+  -H "Authorization: Bearer $OPENROUTER_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"model":"glm-5","messages":[{"role":"user","content":"test"}],"max_tokens":5}' 2>&1)
+  -d '{"model":"openrouter/aurora-alpha","messages":[{"role":"system","content":"You are a helpful assistant."},{"role":"user","content":"Say hello in one word."}],"max_tokens":5}' 2>&1)
 http_code=$(echo "$response" | tail -n1)
 if [ "$http_code" = "200" ]; then
-  echo "✅ Z.AI API connection successful"
+  echo "✅ OpenRouter API connection successful"
 else
-  echo "❌ Z.AI API connection failed (HTTP $http_code)"
+  echo "❌ OpenRouter API connection failed (HTTP $http_code)"
   echo "$response" | head -n-1
 fi
 echo ""
