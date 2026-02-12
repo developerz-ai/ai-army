@@ -474,11 +474,17 @@ describe('Full Message Processing Pipeline Integration', { skip: !DB_AVAILABLE }
       ];
       const steps = [
         {
-          toolCalls,
-          toolResults: [
+          content: [
             {
+              type: 'tool-call',
+              toolName: 'bash',
               toolCallId: 'call_err',
-              result: 'Error: No such file or directory',
+              input: { command: 'cat /nonexistent' },
+            },
+            {
+              type: 'tool-result',
+              toolCallId: 'call_err',
+              output: 'Error: No such file or directory',
               isError: true,
             },
           ],
