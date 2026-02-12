@@ -17,10 +17,8 @@ llm:
 defaults:
   maxSteps: 50
   temperature: 0.7
-  resources:
-    cpu: '2'
-    memory: '4Gi'
-    storage: '20Gi'
+  memory: '4g'
+  cpus: 2
 
 # Worker definitions (relative paths to YAML files)
 workers:
