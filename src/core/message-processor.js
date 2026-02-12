@@ -199,7 +199,7 @@ export class MessageProcessor {
         for (const step of result.steps) {
           const toolResults = step.content?.filter(c => c.type === 'tool-result') || [];
           for (const tr of toolResults) {
-            const output = tr.output;
+            const { output } = tr;
             if (output?.stdout) {
               toolOutputs.push(output.stdout);
             } else if (output?.content) {
@@ -346,7 +346,9 @@ export class MessageProcessor {
               parameters: toolCall.input || toolCall.args || null,
               result: matchingResult?.output || matchingResult?.result || null,
               success: matchingResult ? !matchingResult.isError : true,
-              error: matchingResult?.isError ? String(matchingResult.result) : null,
+              error: matchingResult?.isError
+                ? String(matchingResult.output || matchingResult.result)
+                : null,
               durationMs: null,
             });
             loggedIds.push(id);

@@ -86,7 +86,7 @@ export async function runDev({
         if (!config.database?.url) return null;
         return new PostgresStorage(config.database.url);
       },
-      botManagerFactory: (storage, config) => {
+      botManagerFactory: (storage, _config) => {
         if (!storage) return null;
         const dockerManager = new DockerManager();
         const containerPool = new ContainerPool(dockerManager);
@@ -96,11 +96,11 @@ export async function runDev({
           skillRegistry: null,
         });
       },
-      sessionManagerFactory: (storage, config) => {
+      sessionManagerFactory: (storage, _config) => {
         if (!storage) return null;
         return new SessionManager(storage);
       },
-      messageProcessorFactory: (sessionManager, storage, config) => {
+      messageProcessorFactory: (sessionManager, storage, _config) => {
         if (!sessionManager || !storage) return null;
         const dockerManager = new DockerManager();
         const containerPool = new ContainerPool(dockerManager);

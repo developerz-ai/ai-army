@@ -41,12 +41,6 @@ export class ModelFactoryError extends Error {
 const SUPPORTED_PROVIDERS = ['anthropic', 'openai', 'openrouter', 'ollama'];
 
 /**
- * Default OpenRouter API base URL
- * @type {string}
- */
-const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
-
-/**
  * Default Ollama API base URL
  * @type {string}
  */

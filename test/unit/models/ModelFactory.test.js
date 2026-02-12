@@ -102,7 +102,7 @@ describe('ModelFactory', () => {
 
       test('uses openai-compatible provider under the hood', () => {
         const model = ModelFactory.createModel('openrouter', 'meta/llama-3', 'key');
-        assert.ok(model.provider.startsWith('openai'));
+        assert.equal(model.provider, 'openrouter');
       });
     });
 

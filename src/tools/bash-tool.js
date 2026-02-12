@@ -142,7 +142,7 @@ export function createBashTool(containerPool, botId, toolConfig = {}) {
       command: z.string().describe('Bash command to execute'),
       timeout: z.number().optional().describe('Timeout in milliseconds (default: 30000)'),
     }),
-    execute: async (params) => {
+    execute: async params => {
       // Handle both "command" and "cmd" parameter names for compatibility
       const command = params.command || params.cmd;
       const commandTimeout = params.timeout;

@@ -19,7 +19,12 @@ import { AgentRunner } from '../agent/agent-runner.js';
 import { ModelFactory } from '../models/model-factory.js';
 import { ToolRegistry } from '../tools/tool-registry.js';
 import { createBashTool } from '../tools/bash-tool.js';
-import { createReadFileTool, createWriteFileTool, createGlobTool, createGrepTool } from '../tools/file-tools.js';
+import {
+  createReadFileTool,
+  createWriteFileTool,
+  createGlobTool,
+  createGrepTool,
+} from '../tools/file-tools.js';
 
 /**
  * Custom error for start command failures
@@ -159,7 +164,7 @@ export async function runStart({
         if (!config.database?.url) return null;
         return new PostgresStorage(config.database.url);
       },
-      botManagerFactory: (storage, config) => {
+      botManagerFactory: (storage, _config) => {
         if (!storage) return null;
         // Create shared DockerManager and ContainerPool
         if (!sharedDockerManager) {
@@ -172,11 +177,11 @@ export async function runStart({
           skillRegistry: null,
         });
       },
-      sessionManagerFactory: (storage, config) => {
+      sessionManagerFactory: (storage, _config) => {
         if (!storage) return null;
         return new SessionManager(storage);
       },
-      messageProcessorFactory: (sessionManager, storage, config) => {
+      messageProcessorFactory: (sessionManager, storage, _config) => {
         if (!sessionManager || !storage) return null;
         // Reuse the shared ContainerPool from botManagerFactory
         if (!sharedContainerPool) {

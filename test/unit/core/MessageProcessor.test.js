@@ -100,11 +100,17 @@ function createMockAgentRunnerWithTools(toolCalls, steps) {
 
   const defaultSteps = steps || [
     {
-      toolCalls: defaultToolCalls,
-      toolResults: [
+      content: [
         {
+          type: 'tool-call',
+          toolName: 'bash',
           toolCallId: 'call_1',
-          result: 'file1.txt\nfile2.txt',
+          input: { command: 'ls -la' },
+        },
+        {
+          type: 'tool-result',
+          toolCallId: 'call_1',
+          output: 'file1.txt\nfile2.txt',
           isError: false,
         },
       ],
@@ -445,16 +451,29 @@ describe('MessageProcessor', () => {
       ];
       const steps = [
         {
-          toolCalls,
-          toolResults: [
+          content: [
             {
+              type: 'tool-call',
+              toolName: 'bash',
               toolCallId: 'call_1',
-              result: 'file1.txt',
+              input: { command: 'ls' },
+            },
+            {
+              type: 'tool-result',
+              toolCallId: 'call_1',
+              output: 'file1.txt',
               isError: false,
             },
             {
+              type: 'tool-call',
+              toolName: 'readFile',
               toolCallId: 'call_2',
-              result: 'Hello World',
+              input: { path: '/home/agent/file.txt' },
+            },
+            {
+              type: 'tool-result',
+              toolCallId: 'call_2',
+              output: 'Hello World',
               isError: false,
             },
           ],
@@ -480,11 +499,17 @@ describe('MessageProcessor', () => {
       ];
       const steps = [
         {
-          toolCalls,
-          toolResults: [
+          content: [
             {
+              type: 'tool-call',
+              toolName: 'bash',
               toolCallId: 'call_1',
-              result: 'Permission denied: dangerous command blocked',
+              input: { command: 'rm -rf /' },
+            },
+            {
+              type: 'tool-result',
+              toolCallId: 'call_1',
+              output: 'Permission denied: dangerous command blocked',
               isError: true,
             },
           ],
@@ -845,17 +870,17 @@ describe('MessageProcessor', () => {
     test('logs tool calls and returns IDs', async () => {
       const steps = [
         {
-          toolCalls: [
+          content: [
             {
+              type: 'tool-call',
               toolName: 'bash',
               toolCallId: 'call_1',
-              args: { command: 'pwd' },
+              input: { command: 'pwd' },
             },
-          ],
-          toolResults: [
             {
+              type: 'tool-result',
               toolCallId: 'call_1',
-              result: '/home/agent',
+              output: '/home/agent',
               isError: false,
             },
           ],
