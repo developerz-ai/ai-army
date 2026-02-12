@@ -14,6 +14,8 @@
  *   dev                  - Start in development mode (hot reload)
  *   status               - Show system status
  *   reload               - Validate and reload config (nginx-style)
+ *   deploy               - Deploy workers to servers
+ *   generate             - Generate new project resources (workers)
  *
  * @module bin/cli
  */
@@ -30,6 +32,8 @@ import { runStatus } from '../src/cli/StatusCommand.js';
 import { runInstance } from '../src/cli/InstanceCommand.js';
 import { runServer } from '../src/cli/ServerCommand.js';
 import { runWorker } from '../src/cli/WorkerCommand.js';
+import { runDeploy } from '../src/cli/DeployCommand.js';
+import { runGenerate } from '../src/cli/GenerateCommand.js';
 
 /**
  * Collect repeatable --override values into an array
@@ -458,6 +462,54 @@ export function createProgram() {
           process.exitCode = 1;
         }
       });
+    });
+
+  // === deploy command ===
+  program
+    .command('deploy [worker-id]')
+    .description('Deploy workers to servers from project configuration')
+    .option('-p, --project <path>', 'Project root directory', '.')
+    .option('--dry-run', 'Preview deployment plan without executing', false)
+    .action(async (workerId, options) => {
+      await withStorage(async storage => {
+        const result = await runDeploy({
+          projectPath: options.project,
+          workerId,
+          dryRun: options.dryRun,
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
+    });
+
+  // === generate command ===
+  const generateCmd = program
+    .command('generate')
+    .description('Generate new project resources (worker)');
+
+  generateCmd
+    .command('worker <name>')
+    .description('Generate a new worker configuration from a template')
+    .option('-t, --type <type>', 'Worker type preset (default, gpu, lightweight)', 'default')
+    .option('-p, --project <path>', 'Project root directory', '.')
+    .action(async (name, options) => {
+      try {
+        const result = await runGenerate('worker', {
+          name,
+          type: options.type,
+          projectPath: options.project,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      } catch (err) {
+        process.stderr.write(`❌ Generate error: ${err.message}\n`);
+        process.exitCode = 1;
+      }
     });
 
   return program;
