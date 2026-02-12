@@ -1,0 +1,35 @@
+# Server Definitions
+# Each server is a remote VPS where workers run as Docker containers.
+# Workers are deployed to servers matching their label selectors.
+
+servers:
+  - id: vps-1
+    host: ${VPS_1_HOST}
+    ssh:
+      user: ubuntu
+      keyFile: ~/.ssh/id_rsa
+      port: 22
+    resources:
+      maxWorkers: 10
+      memory: '16g'
+      cpus: 4
+    labels:
+      env: production
+      region: us-east
+    enabled: true
+
+  # Uncomment to add a second server:
+  # - id: vps-2
+  #   host: ${VPS_2_HOST}
+  #   ssh:
+  #     user: ubuntu
+  #     keyFile: ~/.ssh/id_rsa
+  #     port: 22
+  #   resources:
+  #     maxWorkers: 10
+  #     memory: '16g'
+  #     cpus: 4
+  #   labels:
+  #     env: production
+  #     region: eu-west
+  #   enabled: true

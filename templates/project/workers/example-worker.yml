@@ -1,0 +1,61 @@
+# Example Worker Configuration
+# Each worker runs as an isolated Docker container on a remote server.
+# Duplicate this file to create additional workers.
+
+id: example-worker
+name: Example Worker
+description: A starter worker that demonstrates the configuration format
+
+# Docker container image (defaults from ai-army.yml if omitted)
+image: ai-army/worker:latest
+
+# Expertise / soul file — defines the worker's personality and skills
+expertise:
+  file: expertise/example.md
+
+# Repository to clone into the worker's workspace
+repository:
+  url: git@github.com:your-org/your-repo.git
+  branch: main
+  autoSync: true
+
+# Resource overrides (optional — inherits from defaults)
+resources:
+  cpu: '2'
+  memory: '4Gi'
+
+# Server selection — deploy to servers matching these labels
+server:
+  labels:
+    env: production
+    region: us-east
+  # Or pin to a specific server:
+  # serverId: vps-1
+
+# Tools available to this worker
+tools:
+  - bash
+  - git
+  - readFile
+  - writeFile
+
+# MCP servers to provision inside the container
+mcpServers:
+  - filesystem
+  - github
+
+# LLM overrides (optional — inherits from ai-army.yml)
+# provider: anthropic
+# model: claude-sonnet-4-5
+# maxSteps: 100
+
+# Deployment settings
+deployment:
+  replicas: 1
+  strategy: round-robin
+  healthCheck:
+    interval: 30
+    timeout: 10
+    retries: 3
+
+enabled: true
