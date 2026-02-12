@@ -1,0 +1,29 @@
+# AI Army Project Configuration
+# Documentation: https://github.com/developerz-ai/ai-army
+#
+# Environment variables can be referenced as ${VAR_NAME}
+# Copy .env.example to .env and fill in your values.
+
+# Schema version
+version: '1.0'
+
+# LLM credentials
+llm:
+  provider: openrouter # or anthropic, openai, ollama, google
+  apiKey: ${OPENROUTER_API_KEY}
+  model: openrouter/aurora-alpha
+
+# Defaults applied to all workers (can be overridden per worker)
+defaults:
+  maxSteps: 50
+  temperature: 0.7
+  memory: '4g'
+  cpus: 2
+
+# Worker definitions (relative paths to YAML files)
+workers:
+  - workers/example-worker.yml
+
+# Server definitions (import from external file)
+servers:
+  import: servers.yml
