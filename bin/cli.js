@@ -14,6 +14,8 @@
  *   dev                  - Start in development mode (hot reload)
  *   status               - Show system status
  *   reload               - Validate and reload config (nginx-style)
+ *   deploy               - Deploy workers to servers
+ *   generate             - Generate new project resources (workers)
  *
  * @module bin/cli
  */
@@ -28,6 +30,10 @@ import { runDev } from '../src/cli/DevCommand.js';
 import { runReload } from '../src/cli/ReloadCommand.js';
 import { runStatus } from '../src/cli/StatusCommand.js';
 import { runInstance } from '../src/cli/InstanceCommand.js';
+import { runServer } from '../src/cli/ServerCommand.js';
+import { runWorker } from '../src/cli/WorkerCommand.js';
+import { runDeploy } from '../src/cli/DeployCommand.js';
+import { runGenerate } from '../src/cli/GenerateCommand.js';
 
 /**
  * Collect repeatable --override values into an array
@@ -306,6 +312,204 @@ export function createProgram() {
           process.exitCode = 1;
         }
       });
+    });
+
+  // === server command ===
+  const serverCmd = program
+    .command('server')
+    .description('Manage remote server nodes (add, list, test)');
+
+  serverCmd
+    .command('add <host>')
+    .description('Add a remote server and register as worker')
+    .option('-u, --user <username>', 'SSH username', 'root')
+    .option('-k, --key <path>', 'Path to SSH private key', '~/.ssh/id_rsa')
+    .option('-l, --labels <labels>', 'Comma-separated labels', '')
+    .option('--max-workers <n>', 'Maximum worker containers', parseInt, 10)
+    .action(async (host, options) => {
+      await withStorage(async storage => {
+        const result = await runServer('add', {
+          host,
+          user: options.user,
+          key: options.key,
+          labels: options.labels,
+          maxWorkers: options.maxWorkers,
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
+    });
+
+  serverCmd
+    .command('list')
+    .description('List all registered servers')
+    .action(async () => {
+      await withStorage(async storage => {
+        const result = await runServer('list', {
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
+    });
+
+  serverCmd
+    .command('test <id>')
+    .description('Test SSH connectivity to a registered server')
+    .option('-u, --user <username>', 'SSH username', 'root')
+    .option('-k, --key <path>', 'Path to SSH private key', '~/.ssh/id_rsa')
+    .action(async (id, options) => {
+      await withStorage(async storage => {
+        const result = await runServer('test', {
+          serverId: id,
+          user: options.user,
+          key: options.key,
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
+    });
+
+  // === worker command ===
+  const workerCmd = program
+    .command('worker')
+    .description('Manage worker nodes (list, status, stop, start, update)');
+
+  workerCmd
+    .command('list')
+    .description('List all registered workers')
+    .action(async () => {
+      await withStorage(async storage => {
+        const result = await runWorker('list', {
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
+    });
+
+  workerCmd
+    .command('status <id>')
+    .description('Show detailed status for a worker')
+    .action(async id => {
+      await withStorage(async storage => {
+        const result = await runWorker('status', {
+          workerId: id,
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
+    });
+
+  workerCmd
+    .command('stop <id>')
+    .description('Stop a worker (mark offline)')
+    .action(async id => {
+      await withStorage(async storage => {
+        const result = await runWorker('stop', {
+          workerId: id,
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
+    });
+
+  workerCmd
+    .command('start <id>')
+    .description('Start a worker (mark healthy)')
+    .action(async id => {
+      await withStorage(async storage => {
+        const result = await runWorker('start', {
+          workerId: id,
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
+    });
+
+  workerCmd
+    .command('update <id>')
+    .description('Update worker containers with a new image')
+    .requiredOption('--image <image>', 'New Docker image to use')
+    .action(async (id, options) => {
+      await withStorage(async storage => {
+        const result = await runWorker('update', {
+          workerId: id,
+          image: options.image,
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
+    });
+
+  // === deploy command ===
+  program
+    .command('deploy [worker-id]')
+    .description('Deploy workers to servers from project configuration')
+    .option('-p, --project <path>', 'Project root directory', '.')
+    .option('--dry-run', 'Preview deployment plan without executing', false)
+    .action(async (workerId, options) => {
+      await withStorage(async storage => {
+        const result = await runDeploy({
+          projectPath: options.project,
+          workerId,
+          dryRun: options.dryRun,
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
+    });
+
+  // === generate command ===
+  const generateCmd = program
+    .command('generate')
+    .description('Generate new project resources (worker)');
+
+  generateCmd
+    .command('worker <name>')
+    .description('Generate a new worker configuration from a template')
+    .option('-t, --type <type>', 'Worker type preset (default, gpu, lightweight)', 'default')
+    .option('-p, --project <path>', 'Project root directory', '.')
+    .action(async (name, options) => {
+      try {
+        const result = await runGenerate('worker', {
+          name,
+          type: options.type,
+          projectPath: options.project,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      } catch (err) {
+        process.stderr.write(`❌ Generate error: ${err.message}\n`);
+        process.exitCode = 1;
+      }
     });
 
   return program;

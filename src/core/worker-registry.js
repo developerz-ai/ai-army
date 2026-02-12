@@ -514,6 +514,53 @@ export class WorkerRegistry {
   }
 
   /**
+   * Update a worker's status
+   *
+   * Sets the worker's status to the given value. Validates that the
+   * status is a known WORKER_STATUSES value.
+   *
+   * @param {string} workerId - Worker identifier
+   * @param {string} status - New status value (healthy, degraded, offline)
+   * @returns {Promise<Object|null>} Updated worker record or null if not found
+   * @throws {WorkerRegistryError} If update fails or status is invalid
+   */
+  async updateWorkerStatus(workerId, status) {
+    if (!workerId || typeof workerId !== 'string') {
+      throw new WorkerRegistryError('Worker ID must be a non-empty string', {
+        operation: 'updateWorkerStatus',
+      });
+    }
+
+    if (!status || !Object.values(WORKER_STATUSES).includes(status)) {
+      throw new WorkerRegistryError(
+        `Status must be one of: ${Object.values(WORKER_STATUSES).join(', ')}`,
+        {
+          operation: 'updateWorkerStatus',
+          workerId,
+        }
+      );
+    }
+
+    try {
+      const { rows } = await this.storage.query(
+        `UPDATE workers SET status = $2 WHERE id = $1 RETURNING *`,
+        [workerId, status]
+      );
+
+      return rows.length > 0 ? this._toWorker(rows[0]) : null;
+    } catch (err) {
+      throw new WorkerRegistryError(
+        `Failed to update status for worker '${workerId}': ${err.message}`,
+        {
+          cause: err,
+          operation: 'updateWorkerStatus',
+          workerId,
+        }
+      );
+    }
+  }
+
+  /**
    * Detect and mark dead workers
    *
    * Scans for workers whose last heartbeat exceeds the configured threshold.
