@@ -53,6 +53,10 @@ import { SessionRouter } from '../api/routers/session-router.js';
 import { QueueRouter } from '../api/routers/queue-router.js';
 import { MetricsRouter } from '../api/routers/metrics-router.js';
 import { AuditRouter } from '../api/routers/audit-router.js';
+import { WorkerRouter } from '../api/routers/worker-router.js';
+import { ServerRouter } from '../api/routers/server-router.js';
+import { TemplateRouter } from '../api/routers/template-router.js';
+import { LegacyRedirectRouter } from '../api/routers/legacy-redirect-router.js';
 import { createLogger } from '../utils/logger.js';
 
 /**
@@ -2283,7 +2287,11 @@ export class Orchestrator {
    *
    * Creates the APIServer with all available routers (AdminRouter,
    * HealthRouter, BotRouter, SessionRouter, QueueRouter, MetricsRouter,
-   * AuditRouter), then starts listening on the configured port/host.
+   * AuditRouter, WorkerRouter, LegacyRedirectRouter, ServerRouter,
+   * TemplateRouter), then starts listening on the configured port/host.
+   *
+   * The LegacyRedirectRouter provides backward-compatible mapping from
+   * `/api/bots` to `/api/v1/workers` for consumers of the legacy API.
    *
    * API server startup failure is non-fatal — the system continues
    * without the REST API.
@@ -2402,6 +2410,70 @@ export class Orchestrator {
           routers.push(auditRouter);
         } catch (err) {
           this._log(`  ⚠️ Failed to create AuditRouter: ${err.message}`);
+        }
+      }
+
+      // WorkerRouter — requires BotManager (v1 API)
+      let workerRouter = null;
+      if (this.botManager) {
+        try {
+          workerRouter = new WorkerRouter({
+            botManager: this.botManager,
+            sessionManager: this.sessionManager,
+            messageProcessor: this.messageProcessor,
+            workerRegistry: this.workerRegistry,
+            workerAssigner: this.workerAssigner,
+            apiKey: null, // Auth handled at APIServer level
+            logger: this.logger,
+            auditLogger: this.auditLogger,
+          });
+          routers.push(workerRouter);
+        } catch (err) {
+          this._log(`  ⚠️ Failed to create WorkerRouter: ${err.message}`);
+        }
+      }
+
+      // LegacyRedirectRouter — /api/bots -> /api/v1/workers backward compat
+      if (workerRouter) {
+        try {
+          const legacyRouter = new LegacyRedirectRouter({
+            workerRouter,
+            logger: this.logger,
+          });
+          routers.push(legacyRouter);
+        } catch (err) {
+          this._log(`  ⚠️ Failed to create LegacyRedirectRouter: ${err.message}`);
+        }
+      }
+
+      // ServerRouter — requires WorkerRegistry (v1 API)
+      if (this.workerRegistry) {
+        try {
+          const serverRouter = new ServerRouter({
+            workerRegistry: this.workerRegistry,
+            sshTunnelManager: this.sshTunnelManager,
+            apiKey: null, // Auth handled at APIServer level
+            logger: this.logger,
+            auditLogger: this.auditLogger,
+          });
+          routers.push(serverRouter);
+        } catch (err) {
+          this._log(`  ⚠️ Failed to create ServerRouter: ${err.message}`);
+        }
+      }
+
+      // TemplateRouter — requires TemplateManager (v1 API)
+      if (this.templateManager) {
+        try {
+          const templateRouter = new TemplateRouter({
+            templateManager: this.templateManager,
+            apiKey: null, // Auth handled at APIServer level
+            logger: this.logger,
+            auditLogger: this.auditLogger,
+          });
+          routers.push(templateRouter);
+        } catch (err) {
+          this._log(`  ⚠️ Failed to create TemplateRouter: ${err.message}`);
         }
       }
 
