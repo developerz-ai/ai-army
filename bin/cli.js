@@ -29,6 +29,7 @@ import { runReload } from '../src/cli/ReloadCommand.js';
 import { runStatus } from '../src/cli/StatusCommand.js';
 import { runInstance } from '../src/cli/InstanceCommand.js';
 import { runServer } from '../src/cli/ServerCommand.js';
+import { runWorker } from '../src/cli/WorkerCommand.js';
 
 /**
  * Collect repeatable --override values into an array
@@ -364,6 +365,92 @@ export function createProgram() {
           serverId: id,
           user: options.user,
           key: options.key,
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
+    });
+
+  // === worker command ===
+  const workerCmd = program
+    .command('worker')
+    .description('Manage worker nodes (list, status, stop, start, update)');
+
+  workerCmd
+    .command('list')
+    .description('List all registered workers')
+    .action(async () => {
+      await withStorage(async storage => {
+        const result = await runWorker('list', {
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
+    });
+
+  workerCmd
+    .command('status <id>')
+    .description('Show detailed status for a worker')
+    .action(async id => {
+      await withStorage(async storage => {
+        const result = await runWorker('status', {
+          workerId: id,
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
+    });
+
+  workerCmd
+    .command('stop <id>')
+    .description('Stop a worker (mark offline)')
+    .action(async id => {
+      await withStorage(async storage => {
+        const result = await runWorker('stop', {
+          workerId: id,
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
+    });
+
+  workerCmd
+    .command('start <id>')
+    .description('Start a worker (mark healthy)')
+    .action(async id => {
+      await withStorage(async storage => {
+        const result = await runWorker('start', {
+          workerId: id,
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
+    });
+
+  workerCmd
+    .command('update <id>')
+    .description('Update worker containers with a new image')
+    .requiredOption('--image <image>', 'New Docker image to use')
+    .action(async (id, options) => {
+      await withStorage(async storage => {
+        const result = await runWorker('update', {
+          workerId: id,
+          image: options.image,
           storage,
           output: process.stdout,
         });
