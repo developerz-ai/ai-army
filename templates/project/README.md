@@ -52,7 +52,7 @@ id: my-worker
 name: My Worker
 expertise:
   file: expertise/my-worker.md
-repository:
+repo:
   url: git@github.com:your-org/your-repo.git
   branch: main
 ```

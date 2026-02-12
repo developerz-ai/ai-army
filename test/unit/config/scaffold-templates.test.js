@@ -291,15 +291,11 @@ describe('scaffold templates — example-worker.yml structure', () => {
     assert.ok(workerConfig.tools.length > 0, 'Should have at least one tool');
   });
 
-  test('has mcpServers array', () => {
-    assert.ok(Array.isArray(workerConfig.mcpServers), 'Should have mcpServers array');
-  });
-
-  test('has server selection config', () => {
-    assert.ok(workerConfig.server, 'Should have server selection');
+  test('has deployment with server assignment', () => {
+    assert.ok(workerConfig.deployment, 'Should have deployment config');
     assert.ok(
-      workerConfig.server.labels || workerConfig.server.serverId,
-      'Should have labels or serverId for server selection'
+      typeof workerConfig.deployment.server === 'string',
+      'Should have deployment.server as a string (server ID)'
     );
   });
 
