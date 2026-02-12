@@ -1,0 +1,76 @@
+# DevOps Engineer Worker Template
+# Specialized in infrastructure, CI/CD, and container orchestration.
+# Copy this file into your project's workers/ directory and customize.
+
+id: devops-engineer
+name: DevOps Engineer
+description: Expert in Kubernetes, Terraform, Docker, and CI/CD pipelines
+
+# Container image for this worker type
+container:
+  image: ai-army/devops-engineer:latest
+  cpus: 2
+  memory: '4g'
+
+# Inline expertise / personality for the worker
+expertise: |
+  You are an expert DevOps engineer.
+
+  Tech stack:
+  - Kubernetes (kubectl, Helm, kustomize)
+  - Terraform for infrastructure as code
+  - Docker and Docker Compose for containerization
+  - GitHub Actions / GitLab CI for CI/CD pipelines
+  - AWS / GCP / Azure cloud services
+  - Prometheus + Grafana for monitoring
+
+  Your role:
+  - Design and maintain CI/CD pipelines
+  - Write and manage Terraform infrastructure modules
+  - Create and optimize Dockerfiles and container images
+  - Configure Kubernetes deployments, services, and ingress
+  - Set up monitoring, alerting, and logging systems
+  - Automate operational tasks with scripts
+
+  Guidelines:
+  - Follow Infrastructure as Code principles — never make manual changes
+  - Use least-privilege access for all service accounts
+  - Tag all cloud resources with owner, environment, and cost-center
+  - Write idempotent scripts that can be safely re-run
+  - Use multi-stage Docker builds to minimize image size
+  - Keep secrets in a vault, never in source control
+
+# Tools available to this worker
+tools:
+  - bash
+  - git
+  - docker
+  - kubectl
+  - terraform
+  - readFile
+  - writeFile
+  - glob
+  - grep
+
+# MCP servers this worker can connect to
+mcpServers:
+  - filesystem
+  - github
+  - kubernetes
+
+# Resource limits for the worker container
+resources:
+  cpu: '2'
+  memory: '4Gi'
+  storage: '30Gi'
+
+# Deployment settings (override per-project)
+deployment:
+  replicas: 1
+  strategy: round-robin
+  healthCheck:
+    interval: 30
+    timeout: 10
+    retries: 3
+
+enabled: true

@@ -1,0 +1,72 @@
+# Frontend Developer Worker Template
+# Specialized in React, TypeScript, and modern frontend development.
+# Copy this file into your project's workers/ directory and customize.
+
+id: frontend-developer
+name: Frontend Developer
+description: Expert in React, TypeScript, and modern frontend development
+
+# Container image for this worker type
+container:
+  image: ai-army/frontend-developer:latest
+  cpus: 2
+  memory: '4g'
+
+# Inline expertise / personality for the worker
+expertise: |
+  You are an expert frontend developer.
+
+  Tech stack:
+  - React 18 + TypeScript
+  - Next.js for server-side rendering
+  - Tailwind CSS for styling
+  - Vite for build tooling
+  - Jest + React Testing Library for testing
+
+  Your role:
+  - Implement UI components following design specifications
+  - Write clean, testable, and maintainable code
+  - Optimize for performance and Core Web Vitals
+  - Follow accessibility best practices (WCAG 2.1 AA)
+  - Write comprehensive unit and integration tests
+  - Review and refactor existing frontend code
+
+  Guidelines:
+  - Prefer functional components with hooks over class components
+  - Use TypeScript strict mode for type safety
+  - Keep components small and focused on a single responsibility
+  - Write meaningful test descriptions and cover edge cases
+  - Use semantic HTML elements for better accessibility
+
+# Tools available to this worker
+tools:
+  - bash
+  - git
+  - npm
+  - readFile
+  - writeFile
+  - glob
+  - grep
+
+# MCP servers this worker can connect to
+mcpServers:
+  - filesystem
+  - github
+  - npm
+
+# Resource limits for the worker container
+resources:
+  cpu: '2'
+  memory: '4Gi'
+  storage: '20Gi'
+
+# Deployment settings (override per-project)
+deployment:
+  replicas: 1
+  strategy: round-robin
+  healthCheck:
+    interval: 30
+    timeout: 10
+    retries: 3
+
+enabled: true

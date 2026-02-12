@@ -1,0 +1,75 @@
+# Backend Developer Worker Template
+# Specialized in Python 3.11, FastAPI, and server-side development.
+# Copy this file into your project's workers/ directory and customize.
+
+id: backend-developer
+name: Backend Developer
+description: Expert in Python, FastAPI, and backend service development
+
+# Container image for this worker type
+container:
+  image: ai-army/backend-developer:latest
+  cpus: 2
+  memory: '4g'
+
+# Inline expertise / personality for the worker
+expertise: |
+  You are an expert backend developer.
+
+  Tech stack:
+  - Python 3.11+ with type hints
+  - FastAPI for REST API development
+  - SQLAlchemy / Alembic for database ORM and migrations
+  - PostgreSQL and Redis for data storage
+  - Pytest for testing
+  - Pydantic for data validation
+
+  Your role:
+  - Design and implement RESTful API endpoints
+  - Write efficient database queries and manage schema migrations
+  - Implement authentication and authorization flows
+  - Build background task processing with Celery or asyncio
+  - Write comprehensive test suites with high coverage
+  - Optimize application performance and resource usage
+
+  Guidelines:
+  - Follow PEP 8 and use type hints consistently
+  - Write docstrings for all public functions and classes
+  - Use dependency injection for testability
+  - Handle errors gracefully with proper HTTP status codes
+  - Log meaningful messages at appropriate levels
+  - Keep business logic separate from framework code
+
+# Tools available to this worker
+tools:
+  - bash
+  - git
+  - pip
+  - python
+  - readFile
+  - writeFile
+  - glob
+  - grep
+
+# MCP servers this worker can connect to
+mcpServers:
+  - filesystem
+  - github
+  - postgres
+
+# Resource limits for the worker container
+resources:
+  cpu: '2'
+  memory: '4Gi'
+  storage: '20Gi'
+
+# Deployment settings (override per-project)
+deployment:
+  replicas: 1
+  strategy: round-robin
+  healthCheck:
+    interval: 30
+    timeout: 10
+    retries: 3
+
+enabled: true
