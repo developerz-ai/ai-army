@@ -28,6 +28,7 @@ import { runDev } from '../src/cli/DevCommand.js';
 import { runReload } from '../src/cli/ReloadCommand.js';
 import { runStatus } from '../src/cli/StatusCommand.js';
 import { runInstance } from '../src/cli/InstanceCommand.js';
+import { runServer } from '../src/cli/ServerCommand.js';
 
 /**
  * Collect repeatable --override values into an array
@@ -299,6 +300,70 @@ export function createProgram() {
       await withStorage(async storage => {
         const result = await runInstance('rm', {
           instanceId,
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
+    });
+
+  // === server command ===
+  const serverCmd = program
+    .command('server')
+    .description('Manage remote server nodes (add, list, test)');
+
+  serverCmd
+    .command('add <host>')
+    .description('Add a remote server and register as worker')
+    .option('-u, --user <username>', 'SSH username', 'root')
+    .option('-k, --key <path>', 'Path to SSH private key', '~/.ssh/id_rsa')
+    .option('-l, --labels <labels>', 'Comma-separated labels', '')
+    .option('--max-workers <n>', 'Maximum worker containers', parseInt, 10)
+    .action(async (host, options) => {
+      await withStorage(async storage => {
+        const result = await runServer('add', {
+          host,
+          user: options.user,
+          key: options.key,
+          labels: options.labels,
+          maxWorkers: options.maxWorkers,
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
+    });
+
+  serverCmd
+    .command('list')
+    .description('List all registered servers')
+    .action(async () => {
+      await withStorage(async storage => {
+        const result = await runServer('list', {
+          storage,
+          output: process.stdout,
+        });
+        if (!result.success) {
+          process.exitCode = 1;
+        }
+      });
+    });
+
+  serverCmd
+    .command('test <id>')
+    .description('Test SSH connectivity to a registered server')
+    .option('-u, --user <username>', 'SSH username', 'root')
+    .option('-k, --key <path>', 'Path to SSH private key', '~/.ssh/id_rsa')
+    .action(async (id, options) => {
+      await withStorage(async storage => {
+        const result = await runServer('test', {
+          serverId: id,
+          user: options.user,
+          key: options.key,
           storage,
           output: process.stdout,
         });
