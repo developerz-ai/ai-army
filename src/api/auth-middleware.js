@@ -41,6 +41,7 @@ export class AuthMiddlewareError extends Error {
  * @property {string} token - The bearer token value
  * @property {string} [role='viewer'] - Role assigned to this token
  * @property {string} [name] - Human-readable name for the token holder
+ * @property {string[]} [bots] - Array of bot IDs this token can access (empty/null = all bots)
  */
 
 /**
@@ -49,6 +50,7 @@ export class AuthMiddlewareError extends Error {
  * @property {string} role - User's role
  * @property {string} tokenPrefix - Redacted token prefix for logging
  * @property {string} [name] - Token holder name
+ * @property {string[]} [bots] - Array of bot IDs this user can access (null/empty = all)
  */
 
 /**
@@ -109,6 +111,7 @@ export class AuthMiddleware {
         token: tokenConfig.token,
         role: tokenConfig.role || 'viewer',
         name: tokenConfig.name || null,
+        bots: tokenConfig.bots || null,
       });
     }
   }
@@ -169,6 +172,7 @@ export class AuthMiddleware {
       role: tokenConfig.role,
       tokenPrefix: this._redactToken(token),
       name: tokenConfig.name,
+      bots: tokenConfig.bots,
     };
   }
 
@@ -242,6 +246,32 @@ export class AuthMiddleware {
       'Content-Length': Buffer.byteLength(body),
     });
     res.end(body);
+  }
+
+  /**
+   * Check if a user has access to a specific bot
+   *
+   * @param {AuthUser} user - Authenticated user context
+   * @param {string} botId - Bot ID to check access for
+   * @returns {boolean} True if user can access this bot
+   */
+  canAccessBot(user, botId) {
+    if (!user) {
+      return false;
+    }
+
+    // Admin role has access to all bots
+    if (user.role === 'admin') {
+      return true;
+    }
+
+    // If no bot restrictions specified, allow access to all
+    if (!user.bots || user.bots.length === 0) {
+      return true;
+    }
+
+    // Check if bot is in the allowed list
+    return user.bots.includes(botId);
   }
 
   /**

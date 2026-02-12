@@ -1,0 +1,23 @@
+{
+  "id": "daniel-francoeur-assistant",
+  "name": "Daniel Francoeur's Personal Assistant",
+  "description": "AI assistant for Daniel Francoeur with full bash, filesystem, and development capabilities",
+  "soul": "./soul.md",
+  "provider": "openrouter",
+  "model": "openrouter/aurora-alpha",
+  "tools": [
+    "bash",
+    "readFile",
+    "writeFile",
+    "glob",
+    "grep"
+  ],
+  "mcpServers": ["filesystem"],
+  "maxSteps": 50,
+  "temperature": 0.7,
+  "sandbox": {
+    "type": "docker",
+    "image": "node:22-slim",
+    "packages": ["python3", "python3-pip"]
+  }
+}

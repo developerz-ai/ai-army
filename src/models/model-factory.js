@@ -11,6 +11,7 @@
 
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
+import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 
 import { FALLBACK_STATUS_CODES, DEFAULT_MAX_FALLBACK_ATTEMPTS } from './capabilities.js';
 
@@ -364,13 +365,15 @@ function createOpenAIModel(modelName, apiKey, options = {}) {
  * @private
  */
 function createOpenRouterModel(modelName, apiKey, options = {}) {
-  const config = {
-    baseURL: options.baseUrl || OPENROUTER_BASE_URL,
-  };
+  const config = {};
   if (apiKey) {
     config.apiKey = apiKey;
   }
-  const provider = createOpenAI(config);
+  if (options.baseUrl) {
+    config.baseURL = options.baseUrl;
+  }
+  // Use the official OpenRouter provider
+  const provider = createOpenRouter(config);
   return provider(modelName);
 }
 

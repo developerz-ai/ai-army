@@ -192,12 +192,34 @@ export class MessageProcessor {
       // Emit tool events for each tool call
       this._emitToolEvents(botConfig.id, sessionId, result.steps || [], result.toolCalls);
 
+      // Step 6.5: If text is empty but tools were used, construct response from tool results
+      let finalText = result.text;
+      if (!finalText && result.steps?.length > 0) {
+        const toolOutputs = [];
+        for (const step of result.steps) {
+          const toolResults = step.content?.filter(c => c.type === 'tool-result') || [];
+          for (const tr of toolResults) {
+            const output = tr.output;
+            if (output?.stdout) {
+              toolOutputs.push(output.stdout);
+            } else if (output?.content) {
+              toolOutputs.push(output.content);
+            } else if (typeof output === 'string') {
+              toolOutputs.push(output);
+            }
+          }
+        }
+        if (toolOutputs.length > 0) {
+          finalText = toolOutputs.join('\n\n');
+        }
+      }
+
       // Step 7: Append assistant response to session
       const appendOptions = {};
       if (result.toolCalls.length > 0) {
         appendOptions.toolCalls = result.toolCalls;
       }
-      await this.sessionManager.appendMessage(session, 'assistant', result.text, appendOptions);
+      await this.sessionManager.appendMessage(session, 'assistant', finalText, appendOptions);
 
       // Emit message.sent event
       this._emitEvent('messageSent', botConfig.id, {
@@ -226,7 +248,7 @@ export class MessageProcessor {
       });
 
       return {
-        text: result.text,
+        text: finalText,
         toolCalls: result.toolCalls,
         usage: result.usage,
         sessionId,
@@ -308,19 +330,21 @@ export class MessageProcessor {
     // Log tool calls from steps (AI SDK provides per-step results)
     if (Array.isArray(steps)) {
       for (const step of steps) {
-        const stepToolCalls = step.toolCalls || [];
-        const stepToolResults = step.toolResults || [];
+        // Extract tool calls and results from step.content array
+        const stepContent = step.content || [];
+        const toolCalls = stepContent.filter(c => c.type === 'tool-call');
+        const toolResults = stepContent.filter(c => c.type === 'tool-result');
 
-        for (const toolCall of stepToolCalls) {
-          const matchingResult = stepToolResults.find(r => r.toolCallId === toolCall.toolCallId);
+        for (const toolCall of toolCalls) {
+          const matchingResult = toolResults.find(r => r.toolCallId === toolCall.toolCallId);
 
           try {
             const id = await this.storage.logToolCall({
               botId,
               sessionId,
               toolName: toolCall.toolName,
-              parameters: toolCall.args || null,
-              result: matchingResult?.result || null,
+              parameters: toolCall.input || toolCall.args || null,
+              result: matchingResult?.output || matchingResult?.result || null,
               success: matchingResult ? !matchingResult.isError : true,
               error: matchingResult?.isError ? String(matchingResult.result) : null,
               durationMs: null,

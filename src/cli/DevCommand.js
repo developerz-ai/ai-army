@@ -14,6 +14,16 @@
 import path from 'path';
 import { Orchestrator, OrchestratorError } from '../core/orchestrator.js';
 import { ConfigWatcher, ConfigWatcherError } from '../config/ConfigWatcher.js';
+import { PostgresStorage } from '../adapters/storage/postgres.js';
+import { BotManager } from '../core/bot-manager.js';
+import { ContainerPool } from '../execution/container-pool.js';
+import { DockerManager } from '../execution/docker-manager.js';
+import { SoulLoader } from '../utils/SoulLoader.js';
+import { SessionManager } from '../core/session-manager.js';
+import { MessageProcessor } from '../core/message-processor.js';
+import { AgentRunner } from '../agent/agent-runner.js';
+import { ModelFactory } from '../models/model-factory.js';
+import { ToolRegistry } from '../tools/tool-registry.js';
 
 /**
  * Custom error for dev command failures
@@ -71,6 +81,33 @@ export async function runDev({
       botsPath,
       migrationsPath,
       logger: msg => write(`${msg}\n`),
+      // Provide factories for auto-creating components
+      storageFactory: config => {
+        if (!config.database?.url) return null;
+        return new PostgresStorage(config.database.url);
+      },
+      botManagerFactory: (storage, config) => {
+        if (!storage) return null;
+        const dockerManager = new DockerManager();
+        const containerPool = new ContainerPool(dockerManager);
+        const soulLoader = new SoulLoader();
+        return new BotManager(storage, containerPool, soulLoader, {
+          toolRegistry: null,
+          skillRegistry: null,
+        });
+      },
+      sessionManagerFactory: (storage, config) => {
+        if (!storage) return null;
+        return new SessionManager(storage);
+      },
+      messageProcessorFactory: (sessionManager, storage, config) => {
+        if (!sessionManager || !storage) return null;
+        const dockerManager = new DockerManager();
+        const containerPool = new ContainerPool(dockerManager);
+        const toolRegistry = new ToolRegistry(containerPool);
+        const agentRunner = new AgentRunner(ModelFactory, toolRegistry);
+        return new MessageProcessor(sessionManager, agentRunner, storage);
+      },
     });
 
   try {

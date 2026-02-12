@@ -2607,6 +2607,12 @@ export class Orchestrator {
         try {
           const botConfig = await this.configLoader.load(botConfigPath);
           const botId = botConfig.id || entry.name;
+
+          // Resolve soul path relative to bot directory
+          if (botConfig.soul && !path.isAbsolute(botConfig.soul)) {
+            botConfig.soul = path.join(botsDir, entry.name, botConfig.soul);
+          }
+
           configs.set(botId, botConfig);
         } catch (_err) {
           // Skip directories without valid config.json

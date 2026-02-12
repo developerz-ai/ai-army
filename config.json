@@ -15,16 +15,36 @@
       "apiKey": "${OPENROUTER_API_KEY}"
     }
   },
+  "database": {
+    "url": "${DATABASE_URL}"
+  },
   "api": {
     "enabled": true,
     "port": 3000,
-    "host": "0.0.0.0"
+    "host": "0.0.0.0",
+    "auth": {
+      "tokens": [
+        {
+          "token": "${ADMIN_API_KEY}",
+          "role": "admin",
+          "name": "admin",
+          "bots": null
+        },
+        {
+          "token": "${DANIEL_API_KEY}",
+          "role": "operator",
+          "name": "daniel-francoeur",
+          "bots": ["daniel-francoeur-assistant"]
+        }
+      ]
+    }
   },
   "channels": {},
-  "mcpServers": {},
-  "api": {
-    "enabled": true,
-    "port": 3000,
-    "host": "0.0.0.0"
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "env": {}
+    }
   }
 }

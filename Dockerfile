@@ -44,9 +44,12 @@ ENV NODE_ENV=production \
 # Install tini for proper PID 1 signal handling
 RUN apk add --no-cache tini
 
-# Create non-root user (security best practice from .env.example checklist)
+# Create non-root user and docker group for Docker socket access
+# GID 988 matches the docker group on the host
 RUN addgroup -g 1001 -S aiagent && \
-    adduser -u 1001 -S aiagent -G aiagent
+    addgroup -g 988 -S docker && \
+    adduser -u 1001 -S aiagent -G aiagent && \
+    adduser aiagent docker
 
 WORKDIR /app
 

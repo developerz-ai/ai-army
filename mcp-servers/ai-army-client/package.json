@@ -1,0 +1,10 @@
+{
+  "name": "ai-army-mcp-client",
+  "version": "1.0.0",
+  "description": "MCP server to connect Claude Code to AI Army",
+  "type": "module",
+  "main": "index.js",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  }
+}

@@ -8,6 +8,18 @@
  */
 
 import { Orchestrator, OrchestratorError } from '../core/orchestrator.js';
+import { PostgresStorage } from '../adapters/storage/postgres.js';
+import { BotManager } from '../core/bot-manager.js';
+import { ContainerPool } from '../execution/container-pool.js';
+import { DockerManager } from '../execution/docker-manager.js';
+import { SoulLoader } from '../utils/SoulLoader.js';
+import { SessionManager } from '../core/session-manager.js';
+import { MessageProcessor } from '../core/message-processor.js';
+import { AgentRunner } from '../agent/agent-runner.js';
+import { ModelFactory } from '../models/model-factory.js';
+import { ToolRegistry } from '../tools/tool-registry.js';
+import { createBashTool } from '../tools/bash-tool.js';
+import { createReadFileTool, createWriteFileTool, createGlobTool, createGrepTool } from '../tools/file-tools.js';
 
 /**
  * Custom error for start command failures
@@ -130,6 +142,10 @@ export async function runStart({
   // Check for production misconfigurations before starting
   _checkProductionWarnings({ write, env });
 
+  // Shared instances for components that need to communicate
+  let sharedDockerManager;
+  let sharedContainerPool;
+
   // Create orchestrator if not injected
   const orch =
     orchestrator ||
@@ -138,6 +154,45 @@ export async function runStart({
       botsPath,
       migrationsPath,
       logger: msg => write(`${msg}\n`),
+      // Provide factories for auto-creating components
+      storageFactory: config => {
+        if (!config.database?.url) return null;
+        return new PostgresStorage(config.database.url);
+      },
+      botManagerFactory: (storage, config) => {
+        if (!storage) return null;
+        // Create shared DockerManager and ContainerPool
+        if (!sharedDockerManager) {
+          sharedDockerManager = new DockerManager();
+          sharedContainerPool = new ContainerPool(sharedDockerManager);
+        }
+        const soulLoader = new SoulLoader();
+        return new BotManager(storage, sharedContainerPool, soulLoader, {
+          toolRegistry: null,
+          skillRegistry: null,
+        });
+      },
+      sessionManagerFactory: (storage, config) => {
+        if (!storage) return null;
+        return new SessionManager(storage);
+      },
+      messageProcessorFactory: (sessionManager, storage, config) => {
+        if (!sessionManager || !storage) return null;
+        // Reuse the shared ContainerPool from botManagerFactory
+        if (!sharedContainerPool) {
+          sharedDockerManager = new DockerManager();
+          sharedContainerPool = new ContainerPool(sharedDockerManager);
+        }
+        const toolRegistry = new ToolRegistry(sharedContainerPool);
+        // Register built-in tools
+        toolRegistry.registerTool('bash', createBashTool);
+        toolRegistry.registerTool('readFile', createReadFileTool);
+        toolRegistry.registerTool('writeFile', createWriteFileTool);
+        toolRegistry.registerTool('glob', createGlobTool);
+        toolRegistry.registerTool('grep', createGrepTool);
+        const agentRunner = new AgentRunner(ModelFactory, toolRegistry);
+        return new MessageProcessor(sessionManager, agentRunner, storage);
+      },
     });
 
   try {

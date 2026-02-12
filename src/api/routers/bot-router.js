@@ -325,6 +325,17 @@ export class BotRouter {
       };
     }
 
+    // Check bot-specific access if user is authenticated
+    if (req.user && req.user.bots && !req.user.bots.includes(id)) {
+      return {
+        statusCode: 403,
+        body: {
+          error: 'Forbidden',
+          message: `Access denied to bot '${id}'`,
+        },
+      };
+    }
+
     const { userId, text } = req.body || {};
     if (!userId || !text) {
       return {
