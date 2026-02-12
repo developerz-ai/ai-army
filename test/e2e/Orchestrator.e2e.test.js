@@ -1345,13 +1345,17 @@ describe('Orchestrator E2E - Full Message Flow', { skip: !DB_AVAILABLE }, () => 
         toolCalls: [{ toolName: 'bash', toolCallId: 'tc_fail', args: { command: 'cat /missing' } }],
         steps: [
           {
-            toolCalls: [
-              { toolName: 'bash', toolCallId: 'tc_fail', args: { command: 'cat /missing' } },
-            ],
-            toolResults: [
+            content: [
               {
+                type: 'tool-call',
+                toolName: 'bash',
                 toolCallId: 'tc_fail',
-                result: 'Error: No such file or directory',
+                input: { command: 'cat /missing' },
+              },
+              {
+                type: 'tool-result',
+                toolCallId: 'tc_fail',
+                output: 'Error: No such file or directory',
                 isError: true,
               },
             ],
