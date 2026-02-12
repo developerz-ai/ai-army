@@ -242,11 +242,17 @@ function createMockAgentRunnerWithTools(options = {}) {
 
   const steps = options.steps || [
     {
-      toolCalls,
-      toolResults: [
+      content: [
         {
+          type: 'tool-call',
+          toolName: 'bash',
           toolCallId: 'call_1',
-          result:
+          input: { command: 'ls -la /home/agent' },
+        },
+        {
+          type: 'tool-result',
+          toolCallId: 'call_1',
+          output:
             'total 8\ndrwxr-xr-x 2 agent agent 4096 Jan 1 00:00 .\n-rw-r--r-- 1 agent agent  42 Jan 1 00:00 README.md',
           isError: false,
         },
@@ -493,29 +499,33 @@ describe('Orchestrator E2E - Full Message Flow', { skip: !DB_AVAILABLE }, () => 
         ],
         steps: [
           {
-            toolCalls: [
-              { toolName: 'bash', toolCallId: 'tc_ls', args: { command: 'ls -la /home/agent' } },
-            ],
-            toolResults: [
+            content: [
               {
+                type: 'tool-call',
+                toolName: 'bash',
                 toolCallId: 'tc_ls',
-                result: 'README.md\npackage.json\nsrc/',
+                input: { command: 'ls -la /home/agent' },
+              },
+              {
+                type: 'tool-result',
+                toolCallId: 'tc_ls',
+                output: 'README.md\npackage.json\nsrc/',
                 isError: false,
               },
             ],
           },
           {
-            toolCalls: [
+            content: [
               {
+                type: 'tool-call',
                 toolName: 'readFile',
                 toolCallId: 'tc_read',
-                args: { path: '/home/agent/README.md' },
+                input: { path: '/home/agent/README.md' },
               },
-            ],
-            toolResults: [
               {
+                type: 'tool-result',
                 toolCallId: 'tc_read',
-                result: '# My Project\nThis is a Node.js project.',
+                output: '# My Project\nThis is a Node.js project.',
                 isError: false,
               },
             ],
