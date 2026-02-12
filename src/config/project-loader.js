@@ -189,15 +189,33 @@ export class ProjectLoader {
    */
   async loadWorkers(projectPath, workerPaths) {
     const workers = [];
+    const resolvedProjectRoot = path.resolve(projectPath) + path.sep;
 
     for (const workerPath of workerPaths) {
-      const fullPath = path.join(projectPath, workerPath);
+      const fullPath = path.resolve(path.join(projectPath, workerPath));
+      // Validate path stays within project directory
+      if (!fullPath.startsWith(resolvedProjectRoot)) {
+        throw new ProjectLoadError(`Invalid worker path: ${workerPath} (path traversal detected)`, {
+          operation: 'loadWorkers',
+          filePath: workerPath,
+        });
+      }
       const workerConfig = await this._loadYaml(fullPath, 'loadWorkers');
 
       // Load expertise file if referenced as { file: 'path.md' }
       if (workerConfig.expertise && typeof workerConfig.expertise === 'object') {
         if (workerConfig.expertise.file) {
-          const expertisePath = path.join(projectPath, workerConfig.expertise.file);
+          const expertisePath = path.resolve(path.join(projectPath, workerConfig.expertise.file));
+          // Validate expertise path stays within project directory
+          if (!expertisePath.startsWith(resolvedProjectRoot)) {
+            throw new ProjectLoadError(
+              `Invalid expertise path: ${workerConfig.expertise.file} (path traversal detected)`,
+              {
+                operation: 'loadWorkers',
+                filePath: workerConfig.expertise.file,
+              }
+            );
+          }
           try {
             workerConfig.expertise = await fs.readFile(expertisePath, 'utf8');
           } catch (err) {

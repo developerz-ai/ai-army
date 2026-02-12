@@ -383,6 +383,47 @@ expertise: You are a dev assistant.
     );
   });
 
+  test('rejects worker path with path traversal (../ escape)', async () => {
+    tmpDir = await createTestProject({
+      'workers/support.yml': VALID_WORKER_YAML,
+    });
+    const loader = new ProjectLoader({ validate: false });
+
+    await assert.rejects(
+      () => loader.loadWorkers(tmpDir, ['../../../etc/passwd']),
+      err => {
+        assert.equal(err.name, 'ProjectLoadError');
+        assert.match(err.message, /path traversal detected/);
+        assert.equal(err.operation, 'loadWorkers');
+        return true;
+      }
+    );
+  });
+
+  test('rejects expertise file path with path traversal', async () => {
+    const workerWithTraversal = `
+id: evil-worker
+name: Evil Worker
+image: node:22-slim
+expertise:
+  file: ../../../etc/shadow
+`;
+    tmpDir = await createTestProject({
+      'workers/evil.yml': workerWithTraversal,
+    });
+    const loader = new ProjectLoader({ validate: false });
+
+    await assert.rejects(
+      () => loader.loadWorkers(tmpDir, ['workers/evil.yml']),
+      err => {
+        assert.equal(err.name, 'ProjectLoadError');
+        assert.match(err.message, /path traversal detected/);
+        assert.equal(err.operation, 'loadWorkers');
+        return true;
+      }
+    );
+  });
+
   test('returns empty array for no worker paths', async () => {
     tmpDir = await createTestProject({});
     const loader = new ProjectLoader({ validate: false });
