@@ -6,16 +6,36 @@
  * for consumers of the legacy API.
  *
  * Mapping:
- * - GET    /api/bots          -> GET    /api/v1/workers
- * - GET    /api/bots/:id      -> GET    /api/v1/workers/:id
- * - POST   /api/bots/:id/...  -> POST   /api/v1/workers/:id/...
+ * - GET    /api/bots                -> GET    /api/v1/workers
+ * - GET    /api/bots/:id            -> GET    /api/v1/workers/:id
+ * - GET    /api/bots/:id/status     -> GET    /api/v1/workers/:id/status
+ * - POST   /api/bots/:id/message   -> POST   /api/v1/workers/:id/assign
+ * - POST   /api/bots/:id/stop      -> POST   /api/v1/workers/:id/stop
+ * - POST   /api/bots/:id/start     -> POST   /api/v1/workers/:id/start
+ * - DELETE /api/bots/:id           -> DELETE /api/v1/workers/:id
  *
  * Note: This router sits *before* the WorkerRouter in the chain.
  * It rewrites `req.url` in-place so the downstream WorkerRouter
  * matches the request as `/api/v1/workers/...`.
  *
+ * Logs a deprecation warning on every legacy request so operators
+ * can track migration progress.
+ *
  * @module api/routers/legacy-redirect-router
  */
+
+/**
+ * Endpoint-specific rewrite rules applied *after* the base prefix swap.
+ * Each entry maps a legacy suffix pattern to the new v1 suffix.
+ *
+ * Patterns are tested against the portion of the path after `/api/bots/:id/`.
+ *
+ * @type {Array<{pattern: RegExp, replacement: string}>}
+ */
+const ENDPOINT_REWRITES = [
+  // /api/bots/:id/message -> /api/v1/workers/:id/assign
+  { pattern: /\/message$/, replacement: '/assign' },
+];
 
 /**
  * LegacyRedirectRouter - lightweight URL rewriter for backward compatibility
@@ -52,6 +72,7 @@ export class LegacyRedirectRouter {
    * `/api/v1/workers` and delegate to the WorkerRouter.
    * Adds a `X-Legacy-Redirect` response header so consumers can
    * detect the mapping and migrate.
+   * Logs a deprecation warning for every matched legacy request.
    *
    * @param {import('http').IncomingMessage} req - HTTP request
    * @param {import('http').ServerResponse} res - HTTP response
@@ -72,11 +93,21 @@ export class LegacyRedirectRouter {
       return false;
     }
 
-    // Rewrite /api/bots... -> /api/v1/workers...
-    const rewritten = pathname.replace(/^\/api\/bots/, '/api/v1/workers');
+    // Step 1: Base prefix swap  /api/bots -> /api/v1/workers
+    let rewritten = pathname.replace(/^\/api\/bots/, '/api/v1/workers');
+
+    // Step 2: Apply endpoint-specific rewrites (e.g. /message -> /assign)
+    for (const rule of ENDPOINT_REWRITES) {
+      if (rule.pattern.test(rewritten)) {
+        rewritten = rewritten.replace(rule.pattern, rule.replacement);
+        break; // First match wins
+      }
+    }
+
     const newUrl = rewritten + (url.search || '');
 
     this._log(`Legacy redirect: ${pathname} -> ${rewritten}`);
+    this._logDeprecation(pathname, rewritten);
 
     // Rewrite req.url in-place so the downstream router sees the v1 path
     const originalUrl = req.url;
@@ -84,6 +115,7 @@ export class LegacyRedirectRouter {
 
     // Add header to signal the redirect to consumers
     res.setHeader('X-Legacy-Redirect', `${pathname} -> ${rewritten}`);
+    res.setHeader('X-Deprecation-Warning', `${pathname} is deprecated. Use ${rewritten} instead.`);
 
     // Delegate to WorkerRouter
     const handled = await this.workerRouter.handleRequest(req, res);
@@ -94,6 +126,20 @@ export class LegacyRedirectRouter {
     }
 
     return handled;
+  }
+
+  /**
+   * Log a deprecation warning for a legacy API route
+   *
+   * @param {string} originalPath - The legacy path that was requested
+   * @param {string} newPath - The v1 path it was rewritten to
+   * @private
+   */
+  _logDeprecation(originalPath, newPath) {
+    this._log(
+      `DEPRECATION WARNING: ${originalPath} is deprecated and will be removed in a future ` +
+        `version. Please migrate to ${newPath}.`
+    );
   }
 
   /**

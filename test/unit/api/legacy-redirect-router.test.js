@@ -3,9 +3,12 @@
  *
  * Tests the backward-compatible /api/bots -> /api/v1/workers URL rewriting:
  * - URL rewriting from /api/bots to /api/v1/workers
+ * - Endpoint-specific rewrites (/message -> /assign)
  * - Delegation to WorkerRouter after rewriting
  * - Non-matching paths pass through unchanged
  * - X-Legacy-Redirect header is set on handled requests
+ * - X-Deprecation-Warning header is set on handled requests
+ * - Deprecation warning logged for every legacy request
  * - Query string preservation during rewrite
  *
  * Run with: npm run test:unit
@@ -168,6 +171,65 @@ describe('LegacyRedirectRouter', () => {
   });
 
   // ==========================================================================
+  // Endpoint-Specific Rewrites
+  // ==========================================================================
+
+  describe('endpoint-specific rewrites', () => {
+    test('rewrites /api/bots/:id/message to /api/v1/workers/:id/assign', async () => {
+      const workerRouter = createMockWorkerRouter();
+      const router = new LegacyRedirectRouter({ workerRouter });
+      const req = createMockReq({ url: '/api/bots/my-bot/message', method: 'POST' });
+      const res = createMockRes();
+
+      const handled = await router.handleRequest(req, res);
+
+      assert.equal(handled, true);
+      assert.equal(req.url, '/api/v1/workers/my-bot/assign');
+    });
+
+    test('rewrites /api/bots/:id/message with query params', async () => {
+      const workerRouter = createMockWorkerRouter();
+      const router = new LegacyRedirectRouter({ workerRouter });
+      const req = createMockReq({ url: '/api/bots/my-bot/message?timeout=30', method: 'POST' });
+      const res = createMockRes();
+
+      const handled = await router.handleRequest(req, res);
+
+      assert.equal(handled, true);
+      assert.equal(req.url, '/api/v1/workers/my-bot/assign?timeout=30');
+    });
+
+    test('sets X-Legacy-Redirect header with correct mapping for /message -> /assign', async () => {
+      const workerRouter = createMockWorkerRouter();
+      const router = new LegacyRedirectRouter({ workerRouter });
+      const req = createMockReq({ url: '/api/bots/my-bot/message', method: 'POST' });
+      const res = createMockRes();
+
+      await router.handleRequest(req, res);
+
+      // Find the X-Legacy-Redirect call
+      const legacyCall = res.setHeader.mock.calls.find(c => c.arguments[0] === 'X-Legacy-Redirect');
+      assert.ok(legacyCall, 'X-Legacy-Redirect header should be set');
+      assert.equal(
+        legacyCall.arguments[1],
+        '/api/bots/my-bot/message -> /api/v1/workers/my-bot/assign'
+      );
+    });
+
+    test('does not rewrite /api/bots/:id/sessions (no matching rule)', async () => {
+      const workerRouter = createMockWorkerRouter();
+      const router = new LegacyRedirectRouter({ workerRouter });
+      const req = createMockReq({ url: '/api/bots/my-bot/sessions' });
+      const res = createMockRes();
+
+      await router.handleRequest(req, res);
+
+      // It still rewrites the base prefix, but /sessions stays unchanged
+      assert.equal(req.url, '/api/v1/workers/my-bot/sessions');
+    });
+  });
+
+  // ==========================================================================
   // Non-matching Paths
   // ==========================================================================
 
@@ -231,7 +293,8 @@ describe('LegacyRedirectRouter', () => {
 
       await router.handleRequest(req, res);
 
-      assert.equal(res.setHeader.mock.callCount(), 1);
+      // Now we set both X-Legacy-Redirect and X-Deprecation-Warning
+      assert.equal(res.setHeader.mock.callCount(), 2);
       const [key, value] = res.setHeader.mock.calls[0].arguments;
       assert.equal(key, 'X-Legacy-Redirect');
       assert.equal(value, '/api/bots -> /api/v1/workers');
@@ -247,6 +310,53 @@ describe('LegacyRedirectRouter', () => {
 
       const [, value] = res.setHeader.mock.calls[0].arguments;
       assert.equal(value, '/api/bots/my-bot/status -> /api/v1/workers/my-bot/status');
+    });
+
+    test('sets X-Deprecation-Warning header on handled requests', async () => {
+      const workerRouter = createMockWorkerRouter();
+      const router = new LegacyRedirectRouter({ workerRouter });
+      const req = createMockReq({ url: '/api/bots' });
+      const res = createMockRes();
+
+      await router.handleRequest(req, res);
+
+      const deprecationCall = res.setHeader.mock.calls.find(
+        c => c.arguments[0] === 'X-Deprecation-Warning'
+      );
+      assert.ok(deprecationCall, 'X-Deprecation-Warning header should be set');
+      assert.equal(
+        deprecationCall.arguments[1],
+        '/api/bots is deprecated. Use /api/v1/workers instead.'
+      );
+    });
+
+    test('X-Deprecation-Warning header shows correct mapping for /message -> /assign', async () => {
+      const workerRouter = createMockWorkerRouter();
+      const router = new LegacyRedirectRouter({ workerRouter });
+      const req = createMockReq({ url: '/api/bots/my-bot/message', method: 'POST' });
+      const res = createMockRes();
+
+      await router.handleRequest(req, res);
+
+      const deprecationCall = res.setHeader.mock.calls.find(
+        c => c.arguments[0] === 'X-Deprecation-Warning'
+      );
+      assert.ok(deprecationCall);
+      assert.equal(
+        deprecationCall.arguments[1],
+        '/api/bots/my-bot/message is deprecated. Use /api/v1/workers/my-bot/assign instead.'
+      );
+    });
+
+    test('does not set headers for non-matching paths', async () => {
+      const workerRouter = createMockWorkerRouter();
+      const router = new LegacyRedirectRouter({ workerRouter });
+      const req = createMockReq({ url: '/api/v1/workers' });
+      const res = createMockRes();
+
+      await router.handleRequest(req, res);
+
+      assert.equal(res.setHeader.mock.callCount(), 0);
     });
   });
 
@@ -307,12 +417,50 @@ describe('LegacyRedirectRouter', () => {
 
       await router.handleRequest(req, res);
 
-      assert.equal(logger.mock.callCount(), 1);
+      // Should have 2 log calls: redirect + deprecation warning
+      assert.ok(logger.mock.callCount() >= 2);
       const logMsg = logger.mock.calls[0].arguments[0];
       assert.match(logMsg, /LegacyRedirectRouter/);
       assert.match(logMsg, /Legacy redirect/);
       assert.match(logMsg, /\/api\/bots\/my-bot/);
       assert.match(logMsg, /\/api\/v1\/workers\/my-bot/);
+    });
+
+    test('logs deprecation warning when logger is configured', async () => {
+      const workerRouter = createMockWorkerRouter();
+      const logger = mock.fn();
+      const router = new LegacyRedirectRouter({ workerRouter, logger });
+      const req = createMockReq({ url: '/api/bots/my-bot' });
+      const res = createMockRes();
+
+      await router.handleRequest(req, res);
+
+      const deprecationLog = logger.mock.calls.find(c =>
+        c.arguments[0].includes('DEPRECATION WARNING')
+      );
+      assert.ok(deprecationLog, 'Should log a deprecation warning');
+      assert.match(deprecationLog.arguments[0], /DEPRECATION WARNING/);
+      assert.match(deprecationLog.arguments[0], /\/api\/bots\/my-bot/);
+      assert.match(deprecationLog.arguments[0], /\/api\/v1\/workers\/my-bot/);
+      assert.match(deprecationLog.arguments[0], /deprecated/);
+      assert.match(deprecationLog.arguments[0], /migrate/);
+    });
+
+    test('logs deprecation warning with correct /assign path for /message', async () => {
+      const workerRouter = createMockWorkerRouter();
+      const logger = mock.fn();
+      const router = new LegacyRedirectRouter({ workerRouter, logger });
+      const req = createMockReq({ url: '/api/bots/my-bot/message', method: 'POST' });
+      const res = createMockRes();
+
+      await router.handleRequest(req, res);
+
+      const deprecationLog = logger.mock.calls.find(c =>
+        c.arguments[0].includes('DEPRECATION WARNING')
+      );
+      assert.ok(deprecationLog);
+      assert.match(deprecationLog.arguments[0], /\/api\/bots\/my-bot\/message/);
+      assert.match(deprecationLog.arguments[0], /\/api\/v1\/workers\/my-bot\/assign/);
     });
 
     test('does not log for non-matching paths', async () => {
