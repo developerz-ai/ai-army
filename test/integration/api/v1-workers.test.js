@@ -466,9 +466,7 @@ describe('v1 Workers API - Authentication', () => {
   });
 
   test('enforces authentication when API key is set', async () => {
-    const botManager = createMockBotManager([
-      createMockBot({ id: 'worker-1' }),
-    ]);
+    const botManager = createMockBotManager([createMockBot({ id: 'worker-1' })]);
 
     const workerRouter = new WorkerRouter({
       botManager,

@@ -361,9 +361,7 @@ describe('v1 Servers API - Authentication', () => {
   });
 
   test('enforces authentication when API key is set', async () => {
-    const workerRegistry = createMockWorkerRegistry([
-      createMockServer({ id: 'server-1' }),
-    ]);
+    const workerRegistry = createMockWorkerRegistry([createMockServer({ id: 'server-1' })]);
 
     const serverRouter = new ServerRouter({
       workerRegistry,
