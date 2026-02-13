@@ -22,6 +22,9 @@
 
 import { Command } from 'commander';
 import path from 'path';
+import { readFileSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { ProjectInitializer } from '../src/cli/ProjectInitializer.js';
 import { runValidate } from '../src/cli/ValidateCommand.js';
 import { runMigrate } from '../src/cli/MigrateCommand.js';
@@ -89,7 +92,16 @@ async function withStorage(fn) {
 export function createProgram() {
   const program = new Command();
 
-  program.name('ai-army').description('AI Army - Multi-bot AI framework').version('0.1.0');
+  // Load version from package.json
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+  const packageJsonPath = path.join(__dirname, '../package.json');
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
+
+  program
+    .name('ai-army')
+    .description('AI Army - Multi-bot AI framework')
+    .version(packageJson.version);
 
   // === init command ===
   program
