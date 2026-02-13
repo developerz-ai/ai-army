@@ -294,13 +294,16 @@ describe('012_multi_server.sql migration', { skip: !DB_AVAILABLE }, () => {
   });
 
   it('should handle assignments CRUD operations', async () => {
-    const assignmentId = 'assign-test-' + Date.now();
+    const assignmentId = `assign-test-${Date.now()}`;
 
     // Create assignment
-    await pool.query(`
+    await pool.query(
+      `
       INSERT INTO assignments (id, worker_id, task, context, status)
       VALUES ($1, 'test-worker-1', 'Test task', '{"key": "value"}'::jsonb, 'pending')
-    `, [assignmentId]);
+    `,
+      [assignmentId]
+    );
 
     // Read assignment
     let result = await pool.query('SELECT * FROM assignments WHERE id = $1', [assignmentId]);
@@ -309,21 +312,27 @@ describe('012_multi_server.sql migration', { skip: !DB_AVAILABLE }, () => {
     assert.deepEqual(result.rows[0].context, { key: 'value' }, 'Context should be preserved');
 
     // Update assignment status
-    await pool.query(`
+    await pool.query(
+      `
       UPDATE assignments
       SET status = 'in_progress', started_at = NOW()
       WHERE id = $1
-    `, [assignmentId]);
+    `,
+      [assignmentId]
+    );
 
     result = await pool.query('SELECT status FROM assignments WHERE id = $1', [assignmentId]);
     assert.equal(result.rows[0].status, 'in_progress', 'Status should be updated');
 
     // Complete assignment
-    await pool.query(`
+    await pool.query(
+      `
       UPDATE assignments
       SET status = 'completed', completed_at = NOW(), duration_ms = 1500, result = 'Success'
       WHERE id = $1
-    `, [assignmentId]);
+    `,
+      [assignmentId]
+    );
 
     result = await pool.query('SELECT * FROM assignments WHERE id = $1', [assignmentId]);
     assert.equal(result.rows[0].status, 'completed', 'Status should be completed');
@@ -346,7 +355,15 @@ describe('012_multi_server.sql migration', { skip: !DB_AVAILABLE }, () => {
     `);
 
     const columns = result.rows.map(r => r.column_name);
-    const required = ['id', 'worker_id', 'timestamp', 'cpu_usage', 'memory_usage', 'disk_usage', 'active'];
+    const required = [
+      'id',
+      'worker_id',
+      'timestamp',
+      'cpu_usage',
+      'memory_usage',
+      'disk_usage',
+      'active',
+    ];
 
     for (const col of required) {
       assert.ok(columns.includes(col), `worker_metrics should have ${col} column`);
@@ -383,20 +400,18 @@ describe('012_multi_server.sql migration', { skip: !DB_AVAILABLE }, () => {
 
   it('should cascade delete worker_metrics when worker is deleted', async () => {
     // Count metrics before delete
-    const before = await pool.query(
-      'SELECT COUNT(*) FROM worker_metrics WHERE worker_id = $1',
-      ['test-worker-1']
-    );
+    const before = await pool.query('SELECT COUNT(*) FROM worker_metrics WHERE worker_id = $1', [
+      'test-worker-1',
+    ]);
     assert.ok(parseInt(before.rows[0].count) > 0, 'Should have metrics');
 
     // Delete worker
     await pool.query('DELETE FROM workers WHERE id = $1', ['test-worker-1']);
 
     // Metrics should be gone
-    const after = await pool.query(
-      'SELECT COUNT(*) FROM worker_metrics WHERE worker_id = $1',
-      ['test-worker-1']
-    );
+    const after = await pool.query('SELECT COUNT(*) FROM worker_metrics WHERE worker_id = $1', [
+      'test-worker-1',
+    ]);
     assert.equal(parseInt(after.rows[0].count), 0, 'Metrics should be deleted');
   });
 
@@ -561,9 +576,14 @@ describe('012_multi_server.sql migration', { skip: !DB_AVAILABLE }, () => {
     await new Promise(resolve => globalThis.setTimeout(resolve, 10));
 
     // Update the server
-    await pool.query('UPDATE servers SET status = $1 WHERE id = $2', ['maintenance', 'trigger-test']);
+    await pool.query('UPDATE servers SET status = $1 WHERE id = $2', [
+      'maintenance',
+      'trigger-test',
+    ]);
 
-    const after = await pool.query('SELECT updated_at FROM servers WHERE id = $1', ['trigger-test']);
+    const after = await pool.query('SELECT updated_at FROM servers WHERE id = $1', [
+      'trigger-test',
+    ]);
 
     assert.ok(
       after.rows[0].updated_at > before.rows[0].updated_at,
