@@ -55,7 +55,7 @@ if (!DB_AVAILABLE) {
  */
 function createMockSoulLoader(defaultSoul = 'You are a helpful assistant.') {
   return {
-    loadSoul: mock.fn(async _soulPath => defaultSoul),
+    load: mock.fn(async _soulPath => defaultSoul),
   };
 }
 
