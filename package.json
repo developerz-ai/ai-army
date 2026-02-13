@@ -1,7 +1,7 @@
 {
   "name": "ai-army",
-  "version": "0.1.0",
-  "description": "A framework for building multi-bot AI systems",
+  "version": "0.2.0",
+  "description": "Open-source framework for orchestrating AI workers across distributed servers",
   "type": "module",
   "main": "src/index.js",
   "bin": {
@@ -26,6 +26,9 @@
     "chatbots",
     "multi-bot",
     "orchestration",
+    "worker",
+    "distributed",
+    "ssh",
     "slack",
     "discord",
     "framework"
