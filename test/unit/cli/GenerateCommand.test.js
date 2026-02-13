@@ -11,8 +11,8 @@ import assert from 'node:assert/strict';
 import {
   runGenerate,
   GenerateCommandError,
-  WORKER_PRESETS,
-  VALID_TYPES,
+  loadWorkerTemplates,
+  getFallbackPresets,
   generateWorkerYaml,
   generateExpertiseMd,
   formatName,
@@ -26,8 +26,68 @@ import {
  * @returns {Object} Mock fs module
  */
 function createMockFs(options = {}) {
-  const { existingFiles = new Set(), writeShouldFail = false } = options;
+  const { existingFiles = new Set(), writeShouldFail = false, templateFiles = [] } = options;
   const writtenFiles = new Map();
+
+  // Template YAML content for different worker types
+  const templateContent = {
+    'default.yml': `id: default
+name: Default Worker
+description: A general-purpose worker
+container:
+  image: ai-army/worker:latest
+  cpus: 2
+  memory: '4g'
+tools:
+  - bash
+  - git
+  - readFile
+  - writeFile
+deployment:
+  replicas: 1
+`,
+    'gpu.yml': `id: gpu
+name: GPU Worker
+description: A GPU-accelerated worker for ML/AI tasks
+container:
+  image: ai-army/worker-gpu:latest
+  cpus: 4
+  memory: '16g'
+tools:
+  - bash
+  - git
+deployment:
+  replicas: 1
+`,
+    'lightweight.yml': `id: lightweight
+name: Lightweight Worker
+description: A lightweight worker for simple tasks
+container:
+  image: ai-army/worker:latest
+  cpus: 1
+  memory: '1g'
+tools:
+  - bash
+  - readFile
+deployment:
+  replicas: 1
+`,
+    'backend-developer.yml': `id: backend-developer
+name: Backend Developer
+description: A backend developer
+container:
+  image: ai-army/backend:latest
+  cpus: 2
+  memory: '4g'
+tools:
+  - bash
+  - git
+expertise: |
+  You are a backend developer.
+deployment:
+  replicas: 1
+`,
+  };
 
   return {
     writtenFiles,
@@ -44,6 +104,20 @@ function createMockFs(options = {}) {
         throw new Error('Permission denied');
       }
       writtenFiles.set(filePath, content);
+    }),
+    readdir: mock.fn(async () => {
+      if (templateFiles.length === 0) {
+        // Default: return all template files
+        return Object.keys(templateContent);
+      }
+      return templateFiles;
+    }),
+    readFile: mock.fn(async filePath => {
+      const filename = filePath.split('/').pop();
+      if (templateContent[filename]) {
+        return templateContent[filename];
+      }
+      throw new Error('File not found');
     }),
   };
 }
@@ -477,24 +551,36 @@ describe('GenerateCommand helpers', () => {
   });
 
   describe('generateWorkerYaml', () => {
+    const mockTemplate = {
+      id: 'test',
+      description: 'A test worker',
+      container: { image: 'ai-army/worker:latest', cpus: 2, memory: '4g' },
+      tools: ['bash', 'git', 'readFile', 'writeFile'],
+      deployment: { replicas: 1, strategy: 'round-robin', healthCheck: { interval: 30 } },
+    };
+
     test('includes worker id', () => {
-      const yaml = generateWorkerYaml('test-worker', 'default');
+      const yaml = generateWorkerYaml('test-worker', mockTemplate);
       assert.match(yaml, /id: test-worker/);
     });
 
     test('includes expertise file reference', () => {
-      const yaml = generateWorkerYaml('test-worker', 'default');
+      const yaml = generateWorkerYaml('test-worker', mockTemplate);
       assert.match(yaml, /file: expertise\/test-worker\.md/);
     });
 
-    test('includes container config from preset', () => {
-      const yaml = generateWorkerYaml('gpu-worker', 'gpu');
+    test('includes container config from template', () => {
+      const template = {
+        ...mockTemplate,
+        container: { image: 'ai-army/worker-gpu:latest', cpus: 4, memory: '16g' },
+      };
+      const yaml = generateWorkerYaml('gpu-worker', template);
       assert.match(yaml, /ai-army\/worker-gpu:latest/);
       assert.match(yaml, /cpus: 4/);
     });
 
-    test('includes tools from preset', () => {
-      const yaml = generateWorkerYaml('test-worker', 'default');
+    test('includes tools from template', () => {
+      const yaml = generateWorkerYaml('test-worker', mockTemplate);
       assert.match(yaml, /- bash/);
       assert.match(yaml, /- git/);
       assert.match(yaml, /- readFile/);
@@ -502,7 +588,7 @@ describe('GenerateCommand helpers', () => {
     });
 
     test('includes deployment section', () => {
-      const yaml = generateWorkerYaml('test-worker', 'default');
+      const yaml = generateWorkerYaml('test-worker', mockTemplate);
       assert.match(yaml, /deployment:/);
       assert.match(yaml, /strategy: round-robin/);
       assert.match(yaml, /healthCheck:/);
@@ -510,53 +596,78 @@ describe('GenerateCommand helpers', () => {
   });
 
   describe('generateExpertiseMd', () => {
+    const mockTemplate = {
+      id: 'test',
+      description: 'A general worker',
+      container: { image: 'ai-army/worker:latest', cpus: 2, memory: '4g' },
+      tools: ['bash'],
+      deployment: { replicas: 1 },
+    };
+
     test('includes formatted name', () => {
-      const md = generateExpertiseMd('code-reviewer', 'default');
+      const md = generateExpertiseMd('code-reviewer', mockTemplate);
       assert.match(md, /# Code Reviewer/);
     });
 
-    test('includes preset description', () => {
-      const md = generateExpertiseMd('ml-worker', 'gpu');
+    test('uses inline expertise if provided', () => {
+      const template = { ...mockTemplate, expertise: 'You are a GPU-accelerated worker' };
+      const md = generateExpertiseMd('ml-worker', template);
       assert.match(md, /GPU-accelerated/);
     });
 
-    test('includes guidelines section', () => {
-      const md = generateExpertiseMd('test-worker', 'default');
+    test('includes guidelines section when no inline expertise', () => {
+      const md = generateExpertiseMd('test-worker', mockTemplate);
       assert.match(md, /## Guidelines/);
       assert.match(md, /Be thorough/);
     });
 
     test('includes constraints section', () => {
-      const md = generateExpertiseMd('test-worker', 'default');
+      const md = generateExpertiseMd('test-worker', mockTemplate);
       assert.match(md, /## Constraints/);
       assert.match(md, /secrets/);
     });
   });
 
-  describe('WORKER_PRESETS', () => {
-    test('has default, gpu, and lightweight presets', () => {
-      assert.ok(WORKER_PRESETS.default);
-      assert.ok(WORKER_PRESETS.gpu);
-      assert.ok(WORKER_PRESETS.lightweight);
+  describe('loadWorkerTemplates', () => {
+    test('loads templates from filesystem', async () => {
+      const mockFs = createMockFs({
+        templateFiles: ['backend-developer.yml'],
+      });
+      const templates = await loadWorkerTemplates(mockFs);
+      assert.ok(templates['backend-developer']);
+      assert.equal(templates['backend-developer'].id, 'backend-developer');
     });
 
-    test('each preset has required fields', () => {
-      for (const type of VALID_TYPES) {
-        const preset = WORKER_PRESETS[type];
-        assert.ok(preset.description, `${type} should have description`);
-        assert.ok(preset.container, `${type} should have container`);
-        assert.ok(preset.container.image, `${type} should have container.image`);
-        assert.ok(preset.tools, `${type} should have tools`);
-        assert.ok(Array.isArray(preset.tools), `${type}.tools should be array`);
+    test('returns fallback presets when templates dir not found', async () => {
+      const mockFs = createMockFs({
+        templateFiles: [], // Will trigger ENOENT
+      });
+      const templates = await loadWorkerTemplates(mockFs);
+      assert.ok(templates.default);
+      assert.ok(templates.default.description);
+    });
+
+    test('each template has required fields', async () => {
+      const mockFs = createMockFs({
+        templateFiles: ['backend-developer.yml'],
+      });
+      const templates = await loadWorkerTemplates(mockFs);
+      for (const [type, template] of Object.entries(templates)) {
+        assert.ok(template.description, `${type} should have description`);
+        assert.ok(template.container, `${type} should have container`);
+        assert.ok(template.container.image, `${type} should have container.image`);
       }
     });
   });
 
-  describe('VALID_TYPES', () => {
-    test('contains expected types', () => {
-      assert.ok(VALID_TYPES.includes('default'));
-      assert.ok(VALID_TYPES.includes('gpu'));
-      assert.ok(VALID_TYPES.includes('lightweight'));
+  describe('getFallbackPresets', () => {
+    test('returns default preset', () => {
+      const presets = getFallbackPresets();
+      assert.ok(presets.default);
+      assert.equal(presets.default.id, 'default');
+      assert.ok(presets.default.description);
+      assert.ok(presets.default.container);
+      assert.ok(presets.default.tools);
     });
   });
 });
