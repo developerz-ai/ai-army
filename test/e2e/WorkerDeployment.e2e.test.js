@@ -35,6 +35,7 @@ import {
   isDatabaseAvailable,
   createWorkerDatabase,
   dropWorkerDatabase,
+  runMigrations,
 } from '../helpers/setup.js';
 
 const DB_AVAILABLE = await isDatabaseAvailable();
@@ -111,6 +112,9 @@ describe('WorkerDeployment E2E - Full Lifecycle', { skip: !DB_AVAILABLE }, () =>
     await storage.query('DROP FUNCTION IF EXISTS notify_bot_change CASCADE');
     await storage.query('DROP FUNCTION IF EXISTS notify_worker_change CASCADE');
     await storage.query('DROP FUNCTION IF EXISTS notify_server_change CASCADE');
+
+    // Re-run migrations to recreate schema
+    await runMigrations(storage);
   });
 
   // ===========================================================================
@@ -213,11 +217,17 @@ describe('WorkerDeployment E2E - Full Lifecycle', { skip: !DB_AVAILABLE }, () =>
       // Note: ContainerPool requires Docker to be running
       // For E2E tests without Docker, we'll mock ContainerPool
       const containerPool = {
+        initializeContainer: mock.fn(async (_botId, _config) => ({
+          id: 'container-abc123',
+          status: 'running',
+        })),
         createContainer: mock.fn(async (_botId, _config) => ({
           id: 'container-abc123',
           status: 'running',
         })),
         startContainer: mock.fn(async () => {}),
+        hasContainer: mock.fn(() => true),
+        recycleContainer: mock.fn(async () => {}),
         stopContainer: mock.fn(async () => {}),
         removeContainer: mock.fn(async () => {}),
         listContainers: mock.fn(async () => []),
@@ -251,9 +261,8 @@ describe('WorkerDeployment E2E - Full Lifecycle', { skip: !DB_AVAILABLE }, () =>
       // Start bot (provisions container)
       await botManager.startBot('test-bot-1');
 
-      // Verify container was created
-      assert.equal(containerPool.createContainer.mock.calls.length, 1);
-      assert.equal(containerPool.startContainer.mock.calls.length, 1);
+      // Verify container was initialized
+      assert.equal(containerPool.initializeContainer.mock.calls.length, 1);
 
       // Verify bot status
       const running = botManager.getBot('test-bot-1');
@@ -267,7 +276,10 @@ describe('WorkerDeployment E2E - Full Lifecycle', { skip: !DB_AVAILABLE }, () =>
       const configValidator = createMockConfigValidator();
 
       const containerPool = {
+        initializeContainer: mock.fn(async () => ({ id: 'container-xyz', status: 'running' })),
         createContainer: mock.fn(async () => ({ id: 'container-xyz', status: 'running' })),
+        hasContainer: mock.fn(() => true),
+        recycleContainer: mock.fn(async () => {}),
         startContainer: mock.fn(async () => {}),
         stopContainer: mock.fn(async () => {}),
         removeContainer: mock.fn(async () => {}),
@@ -319,7 +331,10 @@ describe('WorkerDeployment E2E - Full Lifecycle', { skip: !DB_AVAILABLE }, () =>
       const configValidator = createMockConfigValidator();
 
       const containerPool = {
+        initializeContainer: mock.fn(async () => ({ id: 'container-123', status: 'running' })),
         createContainer: mock.fn(async () => ({ id: 'container-123', status: 'running' })),
+        hasContainer: mock.fn(() => true),
+        recycleContainer: mock.fn(async () => {}),
         startContainer: mock.fn(async () => {}),
         stopContainer: mock.fn(async () => {}),
         removeContainer: mock.fn(async () => {}),
@@ -423,10 +438,16 @@ describe('WorkerDeployment E2E - Full Lifecycle', { skip: !DB_AVAILABLE }, () =>
       const workspaceData = { files: [] };
 
       const containerPool = {
+        initializeContainer: mock.fn(async (botId, config) => {
+          currentImage = config.sandbox?.image || 'node:22-slim';
+          return { id: `container-${botId}`, status: 'running', image: currentImage };
+        }),
         createContainer: mock.fn(async (botId, config) => {
           currentImage = config.sandbox?.image || 'node:22-slim';
           return { id: `container-${botId}`, status: 'running', image: currentImage };
         }),
+        hasContainer: mock.fn(() => true),
+        recycleContainer: mock.fn(async () => {}),
         startContainer: mock.fn(async () => {}),
         stopContainer: mock.fn(async () => {}),
         removeContainer: mock.fn(async () => {}),
@@ -508,7 +529,10 @@ describe('WorkerDeployment E2E - Full Lifecycle', { skip: !DB_AVAILABLE }, () =>
       const configValidator = createMockConfigValidator();
 
       const containerPool = {
+        initializeContainer: mock.fn(async () => ({ id: 'container-dep', status: 'running' })),
         createContainer: mock.fn(async () => ({ id: 'container-dep', status: 'running' })),
+        hasContainer: mock.fn(() => true),
+        recycleContainer: mock.fn(async () => {}),
         startContainer: mock.fn(async () => {}),
         stopContainer: mock.fn(async () => {}),
         removeContainer: mock.fn(async () => {}),
@@ -544,9 +568,9 @@ describe('WorkerDeployment E2E - Full Lifecycle', { skip: !DB_AVAILABLE }, () =>
       let worker = await workerRegistry.getWorker('worker-dep');
       assert.equal(worker.currentLoad, 1);
 
-      // Deprovision bot (stop + remove)
+      // Deprovision bot (stop + recycle)
       await botManager.stopBot('dep-bot');
-      assert.equal(containerPool.stopContainer.mock.calls.length, 1);
+      assert.equal(containerPool.recycleContainer.mock.calls.length, 1);
 
       // Decrement worker load
       await workerRegistry.decrementLoad('worker-dep');
@@ -630,10 +654,16 @@ describe('WorkerDeployment E2E - Full Lifecycle', { skip: !DB_AVAILABLE }, () =>
       const workspace = new Set();
 
       const containerPool = {
+        initializeContainer: mock.fn(async (_botId, config) => {
+          containerImage = config.sandbox?.image || 'node:22-slim';
+          return { id: 'full-container', status: 'running', image: containerImage };
+        }),
         createContainer: mock.fn(async (_botId, config) => {
           containerImage = config.sandbox?.image || 'node:22-slim';
           return { id: 'full-container', status: 'running', image: containerImage };
         }),
+        hasContainer: mock.fn(() => true),
+        recycleContainer: mock.fn(async () => {}),
         startContainer: mock.fn(async () => {}),
         stopContainer: mock.fn(async () => {}),
         removeContainer: mock.fn(async () => {

@@ -145,7 +145,7 @@ export async function cleanupTestDatabase(storage) {
  *
  * @param {PostgresStorage} storage - Connected storage instance
  */
-async function runMigrations(storage) {
+export async function runMigrations(storage) {
   // Ensure schema_migrations table exists (idempotent)
   // Wrapped in try-catch for concurrent test execution safety
   try {

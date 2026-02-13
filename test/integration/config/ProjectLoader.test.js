@@ -18,8 +18,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { ProjectLoader, ProjectLoadError } from '../../../src/config/project-loader.js';
-import { ProjectValidationError } from '../../../src/config/project-validator.js';
+import { ProjectLoader } from '../../../src/config/project-loader.js';
 
 // ============================================================================
 // Test Helpers

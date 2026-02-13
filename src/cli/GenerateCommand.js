@@ -67,7 +67,7 @@ async function loadWorkerTemplates(fsModule = fs) {
 
   try {
     files = await fsModule.readdir(templatesDir);
-  } catch (err) {
+  } catch (_err) {
     // Fallback to basic presets if templates dir not found
     return getFallbackPresets();
   }
@@ -82,7 +82,7 @@ async function loadWorkerTemplates(fsModule = fs) {
       const template = yaml.load(content);
       const type = path.basename(file, path.extname(file));
       templates[type] = template;
-    } catch (err) {
+    } catch (_err) {
       // Skip invalid templates
       continue;
     }

@@ -58,9 +58,8 @@ async function createTempDir() {
  * @returns {Object} Mock storage
  */
 function createMockStorage(options = {}) {
-  const { workers = [], servers = [] } = options;
+  const { workers = [] } = options;
   const storedWorkers = [...workers];
-  const storedServers = [...servers];
 
   return {
     connected: true,
@@ -88,23 +87,6 @@ function createMockStorage(options = {}) {
       return { rows: [] };
     }),
     transaction: mock.fn(async fn => fn({ query: mock.fn(async () => ({ rows: [] })) })),
-  };
-}
-
-/**
- * Create a mock BotManager
- * @param {Object} [options={}] - Options
- * @returns {Object} Mock BotManager
- */
-function createMockBotManager(options = {}) {
-  const { bots = [] } = options;
-
-  return {
-    listBots: mock.fn(async () => bots),
-    getBotById: mock.fn(async id => bots.find(b => b.id === id) || null),
-    stopBot: mock.fn(async () => ({ success: true })),
-    startBot: mock.fn(async () => ({ success: true })),
-    updateBotImage: mock.fn(async () => ({ success: true })),
   };
 }
 
@@ -203,14 +185,22 @@ describe('server command - integration with storage', () => {
       assert.fail('Expected SSH connectivity check to fail');
     } catch (err) {
       // Expected to fail with SSH error in test environment
-      assert.ok(err.message.includes('SSH') || err.message.includes('key') || err.message.includes('ENOENT'));
+      assert.ok(
+        err.message.includes('SSH') || err.message.includes('key') || err.message.includes('ENOENT')
+      );
     }
   });
 
   test('server list - displays all registered servers', async () => {
     storage = createMockStorage({
       workers: [
-        { id: 'vps-1', host: '192.168.1.100', status: 'healthy', labels: ['prod'], max_workers: 10 },
+        {
+          id: 'vps-1',
+          host: '192.168.1.100',
+          status: 'healthy',
+          labels: ['prod'],
+          max_workers: 10,
+        },
         { id: 'vps-2', host: '192.168.1.101', status: 'offline', labels: [], max_workers: 5 },
       ],
     });
@@ -303,7 +293,9 @@ describe('worker command - integration with storage and BotManager', () => {
 
   test('worker status - shows detailed status for a worker', async () => {
     storage = createMockStorage({
-      workers: [{ id: 'worker-1', host: 'vps-1', status: 'healthy', labels: ['prod'], max_workers: 10 }],
+      workers: [
+        { id: 'worker-1', host: 'vps-1', status: 'healthy', labels: ['prod'], max_workers: 10 },
+      ],
     });
 
     const result = await runWorker('status', {
