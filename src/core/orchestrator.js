@@ -1093,9 +1093,24 @@ export class Orchestrator {
           // Merge with defaults
           const mergedConfig = this.configLoader.deepMerge(this.config.defaults || {}, botConfig);
 
-          await this.botManager.loadBot(botId, mergedConfig);
+          const bot = await this.botManager.loadBot(botId, mergedConfig);
           this.botConfigs.set(botId, mergedConfig);
           this._configureWebhooksForBot(botId, mergedConfig);
+
+          // Persist bot to database so foreign key constraints are satisfied
+          if (this.storage && typeof this.storage.saveBotConfig === 'function') {
+            try {
+              await this.storage.saveBotConfig(botId, mergedConfig, {
+                name: mergedConfig.name || botId,
+                description: mergedConfig.description,
+                soulContent: bot.soulContent,
+                status: 'stopped',
+              });
+            } catch (dbErr) {
+              this._log(`  ⚠️ Failed to persist bot '${botId}' to database: ${dbErr.message}`);
+            }
+          }
+
           loadedCount++;
           this._log(`  ✅ Loaded bot: ${botId}`);
         } catch (err) {

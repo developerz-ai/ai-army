@@ -354,8 +354,9 @@ export class APIServer {
       return;
     }
 
-    // Apply authentication before router delegation
-    if (this.auth.isEnabled()) {
+    // Apply authentication before router delegation (skip public paths)
+    const publicPaths = ['/health'];
+    if (this.auth.isEnabled() && !publicPaths.includes(pathname)) {
       const user = this.auth.authenticate(req);
       if (!user) {
         this.auth.sendUnauthorized(res);

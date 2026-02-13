@@ -35,6 +35,12 @@
           "role": "operator",
           "name": "daniel-francoeur",
           "bots": ["daniel-francoeur-assistant"]
+        },
+        {
+          "token": "${SEBASTIAN_API_KEY}",
+          "role": "operator",
+          "name": "sebastian-buza",
+          "bots": ["sebastian-buza-assistant"]
         }
       ]
     }
