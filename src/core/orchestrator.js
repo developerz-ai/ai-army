@@ -2558,7 +2558,12 @@ export class Orchestrator {
       if (typeof entry === 'string') {
         return { token: entry, role: 'admin' };
       }
-      return { token: entry.token, role: entry.role || 'admin' };
+      return {
+        token: entry.token,
+        role: entry.role || 'admin',
+        name: entry.name || null,
+        bots: entry.bots || null,
+      };
     });
   }
 
