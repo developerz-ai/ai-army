@@ -36,7 +36,15 @@ export class BotReloaderError extends Error {
  * Sandbox fields that require a container restart when changed
  * @type {string[]}
  */
-const CONTAINER_RESTART_FIELDS = ['image', 'memory', 'cpus', 'packages', 'mounts', 'network', 'dockerAccess'];
+const CONTAINER_RESTART_FIELDS = [
+  'image',
+  'memory',
+  'cpus',
+  'packages',
+  'mounts',
+  'network',
+  'dockerAccess',
+];
 
 /**
  * BotReloader - hot reloads bot config, soul, and containers
