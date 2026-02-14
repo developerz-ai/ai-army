@@ -242,15 +242,11 @@ function createMockAgentRunnerWithTools(options = {}) {
 
   const steps = options.steps || [
     {
-      content: [
+      toolCalls: [
+        { toolName: 'bash', toolCallId: 'call_1', args: { command: 'ls -la /home/agent' } },
+      ],
+      toolResults: [
         {
-          type: 'tool-call',
-          toolName: 'bash',
-          toolCallId: 'call_1',
-          input: { command: 'ls -la /home/agent' },
-        },
-        {
-          type: 'tool-result',
           toolCallId: 'call_1',
           output:
             'total 8\ndrwxr-xr-x 2 agent agent 4096 Jan 1 00:00 .\n-rw-r--r-- 1 agent agent  42 Jan 1 00:00 README.md',
@@ -499,31 +495,23 @@ describe('Orchestrator E2E - Full Message Flow', { skip: !DB_AVAILABLE }, () => 
         ],
         steps: [
           {
-            content: [
-              {
-                type: 'tool-call',
-                toolName: 'bash',
-                toolCallId: 'tc_ls',
-                input: { command: 'ls -la /home/agent' },
-              },
-              {
-                type: 'tool-result',
-                toolCallId: 'tc_ls',
-                output: 'README.md\npackage.json\nsrc/',
-                isError: false,
-              },
+            toolCalls: [
+              { toolName: 'bash', toolCallId: 'tc_ls', args: { command: 'ls -la /home/agent' } },
+            ],
+            toolResults: [
+              { toolCallId: 'tc_ls', output: 'README.md\npackage.json\nsrc/', isError: false },
             ],
           },
           {
-            content: [
+            toolCalls: [
               {
-                type: 'tool-call',
                 toolName: 'readFile',
                 toolCallId: 'tc_read',
-                input: { path: '/home/agent/README.md' },
+                args: { path: '/home/agent/README.md' },
               },
+            ],
+            toolResults: [
               {
-                type: 'tool-result',
                 toolCallId: 'tc_read',
                 output: '# My Project\nThis is a Node.js project.',
                 isError: false,
@@ -1345,15 +1333,11 @@ describe('Orchestrator E2E - Full Message Flow', { skip: !DB_AVAILABLE }, () => 
         toolCalls: [{ toolName: 'bash', toolCallId: 'tc_fail', args: { command: 'cat /missing' } }],
         steps: [
           {
-            content: [
+            toolCalls: [
+              { toolName: 'bash', toolCallId: 'tc_fail', args: { command: 'cat /missing' } },
+            ],
+            toolResults: [
               {
-                type: 'tool-call',
-                toolName: 'bash',
-                toolCallId: 'tc_fail',
-                input: { command: 'cat /missing' },
-              },
-              {
-                type: 'tool-result',
                 toolCallId: 'tc_fail',
                 output: 'Error: No such file or directory',
                 isError: true,

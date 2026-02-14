@@ -547,14 +547,23 @@ export class BotRouter {
     if (!updates || typeof updates !== 'object' || Object.keys(updates).length === 0) {
       return {
         statusCode: 400,
-        body: { error: 'Bad Request', message: 'Request body must contain config fields to update' },
+        body: {
+          error: 'Bad Request',
+          message: 'Request body must contain config fields to update',
+        },
       };
     }
 
     // Allowlist of updatable fields
     const ALLOWED_FIELDS = [
-      'model', 'provider', 'temperature', 'maxSteps', 'timeout',
-      'tools', 'mcpServers', 'sandbox',
+      'model',
+      'provider',
+      'temperature',
+      'maxSteps',
+      'timeout',
+      'tools',
+      'mcpServers',
+      'sandbox',
     ];
     const unknownFields = Object.keys(updates).filter(k => !ALLOWED_FIELDS.includes(k));
     if (unknownFields.length > 0) {
@@ -603,7 +612,9 @@ export class BotRouter {
         userAgent: req.headers?.['user-agent'] || null,
       });
 
-      this._log(`Bot '${id}' config updated (fields: ${Object.keys(updates).join(', ')}${sandboxChanged ? ', container restarted' : ''})`);
+      this._log(
+        `Bot '${id}' config updated (fields: ${Object.keys(updates).join(', ')}${sandboxChanged ? ', container restarted' : ''})`
+      );
 
       return {
         statusCode: 200,

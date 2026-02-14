@@ -69,19 +69,9 @@ function createMockAgentRunnerWithTools(toolCalls, steps, text) {
 
   const defaultSteps = steps || [
     {
-      content: [
-        {
-          type: 'tool-call',
-          toolName: 'bash',
-          toolCallId: 'call_1',
-          input: { command: 'ls -la' },
-        },
-        {
-          type: 'tool-result',
-          toolCallId: 'call_1',
-          output: 'file1.txt\nfile2.txt\npackage.json',
-          isError: false,
-        },
+      toolCalls: [{ toolName: 'bash', toolCallId: 'call_1', args: { command: 'ls -la' } }],
+      toolResults: [
+        { toolCallId: 'call_1', output: 'file1.txt\nfile2.txt\npackage.json', isError: false },
       ],
     },
   ];
@@ -321,48 +311,18 @@ describe('MessageProcessor Integration', { skip: !DB_AVAILABLE }, () => {
       ];
       const steps = [
         {
-          content: [
-            {
-              type: 'tool-call',
-              toolName: 'bash',
-              toolCallId: 'call_1',
-              input: { command: 'ls' },
-            },
-            {
-              type: 'tool-result',
-              toolCallId: 'call_1',
-              output: 'app.js\npackage.json',
-              isError: false,
-            },
-            {
-              type: 'tool-call',
-              toolName: 'readFile',
-              toolCallId: 'call_2',
-              input: { path: '/home/agent/app.js' },
-            },
-            {
-              type: 'tool-result',
-              toolCallId: 'call_2',
-              output: 'console.log("hello")',
-              isError: false,
-            },
+          toolCalls: [
+            { toolName: 'bash', toolCallId: 'call_1', args: { command: 'ls' } },
+            { toolName: 'readFile', toolCallId: 'call_2', args: { path: '/home/agent/app.js' } },
+          ],
+          toolResults: [
+            { toolCallId: 'call_1', output: 'app.js\npackage.json', isError: false },
+            { toolCallId: 'call_2', output: 'console.log("hello")', isError: false },
           ],
         },
         {
-          content: [
-            {
-              type: 'tool-call',
-              toolName: 'bash',
-              toolCallId: 'call_3',
-              input: { command: 'npm test' },
-            },
-            {
-              type: 'tool-result',
-              toolCallId: 'call_3',
-              output: 'All tests passed',
-              isError: false,
-            },
-          ],
+          toolCalls: [{ toolName: 'bash', toolCallId: 'call_3', args: { command: 'npm test' } }],
+          toolResults: [{ toolCallId: 'call_3', output: 'All tests passed', isError: false }],
         },
       ];
 
@@ -391,15 +351,11 @@ describe('MessageProcessor Integration', { skip: !DB_AVAILABLE }, () => {
       ];
       const steps = [
         {
-          content: [
+          toolCalls: [
+            { toolName: 'bash', toolCallId: 'call_err', args: { command: 'cat /nonexistent' } },
+          ],
+          toolResults: [
             {
-              type: 'tool-call',
-              toolName: 'bash',
-              toolCallId: 'call_err',
-              input: { command: 'cat /nonexistent' },
-            },
-            {
-              type: 'tool-result',
               toolCallId: 'call_err',
               output: 'Error: No such file or directory',
               isError: true,
@@ -922,31 +878,13 @@ describe('MessageProcessor Integration', { skip: !DB_AVAILABLE }, () => {
 
       const steps = [
         {
-          content: [
-            {
-              type: 'tool-call',
-              toolName: 'bash',
-              toolCallId: 'call_pub_1',
-              input: { command: 'pwd' },
-            },
-            {
-              type: 'tool-result',
-              toolCallId: 'call_pub_1',
-              output: '/home/agent',
-              isError: false,
-            },
-            {
-              type: 'tool-call',
-              toolName: 'readFile',
-              toolCallId: 'call_pub_2',
-              input: { path: '/tmp/f.txt' },
-            },
-            {
-              type: 'tool-result',
-              toolCallId: 'call_pub_2',
-              output: 'file contents',
-              isError: false,
-            },
+          toolCalls: [
+            { toolName: 'bash', toolCallId: 'call_pub_1', args: { command: 'pwd' } },
+            { toolName: 'readFile', toolCallId: 'call_pub_2', args: { path: '/tmp/f.txt' } },
+          ],
+          toolResults: [
+            { toolCallId: 'call_pub_1', output: '/home/agent', isError: false },
+            { toolCallId: 'call_pub_2', output: 'file contents', isError: false },
           ],
         },
       ];

@@ -295,7 +295,7 @@ export class AgentRunner {
    * @returns {Promise<Object|null>} Repaired tool call or null
    * @private
    */
-  async _repairToolCall({ toolCall, tools, inputSchema, error }) {
+  async _repairToolCall({ toolCall, _tools, inputSchema, _error }) {
     try {
       const schema = await inputSchema({ toolName: toolCall.toolName });
       const properties = schema?.properties || {};
@@ -316,7 +316,8 @@ export class AgentRunner {
         try {
           const parsed = JSON.parse(rawInput);
           if (typeof parsed === 'object' && parsed !== null) {
-            const val = parsed[propNames[0]] || Object.values(parsed).find(v => typeof v === 'string');
+            const val =
+              parsed[propNames[0]] || Object.values(parsed).find(v => typeof v === 'string');
             if (val) {
               return {
                 ...toolCall,

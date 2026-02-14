@@ -71,19 +71,9 @@ function createMockAgentRunnerWithTools(toolCalls, steps, text) {
 
   const defaultSteps = steps || [
     {
-      content: [
-        {
-          type: 'tool-call',
-          toolName: 'bash',
-          toolCallId: 'call_1',
-          input: { command: 'ls -la' },
-        },
-        {
-          type: 'tool-result',
-          toolCallId: 'call_1',
-          output: 'file1.txt\nfile2.txt\npackage.json',
-          isError: false,
-        },
+      toolCalls: [{ toolName: 'bash', toolCallId: 'call_1', args: { command: 'ls -la' } }],
+      toolResults: [
+        { toolCallId: 'call_1', output: 'file1.txt\nfile2.txt\npackage.json', isError: false },
       ],
     },
   ];
@@ -406,48 +396,18 @@ describe('Full Message Processing Pipeline Integration', { skip: !DB_AVAILABLE }
       ];
       const steps = [
         {
-          content: [
-            {
-              type: 'tool-call',
-              toolName: 'bash',
-              toolCallId: 'call_1',
-              input: { command: 'ls' },
-            },
-            {
-              type: 'tool-result',
-              toolCallId: 'call_1',
-              output: 'app.js',
-              isError: false,
-            },
-            {
-              type: 'tool-call',
-              toolName: 'readFile',
-              toolCallId: 'call_2',
-              input: { path: '/app.js' },
-            },
-            {
-              type: 'tool-result',
-              toolCallId: 'call_2',
-              output: 'console.log("hi")',
-              isError: false,
-            },
+          toolCalls: [
+            { toolName: 'bash', toolCallId: 'call_1', args: { command: 'ls' } },
+            { toolName: 'readFile', toolCallId: 'call_2', args: { path: '/app.js' } },
+          ],
+          toolResults: [
+            { toolCallId: 'call_1', output: 'app.js', isError: false },
+            { toolCallId: 'call_2', output: 'console.log("hi")', isError: false },
           ],
         },
         {
-          content: [
-            {
-              type: 'tool-call',
-              toolName: 'bash',
-              toolCallId: 'call_3',
-              input: { command: 'npm test' },
-            },
-            {
-              type: 'tool-result',
-              toolCallId: 'call_3',
-              output: 'All tests passed',
-              isError: false,
-            },
-          ],
+          toolCalls: [{ toolName: 'bash', toolCallId: 'call_3', args: { command: 'npm test' } }],
+          toolResults: [{ toolCallId: 'call_3', output: 'All tests passed', isError: false }],
         },
       ];
 
@@ -474,15 +434,11 @@ describe('Full Message Processing Pipeline Integration', { skip: !DB_AVAILABLE }
       ];
       const steps = [
         {
-          content: [
+          toolCalls: [
+            { toolName: 'bash', toolCallId: 'call_err', args: { command: 'cat /nonexistent' } },
+          ],
+          toolResults: [
             {
-              type: 'tool-call',
-              toolName: 'bash',
-              toolCallId: 'call_err',
-              input: { command: 'cat /nonexistent' },
-            },
-            {
-              type: 'tool-result',
               toolCallId: 'call_err',
               output: 'Error: No such file or directory',
               isError: true,
