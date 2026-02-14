@@ -216,6 +216,36 @@ describe('ContainerPool', () => {
       assert.equal(mockDockerManager.installPackages.mock.calls.length, 0);
     });
 
+    test('auto-adds docker.io package when dockerAccess is enabled', async () => {
+      const botConfig = {
+        id: 'test-bot',
+        sandbox: { dockerAccess: true, packages: ['git'] },
+      };
+      const workspace = { root: './data/test-bot' };
+
+      await pool.initializeContainer('test-bot', botConfig, workspace);
+
+      assert.equal(mockDockerManager.installPackages.mock.calls.length, 1);
+      const installArgs = mockDockerManager.installPackages.mock.calls[0].arguments;
+      assert.ok(installArgs[1].includes('git'));
+      assert.ok(installArgs[1].includes('docker.io'));
+    });
+
+    test('does not duplicate docker.io package when already in list', async () => {
+      const botConfig = {
+        id: 'test-bot',
+        sandbox: { dockerAccess: true, packages: ['git', 'docker.io'] },
+      };
+      const workspace = { root: './data/test-bot' };
+
+      await pool.initializeContainer('test-bot', botConfig, workspace);
+
+      assert.equal(mockDockerManager.installPackages.mock.calls.length, 1);
+      const installArgs = mockDockerManager.installPackages.mock.calls[0].arguments;
+      const dockerCount = installArgs[1].filter(pkg => pkg === 'docker.io').length;
+      assert.equal(dockerCount, 1, 'docker.io should only appear once');
+    });
+
     test('recycles existing container before creating new one', async () => {
       const botConfig = { id: 'test-bot', sandbox: { image: 'node:22-slim' } };
       const workspace = { root: './data/test-bot' };
@@ -829,6 +859,65 @@ describe('ContainerPool', () => {
 
       assert.equal(pool._getBackendForBot('special-bot'), overrideBackend);
       assert.equal(pool._getBackendForBot('normal-bot'), mockBackend);
+    });
+
+    test('per-bot backend is cleaned up on initialization failure', async () => {
+      const { mockBackend } = createMockBackend();
+      const pool = new ContainerPool(mockBackend);
+
+      // Make createContainer fail
+      mockBackend.createContainer = mock.fn(async () => {
+        throw new Error('Container creation failed');
+      });
+
+      const botConfig = { id: 'test-bot', sandbox: {} };
+      const workspace = { root: './data' };
+
+      // Attempt initialization (will fail)
+      await assert.rejects(() => pool.initializeContainer('test-bot', botConfig, workspace));
+
+      // Per-bot backend should be cleaned up
+      assert.equal(pool.backends.has('test-bot'), false);
+    });
+
+    test('_parseDockerHost parses tcp:// URLs correctly', () => {
+      const { mockDockerManager } = createMockDockerManager();
+      const pool = new ContainerPool(mockDockerManager);
+
+      const result = pool._parseDockerHost('tcp://192.168.1.100:2375');
+
+      assert.deepEqual(result, {
+        host: '192.168.1.100',
+        port: 2375,
+      });
+    });
+
+    test('_parseDockerHost uses default port 2375 when port not specified', () => {
+      const { mockDockerManager } = createMockDockerManager();
+      const pool = new ContainerPool(mockDockerManager);
+
+      const result = pool._parseDockerHost('tcp://localhost');
+
+      assert.equal(result.host, 'localhost');
+      assert.equal(result.port, 2375);
+    });
+
+    test('_parseDockerHost parses unix:// socket paths', () => {
+      const { mockDockerManager } = createMockDockerManager();
+      const pool = new ContainerPool(mockDockerManager);
+
+      const result = pool._parseDockerHost('unix:///var/run/docker.sock');
+
+      assert.deepEqual(result, { socketPath: '/var/run/docker.sock' });
+    });
+
+    test('_parseDockerHost treats bare paths as socket paths', () => {
+      const { mockDockerManager } = createMockDockerManager();
+      const pool = new ContainerPool(mockDockerManager);
+
+      const result = pool._parseDockerHost('/var/run/docker.sock');
+
+      assert.equal(result, '/var/run/docker.sock');
     });
   });
 
