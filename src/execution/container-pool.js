@@ -193,9 +193,15 @@ export class ContainerPool {
       const container = await manager.createContainer(config, workspace);
       await manager.startContainer(container);
 
+      // Build package list (auto-add Docker CLI when dockerAccess enabled)
+      const packages = [...(botConfig.sandbox?.packages || [])];
+      if (botConfig.sandbox?.dockerAccess && !packages.includes('docker.io')) {
+        packages.push('docker.io');
+      }
+
       // Install packages if specified
-      if (botConfig.sandbox?.packages?.length > 0) {
-        await manager.installPackages(container, botConfig.sandbox.packages);
+      if (packages.length > 0) {
+        await manager.installPackages(container, packages);
       }
 
       // Store in pool

@@ -91,19 +91,30 @@ export class DockerManager {
       // Pull image if not present
       await this._ensureImage(image);
 
+      // Build mount list
+      const binds = this.buildMounts(workspace, botConfig.sandbox);
+
+      // Build host config
+      const hostConfig = {
+        Binds: binds,
+        Memory: this.parseMemory(botConfig.sandbox?.memory || '2g'),
+        NanoCPUs: (botConfig.sandbox?.cpus || 2) * 1e9,
+        NetworkMode: botConfig.sandbox?.network || 'bridge',
+        AutoRemove: false,
+      };
+
+      // Add Docker group access if dockerAccess is enabled
+      if (botConfig.sandbox?.dockerAccess) {
+        hostConfig.GroupAdd = ['docker'];
+      }
+
       // Create container with configuration
       const container = await this.docker.createContainer({
         Image: image,
         name: `ai-army-${botConfig.id}`,
         Cmd: ['tail', '-f', '/dev/null'], // Keep alive
         WorkingDir: '/home/agent',
-        HostConfig: {
-          Binds: this.buildMounts(workspace),
-          Memory: this.parseMemory(botConfig.sandbox?.memory || '2g'),
-          NanoCPUs: (botConfig.sandbox?.cpus || 2) * 1e9,
-          NetworkMode: botConfig.sandbox?.network || 'bridge',
-          AutoRemove: false,
-        },
+        HostConfig: hostConfig,
         Labels: {
           'ai-army.bot-id': botConfig.id,
           'ai-army.managed': 'true',
@@ -125,16 +136,25 @@ export class DockerManager {
    *
    * @param {Object} workspace - Workspace configuration
    * @param {string} [workspace.root='./data'] - Root path for workspace
+   * @param {Object} [sandbox] - Sandbox configuration
+   * @param {boolean} [sandbox.dockerAccess] - Mount Docker socket
    * @returns {Array<string>} Array of mount strings like ["/host/path:/container/path:rw"]
    */
-  buildMounts(workspace) {
+  buildMounts(workspace, sandbox) {
     const workspaceRoot = workspace?.root || './data';
     // Resolve to absolute path
     const hostPath = workspaceRoot.startsWith('/')
       ? workspaceRoot
       : path.resolve(process.cwd(), workspaceRoot);
 
-    return [`${hostPath}:/home/agent:rw`];
+    const mounts = [`${hostPath}:/home/agent:rw`];
+
+    // Mount Docker socket for bots that need Docker access
+    if (sandbox?.dockerAccess) {
+      mounts.push('/var/run/docker.sock:/var/run/docker.sock:rw');
+    }
+
+    return mounts;
   }
 
   /**

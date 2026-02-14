@@ -274,6 +274,7 @@ const SandboxConfigSchema = z.object({
     ])
     .optional()
     .default('bridge'),
+  dockerAccess: z.boolean().optional().default(false),
 });
 
 // =============================================================================
