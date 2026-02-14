@@ -10,6 +10,7 @@
 
 import { ContainerBackend, ContainerBackendError, BACKEND_TYPES } from './container-backend.js';
 import { DockerBackend } from './docker-backend.js';
+import { IncusBackend } from './incus-backend.js';
 import { DockerError } from './docker-manager.js';
 
 /**
@@ -104,6 +105,9 @@ export class ContainerPool {
 
     /** @type {Map<string, Object>} Map of botId -> workspace configuration */
     this.workspaces = new Map();
+
+    /** @type {IncusBackend|null} Shared default Incus backend (lazily created) */
+    this._defaultIncusBackend = null;
 
     /** @type {Map<string, ContainerBackend>} Map of botId -> backend for per-bot overrides */
     this.backends = new Map();
@@ -228,7 +232,7 @@ export class ContainerPool {
       }
 
       // Determine which backend to use based on sandbox type and options
-      const backend = this._getBackend(botId, botConfig, options.dockerHost);
+      const backend = this._getBackend(botId, botConfig, options);
 
       // Ensure botConfig has the correct id
       const config = { ...botConfig, id: botId };
@@ -402,6 +406,57 @@ export class ContainerPool {
   }
 
   /**
+   * Execute a command in a bot's container
+   *
+   * Convenience method that abstracts the backend from callers.
+   * Gets the container and correct backend for the bot, then delegates
+   * the exec call. Tools should call this instead of manually retrieving
+   * the container and backend.
+   *
+   * @param {string} botId - Bot identifier
+   * @param {string} command - Bash command to execute
+   * @param {Object} [options={}] - Execution options
+   * @param {number} [options.timeout=30000] - Command timeout in milliseconds
+   * @param {string} [options.user] - User to run command as
+   * @param {string} [options.workingDir='/home/agent'] - Working directory
+   * @returns {Promise<{stdout: string, stderr: string, exitCode: number}>}
+   * @throws {ContainerPoolError} When bot container is not initialized or exec fails
+   */
+  async exec(botId, command, options = {}) {
+    if (!botId || typeof botId !== 'string') {
+      throw new ContainerPoolError('Bot ID must be a non-empty string', {
+        operation: 'exec',
+      });
+    }
+
+    if (!command || typeof command !== 'string') {
+      throw new ContainerPoolError('Command must be a non-empty string', {
+        operation: 'exec',
+        botId,
+      });
+    }
+
+    const container = await this.getContainer(botId);
+    const backend = this._getBackendForBot(botId);
+    return backend.exec(container, command, options);
+  }
+
+  /**
+   * Get the backend assigned to a specific bot
+   *
+   * Returns the per-bot backend override if one exists, otherwise
+   * returns the default backend. This is the public API for callers
+   * who need direct backend access (e.g., for health checks or
+   * non-exec operations).
+   *
+   * @param {string} botId - Bot identifier
+   * @returns {ContainerBackend} Backend instance for this bot
+   */
+  getBackend(botId) {
+    return this._getBackendForBot(botId);
+  }
+
+  /**
    * Check if a container is initialized for a bot
    *
    * @param {string} botId - Bot identifier
@@ -434,31 +489,41 @@ export class ContainerPool {
    *
    * Routes to the correct backend based on:
    * 1. `botConfig.sandbox.type` — selects backend type (docker, incus, etc.)
-   * 2. `dockerHost` — creates a remote Docker backend if specified
+   * 2. `options.dockerHost` — creates a remote Docker backend if specified
+   * 3. `options.incusHost` — creates an Incus backend with a remote socket if specified
    *
    * For Docker backends with a remote host, creates a new DockerBackend instance
-   * pointing at the remote Docker daemon.
+   * pointing at the remote Docker daemon. For Incus backends with a remote host,
+   * creates an IncusBackend pointing at the tunneled socket.
    *
    * @param {string} botId - Bot identifier
    * @param {Object} botConfig - Bot configuration
-   * @param {string} [dockerHost] - Docker host URL (e.g., 'tcp://127.0.0.1:54321')
+   * @param {Object} [options={}] - Backend options
+   * @param {string} [options.dockerHost] - Docker host URL (e.g., 'tcp://127.0.0.1:54321')
+   * @param {string} [options.incusHost] - Incus socket path for remote Incus daemon
    * @returns {ContainerBackend} Backend instance
    * @private
    */
-  _getBackend(botId, botConfig, dockerHost) {
+  _getBackend(botId, botConfig, options = {}) {
+    const { dockerHost, incusHost } = options;
     const sandboxType = botConfig.sandbox?.type || BACKEND_TYPES.DOCKER;
 
     // Route based on sandbox type
     switch (sandboxType) {
       case BACKEND_TYPES.INCUS: {
-        // Incus backend will be implemented in a later PR
-        throw new ContainerPoolError(
-          `Incus backend not yet implemented. Use sandbox.type: 'docker' for now.`,
-          {
-            operation: '_getBackend',
-            botId,
+        if (!incusHost) {
+          // Reuse or lazily create a shared default Incus backend
+          if (!this._defaultIncusBackend) {
+            this._defaultIncusBackend = new IncusBackend();
           }
-        );
+          this.backends.set(botId, this._defaultIncusBackend);
+          return this._defaultIncusBackend;
+        }
+
+        // Create a remote Incus backend with custom socket path
+        const incusBackend = new IncusBackend({ socketPath: incusHost });
+        this.backends.set(botId, incusBackend);
+        return incusBackend;
       }
 
       case BACKEND_TYPES.DOCKER:

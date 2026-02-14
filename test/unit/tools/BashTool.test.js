@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import { createBashTool, BashToolError, isDangerousCommand } from '../../../src/tools/bash-tool.js';
 
 /**
- * Create a mock ContainerPool with DockerManager
+ * Create a mock ContainerPool with exec() abstraction
  * @param {Object} [overrides={}] - Override default mock implementations
  * @returns {Object} Mock ContainerPool and related mocks
  */
@@ -28,6 +28,11 @@ function createMockContainerPool(overrides = {}) {
   };
 
   const mockContainerPool = {
+    // New abstracted exec method — delegates to dockerManager.exec internally
+    exec: mock.fn(async (_botId, command, options) => {
+      return mockDockerManager.exec(mockContainer, command, options);
+    }),
+    // Legacy properties kept for backward compatibility
     getContainer: mock.fn(async () => mockContainer),
     dockerManager: mockDockerManager,
     ...overrides.pool,
@@ -137,13 +142,11 @@ describe('BashTool', () => {
   describe('execute()', () => {
     let containerPool;
     let dockerManager;
-    let mockContainer;
 
     beforeEach(() => {
       const mocks = createMockContainerPool();
       containerPool = mocks.mockContainerPool;
       dockerManager = mocks.mockDockerManager;
-      ({ mockContainer } = mocks);
     });
 
     test('executes "echo hello" and returns stdout', async () => {
@@ -221,7 +224,7 @@ describe('BashTool', () => {
       assert.equal(result.stderr, 'some warning');
     });
 
-    test('passes correct botId to containerPool.getContainer', async () => {
+    test('passes correct botId to containerPool.exec', async () => {
       dockerManager.exec = mock.fn(async () => ({
         exitCode: 0,
         stdout: '',
@@ -231,11 +234,11 @@ describe('BashTool', () => {
       const bashTool = createBashTool(containerPool, 'my-support-bot');
       await bashTool.execute({ command: 'echo test' });
 
-      assert.equal(containerPool.getContainer.mock.calls.length, 1);
-      assert.equal(containerPool.getContainer.mock.calls[0].arguments[0], 'my-support-bot');
+      assert.equal(containerPool.exec.mock.calls.length, 1);
+      assert.equal(containerPool.exec.mock.calls[0].arguments[0], 'my-support-bot');
     });
 
-    test('passes command to dockerManager.exec', async () => {
+    test('passes command to containerPool.exec', async () => {
       dockerManager.exec = mock.fn(async () => ({
         exitCode: 0,
         stdout: '',
@@ -245,13 +248,13 @@ describe('BashTool', () => {
       const bashTool = createBashTool(containerPool, 'test-bot');
       await bashTool.execute({ command: 'npm install express' });
 
-      assert.equal(dockerManager.exec.mock.calls.length, 1);
-      const [container, command] = dockerManager.exec.mock.calls[0].arguments;
-      assert.equal(container, mockContainer);
+      assert.equal(containerPool.exec.mock.calls.length, 1);
+      const [botId, command] = containerPool.exec.mock.calls[0].arguments;
+      assert.equal(botId, 'test-bot');
       assert.equal(command, 'npm install express');
     });
 
-    test('passes default timeout to dockerManager.exec', async () => {
+    test('passes default timeout to containerPool.exec', async () => {
       dockerManager.exec = mock.fn(async () => ({
         exitCode: 0,
         stdout: '',
@@ -261,7 +264,7 @@ describe('BashTool', () => {
       const bashTool = createBashTool(containerPool, 'test-bot');
       await bashTool.execute({ command: 'echo test' });
 
-      const execOptions = dockerManager.exec.mock.calls[0].arguments[2];
+      const execOptions = containerPool.exec.mock.calls[0].arguments[2];
       assert.equal(execOptions.timeout, 30000);
     });
 
@@ -275,7 +278,7 @@ describe('BashTool', () => {
       const bashTool = createBashTool(containerPool, 'test-bot');
       await bashTool.execute({ command: 'sleep 5', timeout: 60000 });
 
-      const execOptions = dockerManager.exec.mock.calls[0].arguments[2];
+      const execOptions = containerPool.exec.mock.calls[0].arguments[2];
       assert.equal(execOptions.timeout, 60000);
     });
 
@@ -289,7 +292,7 @@ describe('BashTool', () => {
       const bashTool = createBashTool(containerPool, 'test-bot', { timeout: 45000 });
       await bashTool.execute({ command: 'echo test' });
 
-      const execOptions = dockerManager.exec.mock.calls[0].arguments[2];
+      const execOptions = containerPool.exec.mock.calls[0].arguments[2];
       assert.equal(execOptions.timeout, 45000);
     });
 
@@ -303,7 +306,7 @@ describe('BashTool', () => {
       const bashTool = createBashTool(containerPool, 'test-bot', { timeout: 45000 });
       await bashTool.execute({ command: 'echo test', timeout: 10000 });
 
-      const execOptions = dockerManager.exec.mock.calls[0].arguments[2];
+      const execOptions = containerPool.exec.mock.calls[0].arguments[2];
       assert.equal(execOptions.timeout, 10000);
     });
   });
@@ -324,7 +327,7 @@ describe('BashTool', () => {
 
       assert.equal(result.success, false);
       assert.match(result.stderr, /blocked by security policy/i);
-      assert.equal(dockerManager.exec.mock.calls.length, 0, 'Should not call exec');
+      assert.equal(containerPool.exec.mock.calls.length, 0, 'Should not call exec');
     });
 
     test('blocks --no-preserve-root', async () => {
@@ -404,7 +407,7 @@ describe('BashTool', () => {
       const result = await bashTool.execute({ command: 'rm -rf /home/agent/tmp' });
 
       assert.equal(result.success, true);
-      assert.equal(dockerManager.exec.mock.calls.length, 1);
+      assert.equal(containerPool.exec.mock.calls.length, 1);
     });
 
     test('allows safe commands (ls, echo, cat)', async () => {
@@ -540,16 +543,14 @@ describe('BashTool', () => {
 
   describe('error handling', () => {
     let containerPool;
-    let dockerManager;
 
     beforeEach(() => {
       const mocks = createMockContainerPool();
       containerPool = mocks.mockContainerPool;
-      dockerManager = mocks.mockDockerManager;
     });
 
-    test('returns error result when getContainer fails', async () => {
-      containerPool.getContainer = mock.fn(async () => {
+    test('returns error result when containerPool.exec fails with container error', async () => {
+      containerPool.exec = mock.fn(async () => {
         throw new Error('Container not found');
       });
 
@@ -562,7 +563,7 @@ describe('BashTool', () => {
     });
 
     test('returns error result when exec fails', async () => {
-      dockerManager.exec = mock.fn(async () => {
+      containerPool.exec = mock.fn(async () => {
         throw new Error('Docker exec timed out');
       });
 
@@ -575,7 +576,7 @@ describe('BashTool', () => {
     });
 
     test('returns error result (not throws) for container errors', async () => {
-      containerPool.getContainer = mock.fn(async () => {
+      containerPool.exec = mock.fn(async () => {
         throw new Error('Pool exhausted');
       });
 
@@ -588,7 +589,7 @@ describe('BashTool', () => {
     });
 
     test('error result has standard shape (success, exitCode, stdout, stderr)', async () => {
-      dockerManager.exec = mock.fn(async () => {
+      containerPool.exec = mock.fn(async () => {
         throw new Error('Network error');
       });
 
@@ -812,9 +813,9 @@ describe('BashTool', () => {
       await tool1.execute({ command: 'echo a' });
       await tool2.execute({ command: 'echo b' });
 
-      assert.equal(containerPool.getContainer.mock.calls.length, 2);
-      assert.equal(containerPool.getContainer.mock.calls[0].arguments[0], 'bot-a');
-      assert.equal(containerPool.getContainer.mock.calls[1].arguments[0], 'bot-b');
+      assert.equal(containerPool.exec.mock.calls.length, 2);
+      assert.equal(containerPool.exec.mock.calls[0].arguments[0], 'bot-a');
+      assert.equal(containerPool.exec.mock.calls[1].arguments[0], 'bot-b');
     });
 
     test('result shape is consistent for success and failure', async () => {

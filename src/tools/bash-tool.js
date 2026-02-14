@@ -1,9 +1,10 @@
 /**
- * BashTool - Vercel AI SDK tool for executing bash commands in Docker containers
+ * BashTool - Vercel AI SDK tool for executing bash commands in containers
  *
  * Factory function that creates a Vercel AI SDK-compatible tool with Zod schema
- * validation for parameter types. Commands execute inside the bot's Docker container
- * via the ContainerPool and include security checks for dangerous patterns.
+ * validation for parameter types. Commands execute inside the bot's container
+ * via the ContainerPool abstraction (which routes to the appropriate backend)
+ * and include security checks for dangerous patterns.
  *
  * @module tools/bash-tool
  */
@@ -167,10 +168,7 @@ export function createBashTool(containerPool, botId, toolConfig = {}) {
       }
 
       try {
-        const container = await containerPool.getContainer(botId);
-        const { dockerManager } = containerPool;
-
-        const result = await dockerManager.exec(container, command, {
+        const result = await containerPool.exec(botId, command, {
           timeout: commandTimeout || timeout,
         });
 

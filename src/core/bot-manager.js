@@ -289,18 +289,21 @@ export class BotManager {
       const workspace = bot.config.workspace || { root: `./data/${botId}` };
 
       // Use WorkerAssigner to pick a worker if available
-      let containerOptions = {};
+      const containerOptions = {};
       if (this.workerAssigner) {
         const workerPreference = bot.config.worker ? { workerId: bot.config.worker } : {};
         const assignment = await this.workerAssigner.assignBot(botId, workerPreference);
         bot.workerId = assignment.workerId;
 
         if (assignment.dockerHost) {
-          containerOptions = { dockerHost: assignment.dockerHost };
+          containerOptions.dockerHost = assignment.dockerHost;
+        }
+        if (assignment.incusHost) {
+          containerOptions.incusHost = assignment.incusHost;
         }
       }
 
-      // Create container via ContainerPool (with optional Docker host override)
+      // Create container via ContainerPool (routes to Docker or Incus backend)
       const container = await this.containerPool.initializeContainer(
         botId,
         bot.config,
@@ -783,6 +786,10 @@ export class BotManager {
     const oldPkgs = JSON.stringify(oldSandbox.packages || []);
     const newPkgs = JSON.stringify(newSandbox.packages || []);
     if (oldPkgs !== newPkgs) return true;
+
+    // Compare Incus-specific fields
+    if (oldSandbox.incusImage !== newSandbox.incusImage) return true;
+    if (oldSandbox.incusProfile !== newSandbox.incusProfile) return true;
 
     return false;
   }
