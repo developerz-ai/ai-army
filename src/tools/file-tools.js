@@ -1,9 +1,10 @@
 /**
- * FileTools - Vercel AI SDK tools for file operations in Docker containers
+ * FileTools - Vercel AI SDK tools for file operations in containers
  *
  * Factory functions that create Vercel AI SDK-compatible tools for reading,
- * writing, searching, and finding files inside a bot's Docker container.
- * Each tool uses Zod schema validation and executes via ContainerPool.
+ * writing, searching, and finding files inside a bot's container.
+ * Each tool uses Zod schema validation and executes via ContainerPool,
+ * which abstracts the underlying backend (Docker, Incus, etc.).
  *
  * @module tools/file-tools
  */
@@ -151,12 +152,9 @@ export function createReadFileTool(containerPool, botId, toolConfig = {}) {
       }
 
       try {
-        const container = await containerPool.getContainer(botId);
-        const { dockerManager } = containerPool;
-
         const cmd = encoding === 'base64' ? `base64 "${filePath}"` : `cat "${filePath}"`;
 
-        const result = await dockerManager.exec(container, cmd, { timeout });
+        const result = await containerPool.exec(botId, cmd, { timeout });
 
         if (result.exitCode !== 0) {
           return {
@@ -222,14 +220,11 @@ export function createWriteFileTool(containerPool, botId, toolConfig = {}) {
       }
 
       try {
-        const container = await containerPool.getContainer(botId);
-        const { dockerManager } = containerPool;
-
         // Create parent directory first (only if path contains a slash)
         const lastSlash = filePath.lastIndexOf('/');
         if (lastSlash > 0) {
           const dirPath = filePath.substring(0, lastSlash);
-          await dockerManager.exec(container, `mkdir -p "${dirPath}"`, { timeout });
+          await containerPool.exec(botId, `mkdir -p "${dirPath}"`, { timeout });
         }
 
         // Use heredoc for safe content transfer (avoids shell escaping issues)
@@ -239,7 +234,7 @@ export function createWriteFileTool(containerPool, botId, toolConfig = {}) {
         const delimiter = `_AI_ARMY_EOF_${Date.now()}_${randomHex}`;
         const cmd = `cat ${operator} "${filePath}" << '${delimiter}'\n${content}\n${delimiter}`;
 
-        const result = await dockerManager.exec(container, cmd, { timeout });
+        const result = await containerPool.exec(botId, cmd, { timeout });
 
         if (result.exitCode !== 0) {
           return {
@@ -303,9 +298,6 @@ export function createGlobTool(containerPool, botId, toolConfig = {}) {
       }
 
       try {
-        const container = await containerPool.getContainer(botId);
-        const { dockerManager } = containerPool;
-
         const dir = cwd || '/home/agent';
 
         // Convert glob pattern to appropriate find flags:
@@ -326,7 +318,7 @@ export function createGlobTool(containerPool, botId, toolConfig = {}) {
         }
         const cmd = `find "${dir}" ${findFilter} -type f 2>/dev/null | head -${maxResults}`;
 
-        const result = await dockerManager.exec(container, cmd, { timeout });
+        const result = await containerPool.exec(botId, cmd, { timeout });
 
         const files = result.stdout.trim().split('\n').filter(Boolean);
 
@@ -402,16 +394,13 @@ export function createGrepTool(containerPool, botId, toolConfig = {}) {
       }
 
       try {
-        const container = await containerPool.getContainer(botId);
-        const { dockerManager } = containerPool;
-
         // Build grep command with line numbers, recursive search, and always show filename
         let cmd = 'grep -rnH';
         if (options.ignoreCase) cmd += ' -i';
         if (options.maxMatches) cmd += ` -m ${options.maxMatches}`;
         cmd += ` "${pattern}" "${searchPath}" 2>/dev/null | head -${maxMatches}`;
 
-        const result = await dockerManager.exec(container, cmd, { timeout });
+        const result = await containerPool.exec(botId, cmd, { timeout });
 
         // grep returns exit code 1 when no matches found (not an error)
         if (result.exitCode !== 0 && result.exitCode !== 1) {

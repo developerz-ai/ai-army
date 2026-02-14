@@ -921,6 +921,160 @@ describe('ContainerPool', () => {
     });
   });
 
+  describe('exec()', () => {
+    let pool;
+    let mockBackend;
+
+    beforeEach(async () => {
+      ({ mockBackend } = createMockBackend());
+      pool = new ContainerPool(mockBackend);
+
+      const botConfig = { id: 'test-bot', sandbox: {} };
+      const workspace = { root: './data' };
+      await pool.initializeContainer('test-bot', botConfig, workspace);
+    });
+
+    test('executes command via the correct backend', async () => {
+      mockBackend.exec = mock.fn(async () => ({
+        exitCode: 0,
+        stdout: 'hello\n',
+        stderr: '',
+      }));
+
+      const result = await pool.exec('test-bot', 'echo hello', { timeout: 5000 });
+
+      assert.equal(result.exitCode, 0);
+      assert.equal(result.stdout, 'hello\n');
+      assert.equal(mockBackend.exec.mock.calls.length, 1);
+      const [container, command, options] = mockBackend.exec.mock.calls[0].arguments;
+      assert.ok(container);
+      assert.equal(command, 'echo hello');
+      assert.equal(options.timeout, 5000);
+    });
+
+    test('passes default empty options when none provided', async () => {
+      mockBackend.exec = mock.fn(async () => ({
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+      }));
+
+      await pool.exec('test-bot', 'ls');
+
+      const options = mockBackend.exec.mock.calls[0].arguments[2];
+      assert.deepEqual(options, {});
+    });
+
+    test('uses per-bot backend when override exists', async () => {
+      const { mockBackend: overrideBackend } = createMockBackend();
+      overrideBackend.exec = mock.fn(async () => ({
+        exitCode: 0,
+        stdout: 'from override',
+        stderr: '',
+      }));
+      pool.backends.set('test-bot', overrideBackend);
+
+      const result = await pool.exec('test-bot', 'echo test');
+
+      assert.equal(result.stdout, 'from override');
+      assert.equal(overrideBackend.exec.mock.calls.length, 1);
+      assert.equal(mockBackend.exec.mock.calls.length, 0);
+    });
+
+    test('throws ContainerPoolError when botId is empty', async () => {
+      await assert.rejects(
+        () => pool.exec('', 'echo test'),
+        err => {
+          assert.equal(err.name, 'ContainerPoolError');
+          assert.match(err.message, /Bot ID must be a non-empty string/);
+          assert.equal(err.operation, 'exec');
+          return true;
+        }
+      );
+    });
+
+    test('throws ContainerPoolError when botId is null', async () => {
+      await assert.rejects(
+        () => pool.exec(null, 'echo test'),
+        err => {
+          assert.equal(err.name, 'ContainerPoolError');
+          assert.match(err.message, /Bot ID must be a non-empty string/);
+          return true;
+        }
+      );
+    });
+
+    test('throws ContainerPoolError when command is empty', async () => {
+      await assert.rejects(
+        () => pool.exec('test-bot', ''),
+        err => {
+          assert.equal(err.name, 'ContainerPoolError');
+          assert.match(err.message, /Command must be a non-empty string/);
+          assert.equal(err.operation, 'exec');
+          assert.equal(err.botId, 'test-bot');
+          return true;
+        }
+      );
+    });
+
+    test('throws ContainerPoolError when command is null', async () => {
+      await assert.rejects(
+        () => pool.exec('test-bot', null),
+        err => {
+          assert.equal(err.name, 'ContainerPoolError');
+          assert.match(err.message, /Command must be a non-empty string/);
+          return true;
+        }
+      );
+    });
+
+    test('throws ContainerPoolError when bot not initialized', async () => {
+      await assert.rejects(
+        () => pool.exec('unknown-bot', 'echo test'),
+        err => {
+          assert.equal(err.name, 'ContainerPoolError');
+          assert.match(err.message, /Container not initialized/);
+          return true;
+        }
+      );
+    });
+
+    test('propagates backend exec errors', async () => {
+      mockBackend.exec = mock.fn(async () => {
+        throw new Error('Command timed out');
+      });
+
+      await assert.rejects(
+        () => pool.exec('test-bot', 'sleep 999'),
+        err => {
+          assert.match(err.message, /Command timed out/);
+          return true;
+        }
+      );
+    });
+  });
+
+  describe('getBackend()', () => {
+    test('returns default backend when no per-bot override', () => {
+      const { mockBackend } = createMockBackend();
+      const pool = new ContainerPool(mockBackend);
+
+      const result = pool.getBackend('any-bot');
+      assert.equal(result, mockBackend);
+    });
+
+    test('returns per-bot backend when override exists', () => {
+      const { mockBackend } = createMockBackend();
+      const pool = new ContainerPool(mockBackend);
+
+      const { mockBackend: overrideBackend } = createMockBackend();
+      pool.backends.set('special-bot', overrideBackend);
+
+      assert.equal(pool.getBackend('special-bot'), overrideBackend);
+      assert.equal(pool.getBackend('normal-bot'), mockBackend);
+    });
+  });
+
   describe('backward compatibility', () => {
     test('bash-tool pattern: containerPool.dockerManager.exec() works', async () => {
       const { mockDockerManager } = createMockDockerManager();

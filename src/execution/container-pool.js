@@ -402,6 +402,57 @@ export class ContainerPool {
   }
 
   /**
+   * Execute a command in a bot's container
+   *
+   * Convenience method that abstracts the backend from callers.
+   * Gets the container and correct backend for the bot, then delegates
+   * the exec call. Tools should call this instead of manually retrieving
+   * the container and backend.
+   *
+   * @param {string} botId - Bot identifier
+   * @param {string} command - Bash command to execute
+   * @param {Object} [options={}] - Execution options
+   * @param {number} [options.timeout=30000] - Command timeout in milliseconds
+   * @param {string} [options.user] - User to run command as
+   * @param {string} [options.workingDir='/home/agent'] - Working directory
+   * @returns {Promise<{stdout: string, stderr: string, exitCode: number}>}
+   * @throws {ContainerPoolError} When bot container is not initialized or exec fails
+   */
+  async exec(botId, command, options = {}) {
+    if (!botId || typeof botId !== 'string') {
+      throw new ContainerPoolError('Bot ID must be a non-empty string', {
+        operation: 'exec',
+      });
+    }
+
+    if (!command || typeof command !== 'string') {
+      throw new ContainerPoolError('Command must be a non-empty string', {
+        operation: 'exec',
+        botId,
+      });
+    }
+
+    const container = await this.getContainer(botId);
+    const backend = this._getBackendForBot(botId);
+    return backend.exec(container, command, options);
+  }
+
+  /**
+   * Get the backend assigned to a specific bot
+   *
+   * Returns the per-bot backend override if one exists, otherwise
+   * returns the default backend. This is the public API for callers
+   * who need direct backend access (e.g., for health checks or
+   * non-exec operations).
+   *
+   * @param {string} botId - Bot identifier
+   * @returns {ContainerBackend} Backend instance for this bot
+   */
+  getBackend(botId) {
+    return this._getBackendForBot(botId);
+  }
+
+  /**
    * Check if a container is initialized for a bot
    *
    * @param {string} botId - Bot identifier

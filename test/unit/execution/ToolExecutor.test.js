@@ -17,7 +17,7 @@ import {
 } from '../../../src/execution/tool-executor.js';
 
 /**
- * Create a mock ContainerPool with DockerManager
+ * Create a mock ContainerPool with exec() abstraction
  * @param {Object} [overrides={}] - Override default mock implementations
  * @returns {Object} Mock ContainerPool and related mocks
  */
@@ -37,6 +37,11 @@ function createMockContainerPool(overrides = {}) {
   };
 
   const mockContainerPool = {
+    // New abstracted exec method — delegates to dockerManager.exec internally
+    exec: mock.fn(async (_botId, command, options) => {
+      return mockDockerManager.exec(mockContainer, command, options);
+    }),
+    // Legacy properties kept for backward compatibility
     getContainer: mock.fn(async () => mockContainer),
     dockerManager: mockDockerManager,
     ...overrides.pool,
@@ -435,7 +440,7 @@ describe('ToolExecutor', () => {
     });
 
     test('wraps container pool errors', async () => {
-      mocks.mockContainerPool.getContainer = mock.fn(async () => {
+      mocks.mockContainerPool.exec = mock.fn(async () => {
         throw new Error('Container not found');
       });
 
@@ -451,7 +456,7 @@ describe('ToolExecutor', () => {
       );
     });
 
-    test('gets container from pool using botId', async () => {
+    test('passes botId to containerPool.exec', async () => {
       mocks.mockDockerManager.exec = mock.fn(async () => ({
         exitCode: 0,
         stdout: '',
@@ -460,8 +465,8 @@ describe('ToolExecutor', () => {
 
       await executor.bash('ls', 'my-bot');
 
-      assert.equal(mocks.mockContainerPool.getContainer.mock.calls.length, 1);
-      assert.equal(mocks.mockContainerPool.getContainer.mock.calls[0].arguments[0], 'my-bot');
+      assert.equal(mocks.mockContainerPool.exec.mock.calls.length, 1);
+      assert.equal(mocks.mockContainerPool.exec.mock.calls[0].arguments[0], 'my-bot');
     });
   });
 
@@ -594,7 +599,7 @@ describe('ToolExecutor', () => {
     });
 
     test('wraps container pool errors', async () => {
-      mocks.mockContainerPool.getContainer = mock.fn(async () => {
+      mocks.mockContainerPool.exec = mock.fn(async () => {
         throw new Error('Pool failure');
       });
 
@@ -760,7 +765,7 @@ describe('ToolExecutor', () => {
     });
 
     test('wraps container pool errors', async () => {
-      mocks.mockContainerPool.getContainer = mock.fn(async () => {
+      mocks.mockContainerPool.exec = mock.fn(async () => {
         throw new Error('Pool failure');
       });
 

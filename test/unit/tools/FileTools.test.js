@@ -21,7 +21,7 @@ import {
 } from '../../../src/tools/file-tools.js';
 
 /**
- * Create a mock ContainerPool with DockerManager
+ * Create a mock ContainerPool with exec() abstraction
  * @param {Object} [overrides={}] - Override default mock implementations
  * @returns {Object} Mock ContainerPool and related mocks
  */
@@ -36,6 +36,11 @@ function createMockContainerPool(overrides = {}) {
   };
 
   const mockContainerPool = {
+    // New abstracted exec method — delegates to dockerManager.exec internally
+    exec: mock.fn(async (_botId, command, options) => {
+      return mockDockerManager.exec(mockContainer, command, options);
+    }),
+    // Legacy properties kept for backward compatibility
     getContainer: mock.fn(async () => mockContainer),
     dockerManager: mockDockerManager,
     ...overrides.pool,
@@ -140,13 +145,11 @@ describe('createReadFileTool', () => {
   describe('execute()', () => {
     let containerPool;
     let dockerManager;
-    let mockContainer;
 
     beforeEach(() => {
       const mocks = createMockContainerPool();
       containerPool = mocks.mockContainerPool;
       dockerManager = mocks.mockDockerManager;
-      ({ mockContainer } = mocks);
     });
 
     test('reads file content successfully', async () => {
@@ -205,7 +208,7 @@ describe('createReadFileTool', () => {
       assert.match(result.error, /No such file/);
     });
 
-    test('passes correct botId to containerPool.getContainer', async () => {
+    test('passes correct botId to containerPool.exec', async () => {
       dockerManager.exec = mock.fn(async () => ({
         exitCode: 0,
         stdout: 'ok',
@@ -215,11 +218,11 @@ describe('createReadFileTool', () => {
       const readFile = createReadFileTool(containerPool, 'my-support-bot');
       await readFile.execute({ path: '/home/agent/test.txt' });
 
-      assert.equal(containerPool.getContainer.mock.calls.length, 1);
-      assert.equal(containerPool.getContainer.mock.calls[0].arguments[0], 'my-support-bot');
+      assert.equal(containerPool.exec.mock.calls.length, 1);
+      assert.equal(containerPool.exec.mock.calls[0].arguments[0], 'my-support-bot');
     });
 
-    test('passes correct container to dockerManager.exec', async () => {
+    test('passes correct command to containerPool.exec', async () => {
       dockerManager.exec = mock.fn(async () => ({
         exitCode: 0,
         stdout: 'ok',
@@ -229,8 +232,8 @@ describe('createReadFileTool', () => {
       const readFile = createReadFileTool(containerPool, 'test-bot');
       await readFile.execute({ path: '/home/agent/test.txt' });
 
-      const container = dockerManager.exec.mock.calls[0].arguments[0];
-      assert.equal(container, mockContainer);
+      const command = containerPool.exec.mock.calls[0].arguments[1];
+      assert.match(command, /cat/);
     });
 
     test('truncates content exceeding maxContentLength', async () => {
@@ -271,11 +274,11 @@ describe('createReadFileTool', () => {
 
       assert.equal(result.success, false);
       assert.match(result.error, /dangerous characters/);
-      assert.equal(dockerManager.exec.mock.calls.length, 0);
+      assert.equal(containerPool.exec.mock.calls.length, 0);
     });
 
-    test('returns error result when getContainer fails', async () => {
-      containerPool.getContainer = mock.fn(async () => {
+    test('returns error result when containerPool.exec fails', async () => {
+      containerPool.exec = mock.fn(async () => {
         throw new Error('Container not found');
       });
 
@@ -287,7 +290,7 @@ describe('createReadFileTool', () => {
     });
 
     test('returns error result when exec fails', async () => {
-      dockerManager.exec = mock.fn(async () => {
+      containerPool.exec = mock.fn(async () => {
         throw new Error('Docker exec timed out');
       });
 
@@ -299,7 +302,7 @@ describe('createReadFileTool', () => {
     });
 
     test('never throws from execute (returns error result)', async () => {
-      containerPool.getContainer = mock.fn(async () => {
+      containerPool.exec = mock.fn(async () => {
         throw new Error('Pool exhausted');
       });
 
@@ -597,8 +600,8 @@ describe('createWriteFileTool', () => {
       assert.ok(result.error.length > 0);
     });
 
-    test('returns error result when getContainer fails', async () => {
-      containerPool.getContainer = mock.fn(async () => {
+    test('returns error result when containerPool.exec fails', async () => {
+      containerPool.exec = mock.fn(async () => {
         throw new Error('Container not found');
       });
 
@@ -613,7 +616,7 @@ describe('createWriteFileTool', () => {
     });
 
     test('never throws from execute (returns error result)', async () => {
-      containerPool.getContainer = mock.fn(async () => {
+      containerPool.exec = mock.fn(async () => {
         throw new Error('Pool exhausted');
       });
 
@@ -926,8 +929,8 @@ describe('createGlobTool', () => {
       assert.match(result.error, /dangerous characters/);
     });
 
-    test('returns error result when getContainer fails', async () => {
-      containerPool.getContainer = mock.fn(async () => {
+    test('returns error result when containerPool.exec fails', async () => {
+      containerPool.exec = mock.fn(async () => {
         throw new Error('Container not found');
       });
 
@@ -940,7 +943,7 @@ describe('createGlobTool', () => {
     });
 
     test('never throws from execute (returns error result)', async () => {
-      containerPool.getContainer = mock.fn(async () => {
+      containerPool.exec = mock.fn(async () => {
         throw new Error('Pool exhausted');
       });
 
@@ -1268,8 +1271,8 @@ describe('createGrepTool', () => {
       assert.ok(result.error.length > 0);
     });
 
-    test('returns error result when getContainer fails', async () => {
-      containerPool.getContainer = mock.fn(async () => {
+    test('returns error result when containerPool.exec fails', async () => {
+      containerPool.exec = mock.fn(async () => {
         throw new Error('Container not found');
       });
 
@@ -1282,7 +1285,7 @@ describe('createGrepTool', () => {
     });
 
     test('never throws from execute (returns error result)', async () => {
-      containerPool.getContainer = mock.fn(async () => {
+      containerPool.exec = mock.fn(async () => {
         throw new Error('Pool exhausted');
       });
 
@@ -1577,13 +1580,13 @@ describe('File tools integration pattern', () => {
     await readA.execute({ path: '/home/agent/file.txt' });
     await readB.execute({ path: '/home/agent/file.txt' });
 
-    assert.equal(containerPool.getContainer.mock.calls.length, 2);
-    assert.equal(containerPool.getContainer.mock.calls[0].arguments[0], 'bot-a');
-    assert.equal(containerPool.getContainer.mock.calls[1].arguments[0], 'bot-b');
+    assert.equal(containerPool.exec.mock.calls.length, 2);
+    assert.equal(containerPool.exec.mock.calls[0].arguments[0], 'bot-a');
+    assert.equal(containerPool.exec.mock.calls[1].arguments[0], 'bot-b');
   });
 
   test('tools return consistent result shapes on error', async () => {
-    containerPool.getContainer = mock.fn(async () => {
+    containerPool.exec = mock.fn(async () => {
       throw new Error('Container down');
     });
 

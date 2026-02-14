@@ -1,9 +1,10 @@
 /**
- * ToolExecutor - Execute tools in Docker containers
+ * ToolExecutor - Execute tools in containers
  *
  * Routes tool calls (bash, readFile, writeFile) to bot containers
- * via the ContainerPool. Includes security checks for dangerous commands
- * and output truncation for large responses.
+ * via the ContainerPool abstraction (which handles backend routing).
+ * Includes security checks for dangerous commands and output truncation
+ * for large responses.
  *
  * @module execution/tool-executor
  */
@@ -256,9 +257,6 @@ export class ToolExecutor {
     }
 
     try {
-      const container = await this.containerPool.getContainer(botId);
-      const { dockerManager } = this.containerPool;
-
       const execOptions = {
         timeout: options.timeout || this.timeout,
       };
@@ -267,7 +265,7 @@ export class ToolExecutor {
         execOptions.workingDir = options.workingDir;
       }
 
-      const result = await dockerManager.exec(container, command, execOptions);
+      const result = await this.containerPool.exec(botId, command, execOptions);
 
       return {
         success: result.exitCode === 0,
@@ -319,9 +317,6 @@ export class ToolExecutor {
     }
 
     try {
-      const container = await this.containerPool.getContainer(botId);
-      const { dockerManager } = this.containerPool;
-
       const encoding = options.encoding || 'utf8';
 
       // Escape the file path for shell usage
@@ -329,7 +324,7 @@ export class ToolExecutor {
 
       const cmd = encoding === 'base64' ? `base64 ${escapedPath}` : `cat ${escapedPath}`;
 
-      const result = await dockerManager.exec(container, cmd, {
+      const result = await this.containerPool.exec(botId, cmd, {
         timeout: this.timeout,
       });
 
@@ -398,9 +393,6 @@ export class ToolExecutor {
     }
 
     try {
-      const container = await this.containerPool.getContainer(botId);
-      const { dockerManager } = this.containerPool;
-
       // Use heredoc for writing to handle special characters safely
       const escapedPath = escapeShellArg(filePath);
       const operator = options.append ? '>>' : '>';
@@ -409,7 +401,7 @@ export class ToolExecutor {
       const base64Content = Buffer.from(content).toString('base64');
       const cmd = `echo '${base64Content}' | base64 -d ${operator} ${escapedPath}`;
 
-      const result = await dockerManager.exec(container, cmd, {
+      const result = await this.containerPool.exec(botId, cmd, {
         timeout: this.timeout,
       });
 
