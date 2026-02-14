@@ -257,6 +257,12 @@ export class IncusBackend extends ContainerBackend {
         execOptions.user = options.user === 'root' ? 0 : Number(options.user) || 0;
       }
 
+      // Forward timeout to the client so long-running commands (e.g., package installs)
+      // use the caller-specified timeout instead of the default 30s request timeout
+      if (options.timeout) {
+        execOptions.timeout = options.timeout;
+      }
+
       const result = await this.client.execCommand(
         container.name,
         ['sh', '-c', command],
@@ -461,7 +467,7 @@ export class IncusBackend extends ContainerBackend {
    */
   async getInfo() {
     try {
-      return await this.client._request('GET', '/1.0');
+      return await this.client.getServerInfo();
     } catch (err) {
       throw this._wrapError(
         `Failed to connect to Incus daemon: ${err.message}`,
@@ -493,12 +499,15 @@ export class IncusBackend extends ContainerBackend {
       const colonIndex = image.indexOf(':');
       const server = image.slice(0, colonIndex);
       const alias = image.slice(colonIndex + 1);
+      const serverUrl =
+        server === 'images'
+          ? 'https://images.linuxcontainers.org'
+          : `https://${server}`;
       return {
         type: 'image',
         protocol: 'simplestreams',
-        server: `https://images.linuxcontainers.org`,
+        server: serverUrl,
         alias,
-        ...(server !== 'images' ? { server: `https://${server}` } : {}),
       };
     }
 

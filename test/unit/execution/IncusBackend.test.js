@@ -28,6 +28,9 @@ function createMockClient() {
     execCommand: mock.fn(async () => ({ exitCode: 0, stdout: 'hello', stderr: '' })),
     pushFile: mock.fn(async () => {}),
     pullFile: mock.fn(async () => ''),
+    getServerInfo: mock.fn(async () => ({
+      metadata: { environment: { server_version: '0.7' } },
+    })),
     _request: mock.fn(async () => ({
       metadata: { environment: { server_version: '0.7' } },
     })),
@@ -444,6 +447,26 @@ describe('IncusBackend', () => {
       assert.equal(result.stderr, '');
     });
 
+    test('forwards timeout option to execCommand', async () => {
+      const { backend, mockClient } = createMockedBackend();
+      const container = { name: 'ai-army-test', id: 'ai-army-test' };
+
+      await backend.exec(container, 'apt-get install -y git', { timeout: 120000 });
+
+      const execOptions = mockClient.execCommand.mock.calls[0].arguments[2];
+      assert.equal(execOptions.timeout, 120000);
+    });
+
+    test('does not include timeout when not specified', async () => {
+      const { backend, mockClient } = createMockedBackend();
+      const container = { name: 'ai-army-test', id: 'ai-army-test' };
+
+      await backend.exec(container, 'echo hello');
+
+      const execOptions = mockClient.execCommand.mock.calls[0].arguments[2];
+      assert.equal(execOptions.timeout, undefined);
+    });
+
     test('throws when container handle is missing', async () => {
       const { backend } = createMockedBackend();
 
@@ -836,19 +859,17 @@ describe('IncusBackend', () => {
     test('returns Incus daemon info', async () => {
       const { backend, mockClient } = createMockedBackend();
       const expectedInfo = { metadata: { environment: { server_version: '0.7' } } };
-      mockClient._request = mock.fn(async () => expectedInfo);
+      mockClient.getServerInfo = mock.fn(async () => expectedInfo);
 
       const result = await backend.getInfo();
 
       assert.deepEqual(result, expectedInfo);
-      assert.equal(mockClient._request.mock.calls.length, 1);
-      assert.equal(mockClient._request.mock.calls[0].arguments[0], 'GET');
-      assert.equal(mockClient._request.mock.calls[0].arguments[1], '/1.0');
+      assert.equal(mockClient.getServerInfo.mock.calls.length, 1);
     });
 
     test('wraps connection errors', async () => {
       const { backend, mockClient } = createMockedBackend();
-      mockClient._request = mock.fn(async () => {
+      mockClient.getServerInfo = mock.fn(async () => {
         throw new IncusClientError('Socket not found', {
           operation: 'GET /1.0',
         });

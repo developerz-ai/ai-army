@@ -201,6 +201,23 @@ export class IncusClient {
   }
 
   // ---------------------------------------------------------------------------
+  // Server info
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Get Incus server information
+   *
+   * Returns the server environment, API version, and configuration.
+   *
+   * @returns {Promise<Object>} Server info metadata
+   * @throws {IncusClientError} When query fails
+   */
+  async getServerInfo() {
+    const response = await this._request('GET', '/1.0');
+    return response;
+  }
+
+  // ---------------------------------------------------------------------------
   // Command execution
   // ---------------------------------------------------------------------------
 
@@ -218,6 +235,7 @@ export class IncusClient {
    * @param {string} [options.cwd] - Working directory
    * @param {number} [options.user] - UID to run as
    * @param {number} [options.group] - GID to run as
+   * @param {number} [options.timeout] - Command timeout in milliseconds (overrides requestTimeout)
    * @returns {Promise<Object>} Execution result with `{ exitCode, stdout, stderr }`
    * @throws {IncusClientError} When execution fails
    */
@@ -242,10 +260,17 @@ export class IncusClient {
       body.group = options.group;
     }
 
+    // Build request options — forward caller timeout to the HTTP request
+    const requestOptions = {};
+    if (options.timeout) {
+      requestOptions.timeout = options.timeout;
+    }
+
     const response = await this._request(
       'POST',
       `/1.0/instances/${encodeURIComponent(name)}/exec`,
-      body
+      body,
+      requestOptions
     );
 
     // Wait for the exec operation to complete

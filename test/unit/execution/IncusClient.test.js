@@ -416,6 +416,33 @@ describe('IncusClient', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // getServerInfo
+  // ---------------------------------------------------------------------------
+
+  describe('getServerInfo', () => {
+    test('sends GET /1.0 and returns server info', async () => {
+      const client = new IncusClient();
+
+      const serverInfo = {
+        type: 'sync',
+        metadata: { environment: { server_version: '0.7' } },
+      };
+
+      const { requestMock, calls } = setupHttpMock([
+        { statusCode: 200, body: serverInfo },
+      ]);
+
+      http.request = requestMock;
+
+      const result = await client.getServerInfo();
+
+      assert.equal(calls[0].options.method, 'GET');
+      assert.equal(calls[0].options.path, '/1.0');
+      assert.deepEqual(result, serverInfo);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // execCommand
   // ---------------------------------------------------------------------------
 
@@ -539,6 +566,56 @@ describe('IncusClient', () => {
 
       const result = await client.execCommand('test-container', ['test']);
       assert.equal(result.exitCode, -1);
+    });
+
+    test('forwards timeout option to HTTP request', async () => {
+      const client = new IncusClient();
+
+      const { requestMock, calls } = setupHttpMock([
+        {
+          statusCode: 200,
+          body: {
+            type: 'sync',
+            metadata: {
+              status: 'Success',
+              metadata: { return: 0, output: {} },
+            },
+          },
+        },
+      ]);
+
+      http.request = requestMock;
+
+      await client.execCommand('test-container', ['apt-get', 'install', '-y', 'git'], {
+        timeout: 120_000,
+      });
+
+      // The mock request should have been given the custom timeout
+      assert.equal(calls[0].mockReq._timeoutMs, 120_000);
+    });
+
+    test('uses default request timeout when no timeout option provided', async () => {
+      const client = new IncusClient({ requestTimeout: 30_000 });
+
+      const { requestMock, calls } = setupHttpMock([
+        {
+          statusCode: 200,
+          body: {
+            type: 'sync',
+            metadata: {
+              status: 'Success',
+              metadata: { return: 0, output: {} },
+            },
+          },
+        },
+      ]);
+
+      http.request = requestMock;
+
+      await client.execCommand('test-container', ['echo', 'hello']);
+
+      // Should use the default requestTimeout
+      assert.equal(calls[0].mockReq._timeoutMs, 30_000);
     });
   });
 
