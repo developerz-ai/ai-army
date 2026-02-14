@@ -106,6 +106,9 @@ export class ContainerPool {
     /** @type {Map<string, Object>} Map of botId -> workspace configuration */
     this.workspaces = new Map();
 
+    /** @type {IncusBackend|null} Shared default Incus backend (lazily created) */
+    this._defaultIncusBackend = null;
+
     /** @type {Map<string, ContainerBackend>} Map of botId -> backend for per-bot overrides */
     this.backends = new Map();
 
@@ -508,9 +511,17 @@ export class ContainerPool {
     // Route based on sandbox type
     switch (sandboxType) {
       case BACKEND_TYPES.INCUS: {
-        // Create an Incus backend for this bot, optionally with remote socket
-        const incusOpts = incusHost ? { socketPath: incusHost } : {};
-        const incusBackend = new IncusBackend(incusOpts);
+        if (!incusHost) {
+          // Reuse or lazily create a shared default Incus backend
+          if (!this._defaultIncusBackend) {
+            this._defaultIncusBackend = new IncusBackend();
+          }
+          this.backends.set(botId, this._defaultIncusBackend);
+          return this._defaultIncusBackend;
+        }
+
+        // Create a remote Incus backend with custom socket path
+        const incusBackend = new IncusBackend({ socketPath: incusHost });
         this.backends.set(botId, incusBackend);
         return incusBackend;
       }
