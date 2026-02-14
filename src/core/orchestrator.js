@@ -2365,6 +2365,7 @@ export class Orchestrator {
             storage: this.storage,
             logger: this.logger,
             auditLogger: this.auditLogger,
+            botReloader: this.botReloader,
           });
           routers.push(botRouter);
         } catch (err) {

@@ -2,11 +2,12 @@
  * BotRouter - HTTP router for bot management API endpoints
  *
  * Provides RESTful endpoints for bot operations:
- * - GET  /api/bots              -> List all bots
- * - GET  /api/bots/:id          -> Get bot details
- * - POST /api/bots/:id/message  -> Send message to bot
- * - GET  /api/bots/:id/sessions -> List bot sessions
- * - GET  /api/bots/:id/status   -> Get bot status
+ * - GET   /api/bots              -> List all bots
+ * - GET   /api/bots/:id          -> Get bot details
+ * - POST  /api/bots/:id/message  -> Send message to bot
+ * - PATCH /api/bots/:id/config   -> Update bot configuration
+ * - GET   /api/bots/:id/sessions -> List bot sessions
+ * - GET   /api/bots/:id/status   -> Get bot status
  *
  * Authentication via Bearer token in the Authorization header.
  * Uses Node.js built-in http module (no Express/Fastify dependency).
@@ -98,6 +99,9 @@ export class BotRouter {
     /** @type {Object|null} AuditLogger for recording audit events */
     this.auditLogger = options.auditLogger || null;
 
+    /** @type {Object|null} BotReloader for hot-reloading bot config/containers */
+    this.botReloader = options.botReloader || null;
+
     /** @type {Route[]} Registered routes */
     this.routes = [];
 
@@ -113,6 +117,7 @@ export class BotRouter {
     this._addRoute('GET', '/api/bots/:id/sessions', req => this._handleBotSessions(req));
     this._addRoute('GET', '/api/bots/:id/status', req => this._handleBotStatus(req));
     this._addRoute('POST', '/api/bots/:id/message', req => this._handleSendMessage(req));
+    this._addRoute('PATCH', '/api/bots/:id/config', req => this._handleUpdateConfig(req));
     this._addRoute('GET', '/api/bots/:id', req => this._handleGetBot(req));
   }
 
@@ -185,8 +190,8 @@ export class BotRouter {
         return true;
       }
 
-      // Parse JSON body for POST
-      if (method === 'POST') {
+      // Parse JSON body for POST/PATCH/PUT
+      if (['POST', 'PATCH', 'PUT'].includes(method)) {
         try {
           req.body = await this._parseJsonBody(req);
         } catch (_err) {
@@ -501,6 +506,130 @@ export class BotRouter {
         lastActiveAt: bot.lastActiveAt || null,
       },
     };
+  }
+
+  /**
+   * PATCH /api/bots/:id/config
+   *
+   * Update a bot's configuration. Supports updating:
+   * - sandbox.image: Docker image (triggers container restart)
+   * - sandbox.packages: Installed packages (triggers container restart)
+   * - sandbox.memory/cpus: Resource limits (triggers container restart)
+   * - model, provider, temperature, maxSteps: AI settings (no restart)
+   * - tools: Tool list (no restart)
+   *
+   * Requires operator access to the bot or admin role.
+   *
+   * @param {import('http').IncomingMessage} req - HTTP request
+   * @returns {Promise<{statusCode: number, body: Object}>} Response
+   * @private
+   */
+  async _handleUpdateConfig(req) {
+    const { id } = req.params;
+
+    const bot = this.botManager.getBot(id);
+    if (!bot) {
+      return {
+        statusCode: 404,
+        body: { error: 'Not Found', message: `Bot '${id}' not found` },
+      };
+    }
+
+    // Check bot-specific access
+    if (req.user && req.user.bots && !req.user.bots.includes(id)) {
+      return {
+        statusCode: 403,
+        body: { error: 'Forbidden', message: `Access denied to bot '${id}'` },
+      };
+    }
+
+    const updates = req.body || {};
+    if (!updates || typeof updates !== 'object' || Object.keys(updates).length === 0) {
+      return {
+        statusCode: 400,
+        body: { error: 'Bad Request', message: 'Request body must contain config fields to update' },
+      };
+    }
+
+    // Allowlist of updatable fields
+    const ALLOWED_FIELDS = [
+      'model', 'provider', 'temperature', 'maxSteps', 'timeout',
+      'tools', 'mcpServers', 'sandbox',
+    ];
+    const unknownFields = Object.keys(updates).filter(k => !ALLOWED_FIELDS.includes(k));
+    if (unknownFields.length > 0) {
+      return {
+        statusCode: 400,
+        body: {
+          error: 'Bad Request',
+          message: `Unknown fields: ${unknownFields.join(', ')}. Allowed: ${ALLOWED_FIELDS.join(', ')}`,
+        },
+      };
+    }
+
+    try {
+      const oldConfig = { ...bot.config };
+      const newConfig = { ...bot.config, ...updates };
+
+      // Check if sandbox changed (needs container restart)
+      const sandboxChanged = this.botReloader
+        ? this.botReloader.needsContainerRestart(oldConfig, newConfig)
+        : false;
+
+      // Apply config update
+      if (this.botReloader) {
+        await this.botReloader.reloadBotConfig(id, newConfig);
+
+        if (sandboxChanged && newConfig.sandbox) {
+          await this.botReloader.reloadContainer(id, newConfig.sandbox);
+        }
+      } else {
+        // Fallback: update in-memory directly
+        bot.config = newConfig;
+      }
+
+      this._auditLog({
+        type: 'bot.config_updated',
+        actor: this._extractActor(req),
+        actorType: 'api',
+        resourceType: 'bot',
+        resourceId: id,
+        action: 'config_updated',
+        metadata: {
+          updatedFields: Object.keys(updates),
+          containerRestarted: sandboxChanged,
+        },
+        ipAddress: this._extractIp(req),
+        userAgent: req.headers?.['user-agent'] || null,
+      });
+
+      this._log(`Bot '${id}' config updated (fields: ${Object.keys(updates).join(', ')}${sandboxChanged ? ', container restarted' : ''})`);
+
+      return {
+        statusCode: 200,
+        body: {
+          message: `Bot '${id}' configuration updated`,
+          updatedFields: Object.keys(updates),
+          containerRestarted: sandboxChanged,
+          bot: {
+            id: bot.id,
+            status: bot.status,
+            model: bot.config?.model || null,
+            provider: bot.config?.provider || null,
+            sandbox: bot.config?.sandbox || null,
+          },
+        },
+      };
+    } catch (err) {
+      this._log(`Failed to update config for bot '${id}': ${err.message}`);
+      return {
+        statusCode: 500,
+        body: {
+          error: 'Internal Server Error',
+          message: `Failed to update config: ${err.message}`,
+        },
+      };
+    }
   }
 
   // ==========================================================================
