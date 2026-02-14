@@ -1082,6 +1082,280 @@ describe('BotManager', () => {
       const neu = { type: 'docker', image: 'node:22', packages: [] };
       assert.equal(botManager._hasSandboxChanged(old, neu), false);
     });
+
+    test('returns true when incusImage changes', () => {
+      const old = {
+        type: 'incus',
+        incusImage: 'ai-army-base',
+        memory: '2g',
+        cpus: 2,
+      };
+      const neu = {
+        type: 'incus',
+        incusImage: 'ai-army-base-docker',
+        memory: '2g',
+        cpus: 2,
+      };
+      assert.equal(botManager._hasSandboxChanged(old, neu), true);
+    });
+
+    test('returns true when incusProfile changes', () => {
+      const old = {
+        type: 'incus',
+        incusImage: 'ai-army-base',
+        incusProfile: 'default',
+        memory: '2g',
+        cpus: 2,
+      };
+      const neu = {
+        type: 'incus',
+        incusImage: 'ai-army-base',
+        incusProfile: 'custom-profile',
+        memory: '2g',
+        cpus: 2,
+      };
+      assert.equal(botManager._hasSandboxChanged(old, neu), true);
+    });
+
+    test('returns false when Incus configs are identical', () => {
+      const sandbox = {
+        type: 'incus',
+        incusImage: 'ai-army-base',
+        incusProfile: 'default',
+        memory: '4g',
+        cpus: 4,
+      };
+      assert.equal(botManager._hasSandboxChanged(sandbox, { ...sandbox }), false);
+    });
+
+    test('returns true when sandbox type changes from docker to incus', () => {
+      const old = {
+        type: 'docker',
+        image: 'node:22-slim',
+        memory: '2g',
+        cpus: 2,
+      };
+      const neu = {
+        type: 'incus',
+        incusImage: 'ai-army-base',
+        memory: '2g',
+        cpus: 2,
+      };
+      assert.equal(botManager._hasSandboxChanged(old, neu), true);
+    });
+
+    test('returns true when sandbox type changes from incus to docker', () => {
+      const old = {
+        type: 'incus',
+        incusImage: 'ai-army-base',
+        memory: '2g',
+        cpus: 2,
+      };
+      const neu = {
+        type: 'docker',
+        image: 'node:22-slim',
+        memory: '2g',
+        cpus: 2,
+      };
+      assert.equal(botManager._hasSandboxChanged(old, neu), true);
+    });
+  });
+
+  describe('Incus sandbox support', () => {
+    test('startBot() passes Incus config to ContainerPool', async () => {
+      const config = createBotConfig({
+        sandbox: {
+          type: 'incus',
+          incusImage: 'ai-army-base-docker',
+          incusProfile: 'custom-profile',
+          memory: '4g',
+          cpus: 4,
+        },
+      });
+
+      await botManager.loadBot('incus-bot', config);
+      await botManager.startBot('incus-bot');
+
+      assert.equal(mockContainerPool.initializeContainer.mock.calls.length, 1);
+      const [_botId, passedConfig, _workspace] =
+        mockContainerPool.initializeContainer.mock.calls[0].arguments;
+      assert.equal(passedConfig.sandbox.type, 'incus');
+      assert.equal(passedConfig.sandbox.incusImage, 'ai-army-base-docker');
+      assert.equal(passedConfig.sandbox.incusProfile, 'custom-profile');
+      assert.equal(passedConfig.sandbox.memory, '4g');
+      assert.equal(passedConfig.sandbox.cpus, 4);
+    });
+
+    test('reloadBot() recreates container when incusImage changes', async () => {
+      const originalConfig = createBotConfig({
+        sandbox: {
+          type: 'incus',
+          incusImage: 'ai-army-base',
+          memory: '2g',
+          cpus: 2,
+        },
+      });
+      await botManager.loadBot('incus-bot', originalConfig);
+      await botManager.startBot('incus-bot');
+
+      mockContainerPool.initializeContainer.mock.resetCalls();
+      mockContainerPool.recycleContainer.mock.resetCalls();
+
+      const newConfig = createBotConfig({
+        sandbox: {
+          type: 'incus',
+          incusImage: 'ai-army-base-docker',
+          memory: '2g',
+          cpus: 2,
+        },
+      });
+      await botManager.reloadBot('incus-bot', newConfig);
+
+      // Container should have been recreated
+      assert.equal(mockContainerPool.recycleContainer.mock.calls.length, 1);
+      assert.equal(mockContainerPool.initializeContainer.mock.calls.length, 1);
+
+      const bot = botManager.getBot('incus-bot');
+      assert.equal(bot.config.sandbox.incusImage, 'ai-army-base-docker');
+    });
+
+    test('reloadBot() recreates container when incusProfile changes', async () => {
+      const originalConfig = createBotConfig({
+        sandbox: {
+          type: 'incus',
+          incusImage: 'ai-army-base',
+          incusProfile: 'default',
+          memory: '2g',
+          cpus: 2,
+        },
+      });
+      await botManager.loadBot('incus-bot', originalConfig);
+      await botManager.startBot('incus-bot');
+
+      mockContainerPool.initializeContainer.mock.resetCalls();
+      mockContainerPool.recycleContainer.mock.resetCalls();
+
+      const newConfig = createBotConfig({
+        sandbox: {
+          type: 'incus',
+          incusImage: 'ai-army-base',
+          incusProfile: 'docker-enabled',
+          memory: '2g',
+          cpus: 2,
+        },
+      });
+      await botManager.reloadBot('incus-bot', newConfig);
+
+      // Container should have been recreated
+      assert.equal(mockContainerPool.recycleContainer.mock.calls.length, 1);
+      assert.equal(mockContainerPool.initializeContainer.mock.calls.length, 1);
+
+      const bot = botManager.getBot('incus-bot');
+      assert.equal(bot.config.sandbox.incusProfile, 'docker-enabled');
+    });
+
+    test('reloadBot() recreates container when sandbox type changes from docker to incus', async () => {
+      const originalConfig = createBotConfig({
+        sandbox: {
+          type: 'docker',
+          image: 'node:22-slim',
+          memory: '2g',
+          cpus: 2,
+        },
+      });
+      await botManager.loadBot('hybrid-bot', originalConfig);
+      await botManager.startBot('hybrid-bot');
+
+      mockContainerPool.initializeContainer.mock.resetCalls();
+      mockContainerPool.recycleContainer.mock.resetCalls();
+
+      const newConfig = createBotConfig({
+        sandbox: {
+          type: 'incus',
+          incusImage: 'ai-army-base',
+          memory: '2g',
+          cpus: 2,
+        },
+      });
+      await botManager.reloadBot('hybrid-bot', newConfig);
+
+      // Container should have been recreated due to type change
+      assert.equal(mockContainerPool.recycleContainer.mock.calls.length, 1);
+      assert.equal(mockContainerPool.initializeContainer.mock.calls.length, 1);
+
+      const bot = botManager.getBot('hybrid-bot');
+      assert.equal(bot.config.sandbox.type, 'incus');
+      assert.equal(bot.config.sandbox.incusImage, 'ai-army-base');
+    });
+
+    test('reloadBot() recreates container when sandbox type changes from incus to docker', async () => {
+      const originalConfig = createBotConfig({
+        sandbox: {
+          type: 'incus',
+          incusImage: 'ai-army-base',
+          memory: '2g',
+          cpus: 2,
+        },
+      });
+      await botManager.loadBot('hybrid-bot', originalConfig);
+      await botManager.startBot('hybrid-bot');
+
+      mockContainerPool.initializeContainer.mock.resetCalls();
+      mockContainerPool.recycleContainer.mock.resetCalls();
+
+      const newConfig = createBotConfig({
+        sandbox: {
+          type: 'docker',
+          image: 'node:22-slim',
+          memory: '2g',
+          cpus: 2,
+        },
+      });
+      await botManager.reloadBot('hybrid-bot', newConfig);
+
+      // Container should have been recreated due to type change
+      assert.equal(mockContainerPool.recycleContainer.mock.calls.length, 1);
+      assert.equal(mockContainerPool.initializeContainer.mock.calls.length, 1);
+
+      const bot = botManager.getBot('hybrid-bot');
+      assert.equal(bot.config.sandbox.type, 'docker');
+      assert.equal(bot.config.sandbox.image, 'node:22-slim');
+    });
+
+    test('reloadBot() does not recreate container when only non-sandbox config changes', async () => {
+      const originalConfig = createBotConfig({
+        name: 'Original Name',
+        sandbox: {
+          type: 'incus',
+          incusImage: 'ai-army-base',
+          memory: '2g',
+          cpus: 2,
+        },
+      });
+      await botManager.loadBot('incus-bot', originalConfig);
+      await botManager.startBot('incus-bot');
+
+      mockContainerPool.initializeContainer.mock.resetCalls();
+      mockContainerPool.recycleContainer.mock.resetCalls();
+
+      const newConfig = createBotConfig({
+        name: 'Updated Name',
+        sandbox: {
+          type: 'incus',
+          incusImage: 'ai-army-base',
+          memory: '2g',
+          cpus: 2,
+        },
+      });
+      await botManager.reloadBot('incus-bot', newConfig);
+
+      // Container should NOT have been recreated (only name changed)
+      assert.equal(mockContainerPool.recycleContainer.mock.calls.length, 0);
+      assert.equal(mockContainerPool.initializeContainer.mock.calls.length, 0);
+
+      const bot = botManager.getBot('incus-bot');
+      assert.equal(bot.config.name, 'Updated Name');
+    });
   });
 
   describe('toolRegistry integration', () => {
