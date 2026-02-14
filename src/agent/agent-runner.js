@@ -130,6 +130,7 @@ export class AgentRunner {
           ...(generateOptions.temperature !== undefined && {
             temperature: generateOptions.temperature,
           }),
+          experimental_repairToolCall: this._repairToolCall.bind(this),
         }),
         generateOptions.timeout,
         botConfig.id
@@ -197,6 +198,7 @@ export class AgentRunner {
           temperature: generateOptions.temperature,
         }),
         abortSignal: controller.signal,
+        experimental_repairToolCall: this._repairToolCall.bind(this),
       });
 
       let fullText = '';
@@ -277,6 +279,67 @@ export class AgentRunner {
     };
 
     return { model, tools, generateOptions };
+  }
+
+  /**
+   * Attempt to repair a malformed tool call from the model.
+   *
+   * Some models (e.g., aurora-alpha) produce invalid tool call JSON.
+   * This tries to extract the user's intent and build valid parameters.
+   *
+   * @param {Object} options - Repair context from AI SDK
+   * @param {Object} options.toolCall - The malformed tool call
+   * @param {Object} options.tools - Available tools
+   * @param {Function} options.inputSchema - Schema resolver
+   * @param {Object} options.error - The parse error
+   * @returns {Promise<Object|null>} Repaired tool call or null
+   * @private
+   */
+  async _repairToolCall({ toolCall, tools, inputSchema, error }) {
+    try {
+      const schema = await inputSchema({ toolName: toolCall.toolName });
+      const properties = schema?.properties || {};
+      const propNames = Object.keys(properties);
+
+      // Try to extract meaningful content from the garbled input
+      let rawInput = toolCall.args || '';
+      if (typeof rawInput !== 'string') {
+        rawInput = JSON.stringify(rawInput);
+      }
+
+      // Strip common model artifacts (e.g., <|message|>, <|end|>, etc.)
+      rawInput = rawInput.replace(/<\|[^|]*\|>/g, '').trim();
+
+      // If the tool has a single string parameter, try to use the raw input
+      if (propNames.length === 1 && properties[propNames[0]]?.type === 'string') {
+        // Try to parse as JSON first
+        try {
+          const parsed = JSON.parse(rawInput);
+          if (typeof parsed === 'object' && parsed !== null) {
+            const val = parsed[propNames[0]] || Object.values(parsed).find(v => typeof v === 'string');
+            if (val) {
+              return {
+                ...toolCall,
+                args: JSON.stringify({ [propNames[0]]: val }),
+              };
+            }
+          }
+        } catch {
+          // Not valid JSON - use raw input as the parameter value if non-empty
+          if (rawInput.length > 0 && rawInput !== '{"":""}') {
+            return {
+              ...toolCall,
+              args: JSON.stringify({ [propNames[0]]: rawInput }),
+            };
+          }
+        }
+      }
+
+      // Can't repair
+      return null;
+    } catch {
+      return null;
+    }
   }
 }
 

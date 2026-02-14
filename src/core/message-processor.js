@@ -192,37 +192,10 @@ export class MessageProcessor {
       // Emit tool events for each tool call
       this._emitToolEvents(botConfig.id, sessionId, result.steps || [], result.toolCalls);
 
-      // Step 6.5: If text is empty but tools were used, construct response from tool results
+      // Step 6.5: Ensure we always have a text response
       let finalText = result.text;
-      if (!finalText && result.steps?.length > 0) {
-        const toolOutputs = [];
-        for (const step of result.steps) {
-          // Vercel AI SDK stores results in step.toolResults (array of {toolCallId, toolName, result})
-          const stepToolResults = step.toolResults || [];
-          for (const tr of stepToolResults) {
-            const output = tr.result;
-            if (output?.stdout) {
-              toolOutputs.push(output.stdout);
-            } else if (output?.content) {
-              toolOutputs.push(output.content);
-            } else if (typeof output === 'string') {
-              toolOutputs.push(output);
-            } else if (output != null) {
-              toolOutputs.push(JSON.stringify(output));
-            }
-          }
-        }
-        if (toolOutputs.length > 0) {
-          finalText = toolOutputs.join('\n\n');
-        } else {
-          // Last resort: summarize what tools were called
-          const toolNames = result.steps
-            .flatMap(s => (s.toolCalls || []).map(tc => tc.toolName))
-            .filter(Boolean);
-          if (toolNames.length > 0) {
-            finalText = `I executed ${toolNames.join(', ')} but received no output.`;
-          }
-        }
+      if (!finalText) {
+        finalText = this._extractFallbackText(result);
       }
 
       // Step 7: Append assistant response to session
@@ -354,10 +327,10 @@ export class MessageProcessor {
               sessionId,
               toolName: toolCall.toolName,
               parameters: toolCall.args || null,
-              result: matchingResult?.result || null,
+              result: matchingResult?.output || matchingResult?.result || null,
               success: matchingResult ? !matchingResult.isError : true,
               error: matchingResult?.isError
-                ? String(matchingResult.result || 'Unknown error')
+                ? String(matchingResult.output || matchingResult.result || 'Unknown error')
                 : null,
               durationMs: null,
             });
@@ -523,14 +496,14 @@ export class MessageProcessor {
             this._emitEvent('toolError', botId, {
               toolName: toolCall.toolName,
               args: toolCall.args || null,
-              error: matchingResult?.result || 'Unknown tool error',
+              error: matchingResult?.output || matchingResult?.result || 'Unknown tool error',
               sessionId,
             });
           } else {
             this._emitEvent('toolCalled', botId, {
               toolName: toolCall.toolName,
               args: toolCall.args || null,
-              result: matchingResult?.result || null,
+              result: matchingResult?.output || matchingResult?.result || null,
               sessionId,
             });
           }
@@ -586,6 +559,65 @@ export class MessageProcessor {
         // Audit logging should never break the main flow
       });
     }
+  }
+
+  /**
+   * Extract fallback text when the model returns empty text.
+   *
+   * This handles cases where: (1) the model made tool calls and got results
+   * but didn't generate a summary, (2) the model made invalid tool calls
+   * (common with free models like aurora-alpha), or (3) the model stopped
+   * at a tool-calls step without producing text.
+   *
+   * @param {Object} result - Agent runner result
+   * @returns {string} Fallback text or empty string
+   * @private
+   */
+  _extractFallbackText(result) {
+    const steps = result.steps || [];
+    const allToolCalls = result.toolCalls || [];
+
+    // Check for invalid tool calls (model sent malformed input)
+    const invalidCalls = allToolCalls.filter(tc => tc.invalid === true);
+    if (invalidCalls.length > 0) {
+      const names = invalidCalls.map(tc => tc.toolName).join(', ');
+      return `I tried to use ${names} but the tool call was malformed. Please try rephrasing your request.`;
+    }
+
+    // Try to extract output from step.toolResults
+    // Note: Vercel AI SDK uses .output (not .result) for tool result data in steps
+    const toolOutputs = [];
+    for (const step of steps) {
+      const stepToolResults = step.toolResults || [];
+      for (const tr of stepToolResults) {
+        const output = tr.output || tr.result;
+        if (output?.stdout) {
+          toolOutputs.push(output.stdout);
+        } else if (output?.content) {
+          toolOutputs.push(output.content);
+        } else if (typeof output === 'string') {
+          toolOutputs.push(output);
+        } else if (output != null) {
+          toolOutputs.push(JSON.stringify(output));
+        }
+      }
+    }
+    if (toolOutputs.length > 0) {
+      return toolOutputs.join('\n\n');
+    }
+
+    // Try step text
+    for (const step of steps) {
+      if (step.text) return step.text;
+    }
+
+    // Summarize tool calls with any available results
+    if (allToolCalls.length > 0) {
+      const names = allToolCalls.map(tc => tc.toolName).filter(Boolean);
+      return `I executed ${names.join(', ')} but received no output.`;
+    }
+
+    return '';
   }
 
   /**
