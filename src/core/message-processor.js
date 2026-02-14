@@ -197,20 +197,31 @@ export class MessageProcessor {
       if (!finalText && result.steps?.length > 0) {
         const toolOutputs = [];
         for (const step of result.steps) {
-          const toolResults = step.content?.filter(c => c.type === 'tool-result') || [];
-          for (const tr of toolResults) {
-            const { output } = tr;
+          // Vercel AI SDK stores results in step.toolResults (array of {toolCallId, toolName, result})
+          const stepToolResults = step.toolResults || [];
+          for (const tr of stepToolResults) {
+            const output = tr.result;
             if (output?.stdout) {
               toolOutputs.push(output.stdout);
             } else if (output?.content) {
               toolOutputs.push(output.content);
             } else if (typeof output === 'string') {
               toolOutputs.push(output);
+            } else if (output != null) {
+              toolOutputs.push(JSON.stringify(output));
             }
           }
         }
         if (toolOutputs.length > 0) {
           finalText = toolOutputs.join('\n\n');
+        } else {
+          // Last resort: summarize what tools were called
+          const toolNames = result.steps
+            .flatMap(s => (s.toolCalls || []).map(tc => tc.toolName))
+            .filter(Boolean);
+          if (toolNames.length > 0) {
+            finalText = `I executed ${toolNames.join(', ')} but received no output.`;
+          }
         }
       }
 
@@ -330,24 +341,23 @@ export class MessageProcessor {
     // Log tool calls from steps (AI SDK provides per-step results)
     if (Array.isArray(steps)) {
       for (const step of steps) {
-        // Extract tool calls and results from step.content array
-        const stepContent = step.content || [];
-        const toolCalls = stepContent.filter(c => c.type === 'tool-call');
-        const toolResults = stepContent.filter(c => c.type === 'tool-result');
+        // Extract tool calls and results from Vercel AI SDK step properties
+        const stepToolCalls = step.toolCalls || [];
+        const stepToolResults = step.toolResults || [];
 
-        for (const toolCall of toolCalls) {
-          const matchingResult = toolResults.find(r => r.toolCallId === toolCall.toolCallId);
+        for (const toolCall of stepToolCalls) {
+          const matchingResult = stepToolResults.find(r => r.toolCallId === toolCall.toolCallId);
 
           try {
             const id = await this.storage.logToolCall({
               botId,
               sessionId,
               toolName: toolCall.toolName,
-              parameters: toolCall.input || toolCall.args || null,
-              result: matchingResult?.output || matchingResult?.result || null,
+              parameters: toolCall.args || null,
+              result: matchingResult?.result || null,
               success: matchingResult ? !matchingResult.isError : true,
               error: matchingResult?.isError
-                ? String(matchingResult.output || matchingResult.result)
+                ? String(matchingResult.result || 'Unknown error')
                 : null,
               durationMs: null,
             });

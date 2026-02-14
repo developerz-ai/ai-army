@@ -100,17 +100,18 @@ function createMockAgentRunnerWithTools(toolCalls, steps) {
 
   const defaultSteps = steps || [
     {
-      content: [
+      toolCalls: [
         {
-          type: 'tool-call',
           toolName: 'bash',
           toolCallId: 'call_1',
-          input: { command: 'ls -la' },
+          args: { command: 'ls -la' },
         },
+      ],
+      toolResults: [
         {
-          type: 'tool-result',
           toolCallId: 'call_1',
-          output: 'file1.txt\nfile2.txt',
+          toolName: 'bash',
+          result: 'file1.txt\nfile2.txt',
           isError: false,
         },
       ],
@@ -451,29 +452,29 @@ describe('MessageProcessor', () => {
       ];
       const steps = [
         {
-          content: [
+          toolCalls: [
             {
-              type: 'tool-call',
               toolName: 'bash',
               toolCallId: 'call_1',
-              input: { command: 'ls' },
+              args: { command: 'ls' },
             },
             {
-              type: 'tool-result',
+              toolName: 'readFile',
+              toolCallId: 'call_2',
+              args: { path: '/home/agent/file.txt' },
+            },
+          ],
+          toolResults: [
+            {
               toolCallId: 'call_1',
-              output: 'file1.txt',
+              toolName: 'bash',
+              result: 'file1.txt',
               isError: false,
             },
             {
-              type: 'tool-call',
+              toolCallId: 'call_2',
               toolName: 'readFile',
-              toolCallId: 'call_2',
-              input: { path: '/home/agent/file.txt' },
-            },
-            {
-              type: 'tool-result',
-              toolCallId: 'call_2',
-              output: 'Hello World',
+              result: 'Hello World',
               isError: false,
             },
           ],
@@ -499,17 +500,18 @@ describe('MessageProcessor', () => {
       ];
       const steps = [
         {
-          content: [
+          toolCalls: [
             {
-              type: 'tool-call',
               toolName: 'bash',
               toolCallId: 'call_1',
-              input: { command: 'rm -rf /' },
+              args: { command: 'rm -rf /' },
             },
+          ],
+          toolResults: [
             {
-              type: 'tool-result',
               toolCallId: 'call_1',
-              output: 'Permission denied: dangerous command blocked',
+              toolName: 'bash',
+              result: 'Permission denied: dangerous command blocked',
               isError: true,
             },
           ],
@@ -870,17 +872,18 @@ describe('MessageProcessor', () => {
     test('logs tool calls and returns IDs', async () => {
       const steps = [
         {
-          content: [
+          toolCalls: [
             {
-              type: 'tool-call',
               toolName: 'bash',
               toolCallId: 'call_1',
-              input: { command: 'pwd' },
+              args: { command: 'pwd' },
             },
+          ],
+          toolResults: [
             {
-              type: 'tool-result',
               toolCallId: 'call_1',
-              output: '/home/agent',
+              toolName: 'bash',
+              result: '/home/agent',
               isError: false,
             },
           ],
