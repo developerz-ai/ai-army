@@ -167,8 +167,9 @@ Default sandbox/container configuration:
 ```
 
 **Options:**
-- `type` (string) - Always "docker" (only supported option)
-- `image` (string) - Docker image name
+- `type` (string) - Sandbox type: `"docker"` (default), `"incus"`, or `"just-bash"`
+- `image` (string) - Docker image name (used when `type` is "docker")
+- `incusImage` (string, optional) - Incus image alias (used when `type` is "incus")
 - `memory` (string) - Memory limit (e.g., "512m", "1g")
 - `cpus` (string) - CPU limit (e.g., "0.5", "2.0")
 - `network` (string) - Network mode ("bridge", "host", "none")
@@ -566,6 +567,77 @@ Override default sandbox settings:
   }
 }
 ```
+
+#### Docker Configuration (Default)
+
+Use Docker containers (most common):
+
+```json
+{
+  "sandbox": {
+    "type": "docker",
+    "image": "node:22-slim",
+    "memory": "2g",
+    "cpus": 2
+  }
+}
+```
+
+#### Incus Configuration
+
+Use Incus (LXC) containers for stronger isolation and system-level access:
+
+```json
+{
+  "sandbox": {
+    "type": "incus",
+    "incusImage": "images:ubuntu/24.04/cloud",
+    "memory": "2g",
+    "cpus": 2
+  }
+}
+```
+
+**Incus Options:**
+- `type` (string) - Must be "incus"
+- `incusImage` (string, optional) - Incus image alias (e.g., `images:ubuntu/24.04/cloud`, `images:alpine/3.20`)
+  - Default: `images:ubuntu/24.04/cloud`
+  - Common images: `images:debian/bookworm`, `images:alpine/3.20`
+  - List available: `incus image list images:`
+- `incusProfile` (string, optional) - Incus profile name for advanced configuration
+- `memory` (string) - Memory limit (e.g., "512m", "1g", "2g")
+- `cpus` (number) - CPU count
+- `dockerAccess` (boolean, optional) - Enable Docker inside the Incus container
+
+**Example: Bot with Docker Access Inside Incus**
+
+```json
+{
+  "sandbox": {
+    "type": "incus",
+    "incusImage": "images:ubuntu/24.04/cloud",
+    "memory": "4g",
+    "cpus": 4,
+    "dockerAccess": true
+  }
+}
+```
+
+When `dockerAccess: true`, the bot can run Docker and docker-compose commands inside the Incus container. This requires more resources but enables full project setup capabilities.
+
+#### Just-Bash Configuration
+
+Use no container (execute directly in parent process):
+
+```json
+{
+  "sandbox": {
+    "type": "just-bash"
+  }
+}
+```
+
+> **Note:** Just-bash is useful for testing and local development but not recommended for production.
 
 ### Concurrency Limits
 
