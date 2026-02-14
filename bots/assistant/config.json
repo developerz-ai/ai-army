@@ -7,5 +7,6 @@
     "bash",
     "readFile",
     "writeFile"
-  ]
+  ],
+  "mcpServers": ["filesystem"]
 }
