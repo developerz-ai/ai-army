@@ -258,8 +258,10 @@ const McpServerConfigSchema = z.object({
  * Schema for Docker sandbox configuration
  */
 const SandboxConfigSchema = z.object({
-  type: z.enum(['docker', 'just-bash']).default('docker'),
+  type: z.enum(['docker', 'incus', 'just-bash']).default('docker'),
   image: z.string().default('node:22-slim'),
+  incusImage: z.string().optional(),
+  incusProfile: z.string().optional(),
   packages: z.array(z.string()).optional(),
   memory: MemorySizeSchema.optional().default('2g'),
   maxMemory: MemorySizeSchema.optional(),
