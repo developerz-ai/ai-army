@@ -446,6 +446,8 @@ const APIAuthConfigSchema = z.object({
         z.object({
           token: z.string().min(1),
           role: z.string().optional().default('admin'),
+          name: z.string().optional(),
+          bots: z.array(z.string()).nullable().optional(),
         })
       ),
     ])
