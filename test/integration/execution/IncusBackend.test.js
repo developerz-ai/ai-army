@@ -376,7 +376,10 @@ describe('IncusBackend Integration', { skip: !INCUS_AVAILABLE }, () => {
       const result = await backend.exec(container, 'id', { user: 'root' });
 
       assert.equal(result.exitCode, 0);
-      assert.ok(result.stdout.includes('root') || result.stdout.includes('uid=0'), 'Should run as root');
+      assert.ok(
+        result.stdout.includes('root') || result.stdout.includes('uid=0'),
+        'Should run as root'
+      );
     });
   });
 
