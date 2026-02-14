@@ -254,7 +254,16 @@ export class IncusBackend extends ContainerBackend {
 
       if (options.user !== undefined) {
         // Incus expects numeric UID; if given 'root', map to 0
-        execOptions.user = options.user === 'root' ? 0 : Number(options.user) || 0;
+        execOptions.user = options.user === 'root' ? 0 : Number(options.user);
+        if (Number.isNaN(execOptions.user)) {
+          throw new ContainerBackendError(
+            `Invalid user: ${options.user} (must be "root" or a numeric UID)`,
+            {
+              operation: 'exec',
+              backend: this.type,
+            }
+          );
+        }
       }
 
       // Forward timeout to the client so long-running commands (e.g., package installs)
@@ -500,9 +509,7 @@ export class IncusBackend extends ContainerBackend {
       const server = image.slice(0, colonIndex);
       const alias = image.slice(colonIndex + 1);
       const serverUrl =
-        server === 'images'
-          ? 'https://images.linuxcontainers.org'
-          : `https://${server}`;
+        server === 'images' ? 'https://images.linuxcontainers.org' : `https://${server}`;
       return {
         type: 'image',
         protocol: 'simplestreams',

@@ -428,9 +428,7 @@ describe('IncusClient', () => {
         metadata: { environment: { server_version: '0.7' } },
       };
 
-      const { requestMock, calls } = setupHttpMock([
-        { statusCode: 200, body: serverInfo },
-      ]);
+      const { requestMock, calls } = setupHttpMock([{ statusCode: 200, body: serverInfo }]);
 
       http.request = requestMock;
 

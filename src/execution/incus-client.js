@@ -284,25 +284,22 @@ export class IncusClient {
     let stdout = '';
     let stderr = '';
 
-    const operationId = this._extractOperationId(response);
-    if (operationId) {
-      if (outputLog['1']) {
-        try {
-          stdout = await this._getRawRequest(
-            `/1.0/instances/${encodeURIComponent(name)}/logs/${outputLog['1'].split('/').pop()}`
-          );
-        } catch (_err) {
-          // Output may not be available; fallback to empty
-        }
+    if (outputLog['1']) {
+      try {
+        stdout = await this._getRawRequest(
+          `/1.0/instances/${encodeURIComponent(name)}/logs/${outputLog['1'].split('/').pop()}`
+        );
+      } catch (_err) {
+        // Output may not be available; fallback to empty
       }
-      if (outputLog['2']) {
-        try {
-          stderr = await this._getRawRequest(
-            `/1.0/instances/${encodeURIComponent(name)}/logs/${outputLog['2'].split('/').pop()}`
-          );
-        } catch (_err) {
-          // Output may not be available; fallback to empty
-        }
+    }
+    if (outputLog['2']) {
+      try {
+        stderr = await this._getRawRequest(
+          `/1.0/instances/${encodeURIComponent(name)}/logs/${outputLog['2'].split('/').pop()}`
+        );
+      } catch (_err) {
+        // Output may not be available; fallback to empty
       }
     }
 
