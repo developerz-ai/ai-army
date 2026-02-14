@@ -295,16 +295,16 @@ describe('ContainerPool', () => {
       assert.equal(mockBackend.createContainer.mock.calls.length, 1);
     });
 
-    test('throws when sandbox.type is incus (not yet implemented)', async () => {
+    test('creates IncusBackend when sandbox.type is incus', async () => {
       const botConfig = { id: 'test-bot', sandbox: { type: 'incus' } };
       const workspace = { root: './data/test-bot' };
 
+      // initializeContainer will fail (no Incus daemon) but the backend should be created
       await assert.rejects(
         () => pool.initializeContainer('test-bot', botConfig, workspace),
         err => {
-          assert.equal(err.name, 'ContainerPoolError');
-          assert.match(err.message, /Incus backend not yet implemented/);
-          assert.equal(err.botId, 'test-bot');
+          // Expect a failure from the Incus client, not a "not implemented" error
+          assert.ok(!err.message.includes('not yet implemented'));
           return true;
         }
       );

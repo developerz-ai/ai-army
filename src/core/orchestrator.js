@@ -57,6 +57,7 @@ import { WorkerRouter } from '../api/routers/worker-router.js';
 import { ServerRouter } from '../api/routers/server-router.js';
 import { TemplateRouter } from '../api/routers/template-router.js';
 import { LegacyRedirectRouter } from '../api/routers/legacy-redirect-router.js';
+import { BACKEND_TYPES } from '../execution/container-backend.js';
 import { createLogger } from '../utils/logger.js';
 
 /**
@@ -318,6 +319,13 @@ export class Orchestrator {
 
       // Step 4: Create component instances (BotManager, SessionManager, SecretsManager)
       await this._createComponents();
+
+      // Log available sandbox backends
+      const defaultSandboxType = this.config?.defaults?.sandbox?.type || BACKEND_TYPES.DOCKER;
+      const availableBackends = Object.values(BACKEND_TYPES).join(', ');
+      this._log(
+        `📦 Sandbox backends available: ${availableBackends} (default: ${defaultSandboxType})`
+      );
 
       // Step 4a: Initialize worker distribution system
       await this._initializeWorkers();
