@@ -79,10 +79,13 @@ function createWorker(overrides = {}) {
  */
 function createMockSSHTunnelManager(overrides = {}) {
   const tunnels = new Map();
+  const incusTunnels = new Map();
 
   return {
     _tunnels: tunnels,
+    _incusTunnels: incusTunnels,
     getDockerHost: mock.fn(workerId => tunnels.get(workerId) || null),
+    getIncusHost: mock.fn(workerId => incusTunnels.get(workerId) || null),
     ...overrides,
   };
 }
@@ -530,6 +533,166 @@ describe('WorkerAssigner', () => {
       const result = await assigner.assignBot('my-bot');
 
       assert.equal(result.dockerHost, 'tcp://10.0.0.5:2375');
+    });
+  });
+
+  // ==========================================================================
+  // Incus host resolution
+  // ==========================================================================
+
+  describe('Incus host resolution', () => {
+    test('returns null incusHost for local workers', async () => {
+      const worker = createWorker({ id: 'local', type: WORKER_TYPES.LOCAL });
+      registry._workers.set('local', worker);
+
+      const assigner = new WorkerAssigner(registry, { logger });
+      const result = await assigner.assignBot('my-bot');
+
+      assert.equal(result.incusHost, null);
+    });
+
+    test('returns SSH tunnel incusHost for remote workers', async () => {
+      const worker = createWorker({
+        id: 'incus-server',
+        type: WORKER_TYPES.REMOTE,
+        host: '192.168.1.200',
+      });
+      registry._workers.set('incus-server', worker);
+
+      const tunnelManager = createMockSSHTunnelManager();
+      tunnelManager._incusTunnels.set('incus-server', 'tcp://127.0.0.1:54322');
+
+      const assigner = new WorkerAssigner(registry, {
+        sshTunnelManager: tunnelManager,
+        logger,
+      });
+
+      const result = await assigner.assignBot('my-bot');
+
+      assert.equal(result.incusHost, 'tcp://127.0.0.1:54322');
+      assert.equal(result.workerType, WORKER_TYPES.REMOTE);
+    });
+
+    test('returns null incusHost when no Incus tunnel exists for remote worker', async () => {
+      const worker = createWorker({
+        id: 'docker-server',
+        type: WORKER_TYPES.REMOTE,
+        host: '192.168.1.100',
+      });
+      registry._workers.set('docker-server', worker);
+
+      const tunnelManager = createMockSSHTunnelManager();
+      tunnelManager._tunnels.set('docker-server', 'tcp://127.0.0.1:54321');
+      // No Incus tunnel set
+
+      const assigner = new WorkerAssigner(registry, {
+        sshTunnelManager: tunnelManager,
+        logger,
+      });
+
+      const result = await assigner.assignBot('my-bot');
+
+      assert.equal(result.dockerHost, 'tcp://127.0.0.1:54321');
+      assert.equal(result.incusHost, null);
+    });
+
+    test('returns both dockerHost and incusHost when both tunnels exist', async () => {
+      const worker = createWorker({
+        id: 'dual-server',
+        type: WORKER_TYPES.REMOTE,
+        host: '192.168.1.150',
+      });
+      registry._workers.set('dual-server', worker);
+
+      const tunnelManager = createMockSSHTunnelManager();
+      tunnelManager._tunnels.set('dual-server', 'tcp://127.0.0.1:54321');
+      tunnelManager._incusTunnels.set('dual-server', 'tcp://127.0.0.1:54322');
+
+      const assigner = new WorkerAssigner(registry, {
+        sshTunnelManager: tunnelManager,
+        logger,
+      });
+
+      const result = await assigner.assignBot('my-bot');
+
+      assert.equal(result.dockerHost, 'tcp://127.0.0.1:54321');
+      assert.equal(result.incusHost, 'tcp://127.0.0.1:54322');
+    });
+
+    test('returns null incusHost when no sshTunnelManager is provided', async () => {
+      const worker = createWorker({
+        id: 'remote-server',
+        type: WORKER_TYPES.REMOTE,
+        host: '10.0.0.5',
+      });
+      registry._workers.set('remote-server', worker);
+
+      const assigner = new WorkerAssigner(registry, { logger });
+      const result = await assigner.assignBot('my-bot');
+
+      assert.equal(result.incusHost, null);
+      // Docker falls back to direct host
+      assert.equal(result.dockerHost, 'tcp://10.0.0.5:2375');
+    });
+
+    test('handles sshTunnelManager without getIncusHost method', async () => {
+      const worker = createWorker({
+        id: 'remote-server',
+        type: WORKER_TYPES.REMOTE,
+        host: '10.0.0.5',
+      });
+      registry._workers.set('remote-server', worker);
+
+      // SSHTunnelManager that only has getDockerHost (no getIncusHost)
+      const tunnelManager = {
+        getDockerHost: mock.fn(() => 'tcp://127.0.0.1:54321'),
+      };
+
+      const assigner = new WorkerAssigner(registry, {
+        sshTunnelManager: tunnelManager,
+        logger,
+      });
+      const result = await assigner.assignBot('my-bot');
+
+      assert.equal(result.incusHost, null);
+      assert.equal(result.dockerHost, 'tcp://127.0.0.1:54321');
+    });
+
+    test('includes incusHost in failover reassignment results', async () => {
+      const w1 = createWorker({
+        id: 'w1',
+        type: WORKER_TYPES.REMOTE,
+        host: '192.168.1.100',
+        currentLoad: 2,
+        maxContainers: 10,
+        status: WORKER_STATUSES.OFFLINE,
+      });
+      const w2 = createWorker({
+        id: 'w2',
+        type: WORKER_TYPES.REMOTE,
+        host: '192.168.1.200',
+        currentLoad: 0,
+        maxContainers: 10,
+      });
+      registry._workers.set('w1', w1);
+      registry._workers.set('w2', w2);
+
+      const tunnelManager = createMockSSHTunnelManager();
+      tunnelManager._incusTunnels.set('w2', 'tcp://127.0.0.1:55322');
+      tunnelManager._tunnels.set('w2', 'tcp://127.0.0.1:55321');
+
+      const assigner = new WorkerAssigner(registry, {
+        sshTunnelManager: tunnelManager,
+        logger,
+      });
+      assigner.assignments.set('bot-a', 'w1');
+
+      const results = await assigner.failover('w1');
+
+      assert.equal(results.reassigned.length, 1);
+      assert.equal(results.reassigned[0].toWorkerId, 'w2');
+      assert.equal(results.reassigned[0].dockerHost, 'tcp://127.0.0.1:55321');
+      assert.equal(results.reassigned[0].incusHost, 'tcp://127.0.0.1:55322');
     });
   });
 
