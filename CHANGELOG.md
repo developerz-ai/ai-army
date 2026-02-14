@@ -5,6 +5,21 @@ All notable changes to AI Army will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-02-14
+
+### Added
+- **PATCH `/api/bots/:id/config`** - Hot-update bot configuration (model, provider, tools, Docker image) without restarting the system
+- **Bot-level access control** - Operator tokens can be scoped to specific bots via `name` and `bots` fields in auth token config
+- **`experimental_repairToolCall`** - Automatic repair of malformed tool call JSON from models (e.g., aurora-alpha)
+- **Fallback text extraction** - `MessageProcessor` always returns useful text, even when the model fails to produce a final text response
+
+### Fixed
+- Empty bot responses when tools are used - fixed tool result extraction to use Vercel AI SDK's `.output` property
+- ConfigValidator Zod schema now preserves `name` and `bots` fields in auth tokens (previously stripped by `safeParse()`)
+- Token normalization passes `name` and `bots` through to auth middleware
+- Bot DB persistence on load (required for session foreign key constraints)
+- Health check endpoint bypasses auth (required for Docker health checks)
+
 ## [0.1.0] - 2024-02-08
 
 Initial release of AI Army - a framework for building multi-bot AI systems with distributed execution, channel adapters, and comprehensive bot management.

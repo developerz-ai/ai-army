@@ -352,6 +352,56 @@ You're most knowledgeable about:
 - Web search for looking up best practices
 ```
 
+## API Authentication & Access Control
+
+Configure authentication tokens in `config.json` with role-based access control:
+
+```json
+{
+  "api": {
+    "enabled": true,
+    "port": 3000,
+    "auth": {
+      "enabled": true,
+      "tokens": [
+        {
+          "token": "${ADMIN_API_KEY}",
+          "role": "admin"
+        },
+        {
+          "token": "${DANIEL_API_KEY}",
+          "role": "operator",
+          "name": "daniel-francoeur",
+          "bots": ["daniel-francoeur-assistant"]
+        },
+        {
+          "token": "${SEBASTIAN_API_KEY}",
+          "role": "admin",
+          "name": "sebastian-buza"
+        }
+      ]
+    }
+  }
+}
+```
+
+### Token Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `token` | string | Yes | The API key (use env vars) |
+| `role` | string | No | `admin`, `operator`, or `readonly` (default: `admin`) |
+| `name` | string | No | Human-readable name for the token holder |
+| `bots` | string[] | No | Bot IDs this token can access (operator only) |
+
+### Roles
+
+- **`admin`** - Full access to all bots and all endpoints
+- **`operator`** - Can message and configure only their assigned `bots`
+- **`readonly`** - Read-only access (GET requests only)
+
+When an operator token has a `bots` array, requests to other bots return `403 Forbidden`.
+
 ## Environment Variables (`.env`)
 
 ```bash

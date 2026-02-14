@@ -48,8 +48,36 @@ Configure tokens in `config.json`:
 
 ### Roles
 
-- **`admin`** - Full access to all endpoints
+- **`admin`** - Full access to all endpoints and all bots
+- **`operator`** - Can manage only their assigned bots (send messages, update config)
 - **`readonly`** - Read-only access (GET requests only)
+
+### Bot-Level Access Control
+
+Operator tokens can be scoped to specific bots using the `name` and `bots` fields:
+
+```json
+{
+  "api": {
+    "auth": {
+      "tokens": [
+        {
+          "token": "${ADMIN_API_KEY}",
+          "role": "admin"
+        },
+        {
+          "token": "${DANIEL_API_KEY}",
+          "role": "operator",
+          "name": "daniel-francoeur",
+          "bots": ["daniel-francoeur-assistant"]
+        }
+      ]
+    }
+  }
+}
+```
+
+An operator with a `bots` array will receive `403 Forbidden` when attempting to access bots not in their list. Admins have unrestricted access to all bots.
 
 ### Example
 
@@ -299,6 +327,98 @@ curl -X POST \
     "sessionId": "user-123"
   }' \
   http://localhost:3000/api/bots/helper/message
+```
+
+### Update Bot Configuration
+
+Hot-update a bot's configuration without restarting the entire system. Operators can only update their own bots; admins can update any bot.
+
+```
+PATCH /api/bots/:id/config
+```
+
+#### Path Parameters
+
+- `id` (string, required) - Bot ID
+
+#### Request Body
+
+Any combination of updatable fields:
+
+```json
+{
+  "model": "openrouter/claude-sonnet-4-5",
+  "provider": "openrouter",
+  "temperature": 0.8,
+  "maxSteps": 50,
+  "tools": ["bash", "readFile", "writeFile", "glob", "grep"],
+  "sandbox": {
+    "image": "python:3.12-slim",
+    "packages": ["git", "curl"],
+    "memory": "2g",
+    "cpus": 2
+  }
+}
+```
+
+**Updatable fields:**
+- `model` (string) - AI model to use
+- `provider` (string) - AI provider name
+- `temperature` (number) - Sampling temperature
+- `maxSteps` (number) - Max agent loop iterations
+- `tools` (string[]) - Built-in tool names
+- `sandbox` (object) - Container configuration (triggers container restart)
+  - `image` (string) - Docker image
+  - `packages` (string[]) - System packages to install
+  - `memory` (string) - Memory limit
+  - `cpus` (number) - CPU limit
+
+#### Response
+
+```json
+{
+  "message": "Bot 'my-bot' configuration updated",
+  "updatedFields": ["model", "sandbox"],
+  "containerRestarted": true,
+  "bot": {
+    "id": "my-bot",
+    "status": "running",
+    "model": "openrouter/claude-sonnet-4-5",
+    "provider": "openrouter",
+    "sandbox": {
+      "type": "docker",
+      "image": "python:3.12-slim",
+      "packages": ["git", "curl"],
+      "memory": "2g",
+      "cpus": 2,
+      "network": "bridge"
+    }
+  }
+}
+```
+
+#### Access Control
+
+- **Admin** tokens can update any bot
+- **Operator** tokens can only update bots listed in their `bots` array
+- Returns `403 Forbidden` if an operator tries to update a bot they don't own
+
+#### Example
+
+```bash
+# Update Docker image (triggers container restart)
+curl -X PATCH \
+  -H "Authorization: Bearer operator-token" \
+  -H "Content-Type: application/json" \
+  -d '{"sandbox": {"image": "python:3.12-slim"}}' \
+  http://localhost:3000/api/bots/my-bot/config
+
+# Update model (no container restart)
+curl -X PATCH \
+  -H "Authorization: Bearer operator-token" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "openrouter/claude-sonnet-4-5"}' \
+  http://localhost:3000/api/bots/my-bot/config
 ```
 
 ### List Bot Sessions
