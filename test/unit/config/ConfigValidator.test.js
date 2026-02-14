@@ -26,6 +26,7 @@ import {
   AuditConfigSchema,
   AuditEventsConfigSchema,
   AuditRetentionConfigSchema,
+  SandboxConfigSchema,
   ChannelRestrictionsSchema,
   BotChannelConfigSchema,
 } from '../../../src/config/ConfigValidator.js';
@@ -375,6 +376,68 @@ describe('ConfigValidator', () => {
       assert.equal(result.sandbox.type, 'docker');
       assert.equal(result.sandbox.image, 'python:3.11-slim');
       assert.deepEqual(result.sandbox.packages, ['git', 'curl']);
+    });
+
+    test('validates bot with incus sandbox configuration', () => {
+      const validator = new ConfigValidator();
+
+      const config = {
+        id: 'incus-bot',
+        soul: './soul.md',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        sandbox: {
+          type: 'incus',
+          incusImage: 'images:ubuntu/24.04/cloud',
+          incusProfile: 'default',
+          packages: ['git', 'curl'],
+          memory: '2g',
+          cpus: 2,
+        },
+      };
+
+      const result = validator.validateBotConfig(config);
+
+      assert.equal(result.sandbox.type, 'incus');
+      assert.equal(result.sandbox.incusImage, 'images:ubuntu/24.04/cloud');
+      assert.equal(result.sandbox.incusProfile, 'default');
+      assert.deepEqual(result.sandbox.packages, ['git', 'curl']);
+    });
+
+    test('validates bot with incus sandbox without optional incus fields', () => {
+      const validator = new ConfigValidator();
+
+      const config = {
+        id: 'incus-minimal-bot',
+        soul: './soul.md',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        sandbox: {
+          type: 'incus',
+        },
+      };
+
+      const result = validator.validateBotConfig(config);
+
+      assert.equal(result.sandbox.type, 'incus');
+      assert.equal(result.sandbox.incusImage, undefined);
+      assert.equal(result.sandbox.incusProfile, undefined);
+    });
+
+    test('rejects invalid sandbox type', () => {
+      const validator = new ConfigValidator();
+
+      const config = {
+        id: 'bad-sandbox-bot',
+        soul: './soul.md',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        sandbox: {
+          type: 'podman',
+        },
+      };
+
+      assert.throws(() => validator.validateBotConfig(config), ConfigValidationError);
     });
 
     test('validates bot with restrictions', () => {
@@ -831,6 +894,83 @@ describe('Zod Schemas', () => {
 
       const result = BotConfigSchema.safeParse(fullConfig);
       assert.ok(result.success, `Failed: ${JSON.stringify(result.error?.issues)}`);
+    });
+  });
+
+  describe('SandboxConfigSchema', () => {
+    test('accepts docker sandbox type', () => {
+      const result = SandboxConfigSchema.safeParse({ type: 'docker' });
+      assert.ok(result.success);
+      assert.equal(result.data.type, 'docker');
+    });
+
+    test('accepts incus sandbox type', () => {
+      const result = SandboxConfigSchema.safeParse({ type: 'incus' });
+      assert.ok(result.success);
+      assert.equal(result.data.type, 'incus');
+    });
+
+    test('accepts just-bash sandbox type', () => {
+      const result = SandboxConfigSchema.safeParse({ type: 'just-bash' });
+      assert.ok(result.success);
+      assert.equal(result.data.type, 'just-bash');
+    });
+
+    test('defaults type to docker', () => {
+      const result = SandboxConfigSchema.safeParse({});
+      assert.ok(result.success);
+      assert.equal(result.data.type, 'docker');
+    });
+
+    test('rejects invalid sandbox type', () => {
+      const result = SandboxConfigSchema.safeParse({ type: 'podman' });
+      assert.ok(!result.success);
+    });
+
+    test('accepts incus-specific fields', () => {
+      const result = SandboxConfigSchema.safeParse({
+        type: 'incus',
+        incusImage: 'images:ubuntu/24.04/cloud',
+        incusProfile: 'default',
+      });
+      assert.ok(result.success);
+      assert.equal(result.data.incusImage, 'images:ubuntu/24.04/cloud');
+      assert.equal(result.data.incusProfile, 'default');
+    });
+
+    test('incusImage and incusProfile are optional', () => {
+      const result = SandboxConfigSchema.safeParse({ type: 'incus' });
+      assert.ok(result.success);
+      assert.equal(result.data.incusImage, undefined);
+      assert.equal(result.data.incusProfile, undefined);
+    });
+
+    test('docker type ignores incus fields gracefully', () => {
+      const result = SandboxConfigSchema.safeParse({
+        type: 'docker',
+        incusImage: 'images:ubuntu/24.04',
+        incusProfile: 'custom',
+      });
+      assert.ok(result.success);
+      assert.equal(result.data.type, 'docker');
+      assert.equal(result.data.incusImage, 'images:ubuntu/24.04');
+    });
+
+    test('accepts full incus config with resource limits', () => {
+      const result = SandboxConfigSchema.safeParse({
+        type: 'incus',
+        incusImage: 'images:debian/12',
+        incusProfile: 'bot-profile',
+        packages: ['git', 'nodejs'],
+        memory: '4g',
+        cpus: 4,
+      });
+      assert.ok(result.success);
+      assert.equal(result.data.type, 'incus');
+      assert.equal(result.data.incusImage, 'images:debian/12');
+      assert.equal(result.data.incusProfile, 'bot-profile');
+      assert.equal(result.data.memory, '4g');
+      assert.equal(result.data.cpus, 4);
     });
   });
 
