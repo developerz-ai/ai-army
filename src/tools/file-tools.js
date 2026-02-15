@@ -117,10 +117,10 @@ function validateFactoryArgs(containerPool, botId, operation) {
 /**
  * Create a Vercel AI SDK readFile tool for a specific bot
  *
- * Reads file contents from inside the bot's Docker container using `cat`.
+ * Reads file contents from inside the bot's container using `cat`.
  * Supports UTF-8 and base64 encoding. Large file contents are truncated.
  *
- * @param {Object} containerPool - ContainerPool instance for Docker container access
+ * @param {Object} containerPool - ContainerPool instance for container access
  * @param {string} botId - Bot identifier for container lookup
  * @param {Object} [toolConfig={}] - Optional tool configuration overrides
  * @param {number} [toolConfig.maxContentLength] - Max content before truncation
@@ -180,10 +180,10 @@ export function createReadFileTool(containerPool, botId, toolConfig = {}) {
 /**
  * Create a Vercel AI SDK writeFile tool for a specific bot
  *
- * Writes content to a file inside the bot's Docker container. Uses a heredoc
+ * Writes content to a file inside the bot's container. Uses a heredoc
  * approach for safe content transfer. Supports overwrite and append modes.
  *
- * @param {Object} containerPool - ContainerPool instance for Docker container access
+ * @param {Object} containerPool - ContainerPool instance for container access
  * @param {string} botId - Bot identifier for container lookup
  * @param {Object} [toolConfig={}] - Optional tool configuration overrides
  * @param {number} [toolConfig.timeout] - Command timeout in ms
@@ -257,10 +257,10 @@ export function createWriteFileTool(containerPool, botId, toolConfig = {}) {
 /**
  * Create a Vercel AI SDK glob tool for a specific bot
  *
- * Finds files matching a glob pattern inside the bot's Docker container
+ * Finds files matching a glob pattern inside the bot's container
  * using the `find` command. Results are limited to prevent huge listings.
  *
- * @param {Object} containerPool - ContainerPool instance for Docker container access
+ * @param {Object} containerPool - ContainerPool instance for container access
  * @param {string} botId - Bot identifier for container lookup
  * @param {Object} [toolConfig={}] - Optional tool configuration overrides
  * @param {number} [toolConfig.maxResults] - Maximum number of files to return
@@ -337,10 +337,10 @@ export function createGlobTool(containerPool, botId, toolConfig = {}) {
 /**
  * Create a Vercel AI SDK grep tool for a specific bot
  *
- * Searches file contents for a regex pattern inside the bot's Docker container.
+ * Searches file contents for a regex pattern inside the bot's container.
  * Uses `grep` with line numbers. Supports case-insensitive search and match limits.
  *
- * @param {Object} containerPool - ContainerPool instance for Docker container access
+ * @param {Object} containerPool - ContainerPool instance for container access
  * @param {string} botId - Bot identifier for container lookup
  * @param {Object} [toolConfig={}] - Optional tool configuration overrides
  * @param {number} [toolConfig.maxMatches] - Maximum number of matches to return

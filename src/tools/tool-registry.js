@@ -76,7 +76,7 @@ export class ToolRegistry {
   /**
    * Create a new ToolRegistry instance
    *
-   * @param {Object} containerPool - ContainerPool instance for Docker container access
+   * @param {Object} containerPool - ContainerPool instance for container access
    * @param {Object} [mcpManager=null] - McpManager instance for MCP server tools
    * @param {Object} [options={}] - Additional options
    * @param {Object} [options.skillRegistry=null] - SkillRegistry instance for resolving skill tools

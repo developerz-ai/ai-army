@@ -573,7 +573,7 @@ export class WorkerRouter {
   /**
    * PUT /api/v1/workers/:id/image
    *
-   * Update a worker's Docker image.
+   * Update a worker's container image.
    *
    * @param {import('http').IncomingMessage} req - HTTP request (with params.id and body)
    * @returns {Promise<{statusCode: number, body: Object}>} Response

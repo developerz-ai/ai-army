@@ -282,7 +282,7 @@ export class ProjectInitializer {
         {
           defaults: {
             model: { provider: 'anthropic', model: 'claude-sonnet-4-5' },
-            sandbox: { type: 'docker', image: 'node:22-slim' },
+            sandbox: { type: 'incus', incusImage: 'ai-army-base' },
           },
           providers: {
             anthropic: {
@@ -436,7 +436,7 @@ export class ProjectInitializer {
       '',
       '- src/core/ - Orchestration',
       '- src/adapters/ - Channels, secrets, storage',
-      '- src/execution/ - Docker management',
+      '- src/execution/ - Container management',
       '- bots/*/ - Your bot definitions',
       '',
       '## Conventions',
@@ -450,7 +450,7 @@ export class ProjectInitializer {
       '',
       '```bash',
       'npm run test:unit        # Fast unit tests',
-      'npm run test:integration # With Docker/DB',
+      'npm run test:integration # With containers/DB',
       'npm test                 # All tests',
       '```',
       '',

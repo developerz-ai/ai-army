@@ -87,7 +87,7 @@ const MAX_FILE_CONTENT_LENGTH = 100000;
 const SUPPORTED_TOOLS = ['bash', 'readFile', 'writeFile'];
 
 /**
- * Executes tools in Docker containers via the ContainerPool
+ * Executes tools in containers via the ContainerPool
  *
  * @example
  * const executor = new ToolExecutor(containerPool);

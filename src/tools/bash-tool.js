@@ -98,10 +98,10 @@ function truncate(str, maxLength) {
  * Create a Vercel AI SDK bash tool for a specific bot
  *
  * Returns a tool object compatible with Vercel AI SDK's generateText/streamText.
- * The tool executes bash commands inside the bot's Docker container with security
+ * The tool executes bash commands inside the bot's container with security
  * checks and output truncation.
  *
- * @param {Object} containerPool - ContainerPool instance for Docker container access
+ * @param {Object} containerPool - ContainerPool instance for container access
  * @param {string} botId - Bot identifier for container lookup
  * @param {Object} [toolConfig={}] - Optional tool configuration overrides
  * @param {number} [toolConfig.timeout] - Default command timeout in ms

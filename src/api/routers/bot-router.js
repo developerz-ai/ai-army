@@ -512,7 +512,7 @@ export class BotRouter {
    * PATCH /api/bots/:id/config
    *
    * Update a bot's configuration. Supports updating:
-   * - sandbox.image: Docker image (triggers container restart)
+   * - sandbox.image: Container image (triggers container restart)
    * - sandbox.packages: Installed packages (triggers container restart)
    * - sandbox.memory/cpus: Resource limits (triggers container restart)
    * - model, provider, temperature, maxSteps: AI settings (no restart)

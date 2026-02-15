@@ -256,7 +256,7 @@ async function workerStart({ workerId, workerRegistry, write }) {
  *
  * @param {Object} options - Command options
  * @param {string} options.workerId - Worker ID to update
- * @param {string} options.image - New Docker image to use
+ * @param {string} options.image - New container image to use
  * @param {Object} options.workerRegistry - WorkerRegistry instance
  * @param {Object} options.containerPool - ContainerPool instance
  * @param {Function} options.write - Output writer function
@@ -366,7 +366,7 @@ async function workerUpdate({ workerId, image, workerRegistry, containerPool, wr
  * @param {string} command - Subcommand name ('list' | 'status' | 'stop' | 'start' | 'update')
  * @param {Object} [options={}] - Command options
  * @param {string} [options.workerId] - Worker ID (for status/stop/start/update)
- * @param {string} [options.image] - Docker image (for update --image)
+ * @param {string} [options.image] - Container image (for update --image)
  * @param {Object} [options.output=process.stdout] - Writable stream for output
  * @param {Object} [options.storage] - Storage instance (for creating WorkerRegistry)
  * @param {Object} [options.workerRegistry] - Pre-configured WorkerRegistry (for DI/testing)
