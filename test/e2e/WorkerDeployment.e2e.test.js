@@ -439,11 +439,11 @@ describe('WorkerDeployment E2E - Full Lifecycle', { skip: !DB_AVAILABLE }, () =>
 
       const containerPool = {
         initializeContainer: mock.fn(async (botId, config) => {
-          currentImage = config.sandbox?.image || 'node:22-slim';
+          currentImage = config.sandbox?.incusImage || config.sandbox?.image || 'node:22-slim';
           return { id: `container-${botId}`, status: 'running', image: currentImage };
         }),
         createContainer: mock.fn(async (botId, config) => {
-          currentImage = config.sandbox?.image || 'node:22-slim';
+          currentImage = config.sandbox?.incusImage || config.sandbox?.image || 'node:22-slim';
           return { id: `container-${botId}`, status: 'running', image: currentImage };
         }),
         hasContainer: mock.fn(() => true),
@@ -655,11 +655,11 @@ describe('WorkerDeployment E2E - Full Lifecycle', { skip: !DB_AVAILABLE }, () =>
 
       const containerPool = {
         initializeContainer: mock.fn(async (_botId, config) => {
-          containerImage = config.sandbox?.image || 'node:22-slim';
+          containerImage = config.sandbox?.incusImage || config.sandbox?.image || 'node:22-slim';
           return { id: 'full-container', status: 'running', image: containerImage };
         }),
         createContainer: mock.fn(async (_botId, config) => {
-          containerImage = config.sandbox?.image || 'node:22-slim';
+          containerImage = config.sandbox?.incusImage || config.sandbox?.image || 'node:22-slim';
           return { id: 'full-container', status: 'running', image: containerImage };
         }),
         hasContainer: mock.fn(() => true),

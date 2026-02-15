@@ -1282,6 +1282,13 @@ export class Orchestrator {
         }
 
         await this.channelManager.initializeChannel(name, channelConfig);
+        // Keep this.channels in sync for backward-compatible access
+        if (typeof this.channelManager.getAdapter === 'function') {
+          const adapter = this.channelManager.getAdapter(name);
+          if (adapter) {
+            this.channels.set(name, adapter);
+          }
+        }
         results.initialized.push(name);
         this._log(`  📡 Initialized channel: ${name} (${channelConfig.type})`);
       } catch (err) {
