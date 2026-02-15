@@ -908,6 +908,111 @@ describe('IncusBackend', () => {
       assert.equal(source.protocol, undefined);
       assert.equal(source.server, undefined);
     });
+
+    test('parses custom remote server format', () => {
+      const backend = new IncusBackend();
+      const source = backend._parseImageSource('myserver:debian/12');
+
+      assert.equal(source.type, 'image');
+      assert.equal(source.alias, 'debian/12');
+      assert.equal(source.protocol, 'simplestreams');
+      assert.equal(source.server, 'https://myserver');
+    });
+  });
+
+  describe('createContainer() workspace paths', () => {
+    test('resolves relative workspace path', async () => {
+      const { backend, mockClient } = createMockedBackend();
+
+      await backend.createContainer({ id: 'test' }, { root: './data/bots/test' });
+
+      const instanceConfig = mockClient.createInstance.mock.calls[0].arguments[1];
+      // Should be resolved to an absolute path
+      assert.ok(instanceConfig.devices.workspace.source.startsWith('/'));
+      assert.ok(!instanceConfig.devices.workspace.source.startsWith('./'));
+    });
+
+    test('uses default workspace when workspace.root is missing', async () => {
+      const { backend, mockClient } = createMockedBackend();
+
+      await backend.createContainer({ id: 'test' }, {});
+
+      const instanceConfig = mockClient.createInstance.mock.calls[0].arguments[1];
+      // Should resolve the default './data' to an absolute path
+      assert.ok(instanceConfig.devices.workspace.source.startsWith('/'));
+    });
+  });
+
+  describe('exec() user handling', () => {
+    test('converts numeric string user to number', async () => {
+      const { backend, mockClient } = createMockedBackend();
+      const container = { name: 'ai-army-test', id: 'ai-army-test' };
+
+      await backend.exec(container, 'whoami', { user: '1000' });
+
+      const execOptions = mockClient.execCommand.mock.calls[0].arguments[2];
+      assert.equal(execOptions.user, 1000);
+    });
+
+    test('throws on invalid non-numeric user', async () => {
+      const { backend } = createMockedBackend();
+      const container = { name: 'ai-army-test', id: 'ai-army-test' };
+
+      await assert.rejects(
+        () => backend.exec(container, 'whoami', { user: 'bob' }),
+        err => {
+          assert.equal(err.name, 'ContainerBackendError');
+          assert.match(err.message, /Invalid user/);
+          assert.match(err.message, /bob/);
+          return true;
+        }
+      );
+    });
+  });
+
+  describe('startContainer() timeout', () => {
+    test('throws when container never reaches Running state', async () => {
+      const { backend, mockClient } = createMockedBackend();
+      // Always return 'Starting' so it never becomes Running
+      mockClient.getInstanceState = mock.fn(async () => ({ status: 'Starting' }));
+      const container = { name: 'ai-army-test', id: 'ai-army-test' };
+
+      await assert.rejects(
+        () => backend.startContainer(container, 100), // 100ms timeout for fast test
+        err => {
+          assert.equal(err.name, 'ContainerBackendError');
+          assert.match(err.message, /failed to start within timeout/);
+          assert.equal(err.operation, 'startContainer');
+          return true;
+        }
+      );
+    });
+
+    test('succeeds when instance becomes Running after retries', async () => {
+      const { backend, mockClient } = createMockedBackend();
+      let callCount = 0;
+      mockClient.getInstanceState = mock.fn(async () => {
+        callCount++;
+        return { status: callCount >= 2 ? 'Running' : 'Starting' };
+      });
+      const container = { name: 'ai-army-test', id: 'ai-army-test' };
+
+      // Should not throw — becomes Running after a couple of checks
+      await backend.startContainer(container, 5000);
+
+      assert.ok(mockClient.getInstanceState.mock.calls.length >= 2);
+    });
+  });
+
+  describe('getContainerByBotId() edge cases', () => {
+    test('returns null when getInstanceState returns falsy', async () => {
+      const { backend, mockClient } = createMockedBackend();
+      mockClient.getInstanceState = mock.fn(async () => null);
+
+      const result = await backend.getContainerByBotId('test-bot');
+
+      assert.equal(result, null);
+    });
   });
 
   describe('interface compliance', () => {

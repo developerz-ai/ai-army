@@ -22,6 +22,8 @@ import {
   AgentRunner,
   // Execution
   ContainerPool,
+  IncusBackend,
+  IncusClient,
   ToolExecutor,
   // Tools
   ToolRegistry,
@@ -134,6 +136,16 @@ describe('Execution exports', () => {
   test('ContainerPool exports correctly', () => {
     assert.ok(ContainerPool);
     assert.strictEqual(typeof ContainerPool, 'function');
+  });
+
+  test('IncusBackend exports correctly', () => {
+    assert.ok(IncusBackend);
+    assert.strictEqual(typeof IncusBackend, 'function');
+  });
+
+  test('IncusClient exports correctly', () => {
+    assert.ok(IncusClient);
+    assert.strictEqual(typeof IncusClient, 'function');
   });
 
   test('ToolExecutor exports correctly', () => {

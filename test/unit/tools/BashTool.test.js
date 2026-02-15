@@ -28,11 +28,9 @@ function createMockContainerPool(overrides = {}) {
   };
 
   const mockContainerPool = {
-    // New abstracted exec method — delegates to dockerManager.exec internally
     exec: mock.fn(async (_botId, command, options) => {
       return mockDockerManager.exec(mockContainer, command, options);
     }),
-    // Legacy properties kept for backward compatibility
     getContainer: mock.fn(async () => mockContainer),
     dockerManager: mockDockerManager,
     ...overrides.pool,
