@@ -16,8 +16,6 @@
   "maxSteps": 50,
   "temperature": 0.7,
   "sandbox": {
-    "type": "incus",
-    "incusImage": "node:22-slim",
-    "packages": ["python3", "python3-pip"]
+    "type": "incus"
   }
 }
