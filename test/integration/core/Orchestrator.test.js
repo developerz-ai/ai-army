@@ -87,7 +87,7 @@ function createValidConfig(overrides = {}) {
   return {
     defaults: {
       model: { provider: 'anthropic', model: 'claude-sonnet-4-5' },
-      sandbox: { type: 'docker', image: 'node:22-slim' },
+      sandbox: { type: 'incus', incusImage: 'node:22-slim' },
     },
     providers: {
       anthropic: { type: 'anthropic', apiKey: 'test-key-abc123' },
@@ -341,7 +341,7 @@ describe('Orchestrator Integration - Filesystem', () => {
       const config = createValidConfig({
         defaults: {
           model: { provider: 'anthropic', model: 'claude-sonnet-4-5' },
-          sandbox: { type: 'docker', image: 'node:22-slim' },
+          sandbox: { type: 'incus', incusImage: 'node:22-slim' },
         },
       });
 
@@ -1105,7 +1105,7 @@ describe('Orchestrator Integration - Filesystem', () => {
         const config = {
           defaults: {
             model: { provider: 'anthropic', model: 'claude-sonnet-4-5' },
-            sandbox: { type: 'docker', image: 'node:22-slim' },
+            sandbox: { type: 'incus', incusImage: 'node:22-slim' },
           },
           providers: {
             anthropic: { type: 'anthropic', apiKey: '${TEST_ORCH_API_KEY}' },
@@ -1148,7 +1148,7 @@ describe('Orchestrator Integration - Filesystem', () => {
         const config = {
           defaults: {
             model: { provider: 'anthropic', model: 'claude-sonnet-4-5' },
-            sandbox: { type: 'docker', image: 'node:22-slim' },
+            sandbox: { type: 'incus', incusImage: 'node:22-slim' },
           },
           providers: {
             anthropic: { type: 'anthropic', apiKey: '${ORCH_MISSING_VAR:-fallback-key}' },

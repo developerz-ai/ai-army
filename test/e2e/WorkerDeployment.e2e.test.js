@@ -483,7 +483,7 @@ describe('WorkerDeployment E2E - Full Lifecycle', { skip: !DB_AVAILABLE }, () =>
         id: 'update-bot',
         provider: 'anthropic',
         model: 'claude-sonnet-4-5',
-        sandbox: { type: 'docker', image: 'node:22-slim' },
+        sandbox: { type: 'incus', incusImage: 'node:22-slim' },
       });
 
       await botManager.startBot('update-bot');
@@ -503,7 +503,7 @@ describe('WorkerDeployment E2E - Full Lifecycle', { skip: !DB_AVAILABLE }, () =>
         id: 'update-bot',
         provider: 'anthropic',
         model: 'claude-sonnet-4-5',
-        sandbox: { type: 'docker', image: 'node:23-slim' }, // Updated image
+        sandbox: { type: 'incus', incusImage: 'node:23-slim' }, // Updated image
       });
 
       await botManager.startBot('update-bot');
@@ -704,7 +704,7 @@ describe('WorkerDeployment E2E - Full Lifecycle', { skip: !DB_AVAILABLE }, () =>
         id: 'full-bot',
         provider: 'anthropic',
         model: 'claude-sonnet-4-5',
-        sandbox: { type: 'docker', image: 'node:22-slim' },
+        sandbox: { type: 'incus', incusImage: 'node:22-slim' },
       });
 
       await botManager.startBot('full-bot');
@@ -731,7 +731,7 @@ describe('WorkerDeployment E2E - Full Lifecycle', { skip: !DB_AVAILABLE }, () =>
         id: 'full-bot',
         provider: 'anthropic',
         model: 'claude-sonnet-4-5',
-        sandbox: { type: 'docker', image: 'node:23-slim' }, // Updated image
+        sandbox: { type: 'incus', incusImage: 'node:23-slim' }, // Updated image
       });
 
       await botManager.startBot('full-bot');

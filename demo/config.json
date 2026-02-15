@@ -6,8 +6,8 @@
       "fallbacks": ["claude-haiku-4-5"]
     },
     "sandbox": {
-      "type": "docker",
-      "image": "node:22-slim",
+      "type": "incus",
+      "incusImage": "node:22-slim",
       "memory": "512m",
       "cpus": 1,
       "network": "bridge"

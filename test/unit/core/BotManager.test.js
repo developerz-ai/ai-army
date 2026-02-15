@@ -24,8 +24,8 @@ function createBotConfig(overrides = {}) {
     description: 'A test bot',
     tools: ['bash', 'readFile'],
     sandbox: {
-      type: 'docker',
-      image: 'node:22-slim',
+      type: 'incus',
+      incusImage: 'node:22-slim',
       memory: '2g',
       cpus: 2,
       packages: ['git'],
@@ -637,7 +637,7 @@ describe('BotManager', () => {
 
     test('recreates container when sandbox image changes', async () => {
       const originalConfig = createBotConfig({
-        sandbox: { type: 'docker', image: 'node:22-slim', memory: '2g', cpus: 2 },
+        sandbox: { type: 'incus', incusImage: 'node:22-slim', memory: '2g', cpus: 2 },
       });
       await botManager.loadBot('test-bot', originalConfig);
       await botManager.startBot('test-bot');
@@ -647,7 +647,7 @@ describe('BotManager', () => {
       mockContainerPool.recycleContainer.mock.resetCalls();
 
       const newConfig = createBotConfig({
-        sandbox: { type: 'docker', image: 'python:3.12-slim', memory: '2g', cpus: 2 },
+        sandbox: { type: 'incus', incusImage: 'python:3.12-slim', memory: '2g', cpus: 2 },
       });
       await botManager.reloadBot('test-bot', newConfig);
 
@@ -658,7 +658,7 @@ describe('BotManager', () => {
 
     test('recreates container when sandbox memory changes', async () => {
       const originalConfig = createBotConfig({
-        sandbox: { type: 'docker', image: 'node:22-slim', memory: '2g', cpus: 2 },
+        sandbox: { type: 'incus', incusImage: 'node:22-slim', memory: '2g', cpus: 2 },
       });
       await botManager.loadBot('test-bot', originalConfig);
       await botManager.startBot('test-bot');
@@ -667,7 +667,7 @@ describe('BotManager', () => {
       mockContainerPool.recycleContainer.mock.resetCalls();
 
       const newConfig = createBotConfig({
-        sandbox: { type: 'docker', image: 'node:22-slim', memory: '4g', cpus: 2 },
+        sandbox: { type: 'incus', incusImage: 'node:22-slim', memory: '4g', cpus: 2 },
       });
       await botManager.reloadBot('test-bot', newConfig);
 
@@ -678,8 +678,8 @@ describe('BotManager', () => {
     test('recreates container when sandbox packages change', async () => {
       const originalConfig = createBotConfig({
         sandbox: {
-          type: 'docker',
-          image: 'node:22-slim',
+          type: 'incus',
+          incusImage: 'node:22-slim',
           memory: '2g',
           cpus: 2,
           packages: ['git'],
@@ -693,8 +693,8 @@ describe('BotManager', () => {
 
       const newConfig = createBotConfig({
         sandbox: {
-          type: 'docker',
-          image: 'node:22-slim',
+          type: 'incus',
+          incusImage: 'node:22-slim',
           memory: '2g',
           cpus: 2,
           packages: ['git', 'python3'],
@@ -708,7 +708,7 @@ describe('BotManager', () => {
 
     test('does not recreate container when bot is not running', async () => {
       const originalConfig = createBotConfig({
-        sandbox: { type: 'docker', image: 'node:22-slim', memory: '2g', cpus: 2 },
+        sandbox: { type: 'incus', incusImage: 'node:22-slim', memory: '2g', cpus: 2 },
       });
       await botManager.loadBot('test-bot', originalConfig);
       // Bot loaded but NOT started
@@ -717,7 +717,7 @@ describe('BotManager', () => {
       mockContainerPool.recycleContainer.mock.resetCalls();
 
       const newConfig = createBotConfig({
-        sandbox: { type: 'docker', image: 'python:3.12', memory: '4g', cpus: 4 },
+        sandbox: { type: 'incus', incusImage: 'python:3.12', memory: '4g', cpus: 4 },
       });
       await botManager.reloadBot('test-bot', newConfig);
 
@@ -1032,8 +1032,8 @@ describe('BotManager', () => {
 
     test('returns false when sandbox configs are identical', () => {
       const sandbox = {
-        type: 'docker',
-        image: 'node:22-slim',
+        type: 'incus',
+        incusImage: 'node:22-slim',
         memory: '2g',
         cpus: 2,
         packages: ['git'],
@@ -1042,44 +1042,44 @@ describe('BotManager', () => {
     });
 
     test('returns true when image changes', () => {
-      const old = { type: 'docker', image: 'node:22-slim', memory: '2g', cpus: 2 };
-      const neu = { type: 'docker', image: 'python:3.12', memory: '2g', cpus: 2 };
+      const old = { type: 'incus', image: 'node:22-slim', memory: '2g', cpus: 2 };
+      const neu = { type: 'incus', image: 'python:3.12', memory: '2g', cpus: 2 };
       assert.equal(botManager._hasSandboxChanged(old, neu), true);
     });
 
     test('returns true when memory changes', () => {
-      const old = { type: 'docker', image: 'node:22-slim', memory: '2g', cpus: 2 };
-      const neu = { type: 'docker', image: 'node:22-slim', memory: '4g', cpus: 2 };
+      const old = { type: 'incus', image: 'node:22-slim', memory: '2g', cpus: 2 };
+      const neu = { type: 'incus', image: 'node:22-slim', memory: '4g', cpus: 2 };
       assert.equal(botManager._hasSandboxChanged(old, neu), true);
     });
 
     test('returns true when cpus change', () => {
-      const old = { type: 'docker', image: 'node:22-slim', memory: '2g', cpus: 2 };
-      const neu = { type: 'docker', image: 'node:22-slim', memory: '2g', cpus: 4 };
+      const old = { type: 'incus', image: 'node:22-slim', memory: '2g', cpus: 2 };
+      const neu = { type: 'incus', image: 'node:22-slim', memory: '2g', cpus: 4 };
       assert.equal(botManager._hasSandboxChanged(old, neu), true);
     });
 
     test('returns true when type changes', () => {
-      const old = { type: 'docker', image: 'node:22-slim', memory: '2g', cpus: 2 };
+      const old = { type: 'incus', image: 'node:22-slim', memory: '2g', cpus: 2 };
       const neu = { type: 'just-bash', image: 'node:22-slim', memory: '2g', cpus: 2 };
       assert.equal(botManager._hasSandboxChanged(old, neu), true);
     });
 
     test('returns true when packages change', () => {
-      const old = { type: 'docker', image: 'node:22', packages: ['git'] };
-      const neu = { type: 'docker', image: 'node:22', packages: ['git', 'python3'] };
+      const old = { type: 'incus', image: 'node:22', packages: ['git'] };
+      const neu = { type: 'incus', image: 'node:22', packages: ['git', 'python3'] };
       assert.equal(botManager._hasSandboxChanged(old, neu), true);
     });
 
     test('returns false when packages are the same', () => {
-      const old = { type: 'docker', image: 'node:22', packages: ['git'] };
-      const neu = { type: 'docker', image: 'node:22', packages: ['git'] };
+      const old = { type: 'incus', image: 'node:22', packages: ['git'] };
+      const neu = { type: 'incus', image: 'node:22', packages: ['git'] };
       assert.equal(botManager._hasSandboxChanged(old, neu), false);
     });
 
     test('treats undefined packages and empty packages as equal', () => {
-      const old = { type: 'docker', image: 'node:22' };
-      const neu = { type: 'docker', image: 'node:22', packages: [] };
+      const old = { type: 'incus', image: 'node:22' };
+      const neu = { type: 'incus', image: 'node:22', packages: [] };
       assert.equal(botManager._hasSandboxChanged(old, neu), false);
     });
 
@@ -1128,10 +1128,9 @@ describe('BotManager', () => {
       assert.equal(botManager._hasSandboxChanged(sandbox, { ...sandbox }), false);
     });
 
-    test('returns true when sandbox type changes from docker to incus', () => {
+    test('returns true when sandbox type changes from just-bash to incus', () => {
       const old = {
-        type: 'docker',
-        image: 'node:22-slim',
+        type: 'just-bash',
         memory: '2g',
         cpus: 2,
       };
@@ -1144,7 +1143,7 @@ describe('BotManager', () => {
       assert.equal(botManager._hasSandboxChanged(old, neu), true);
     });
 
-    test('returns true when sandbox type changes from incus to docker', () => {
+    test('returns true when sandbox type changes from incus to just-bash', () => {
       const old = {
         type: 'incus',
         incusImage: 'ai-army-base',
@@ -1152,8 +1151,7 @@ describe('BotManager', () => {
         cpus: 2,
       };
       const neu = {
-        type: 'docker',
-        image: 'node:22-slim',
+        type: 'just-bash',
         memory: '2g',
         cpus: 2,
       };
@@ -1254,11 +1252,10 @@ describe('BotManager', () => {
       assert.equal(bot.config.sandbox.incusProfile, 'docker-enabled');
     });
 
-    test('reloadBot() recreates container when sandbox type changes from docker to incus', async () => {
+    test('reloadBot() recreates container when sandbox type changes from just-bash to incus', async () => {
       const originalConfig = createBotConfig({
         sandbox: {
-          type: 'docker',
-          image: 'node:22-slim',
+          type: 'just-bash',
           memory: '2g',
           cpus: 2,
         },
@@ -1288,7 +1285,7 @@ describe('BotManager', () => {
       assert.equal(bot.config.sandbox.incusImage, 'ai-army-base');
     });
 
-    test('reloadBot() recreates container when sandbox type changes from incus to docker', async () => {
+    test('reloadBot() recreates container when sandbox type changes from incus to just-bash', async () => {
       const originalConfig = createBotConfig({
         sandbox: {
           type: 'incus',
@@ -1305,8 +1302,7 @@ describe('BotManager', () => {
 
       const newConfig = createBotConfig({
         sandbox: {
-          type: 'docker',
-          image: 'node:22-slim',
+          type: 'just-bash',
           memory: '2g',
           cpus: 2,
         },
@@ -1318,8 +1314,7 @@ describe('BotManager', () => {
       assert.equal(mockContainerPool.initializeContainer.mock.calls.length, 1);
 
       const bot = botManager.getBot('hybrid-bot');
-      assert.equal(bot.config.sandbox.type, 'docker');
-      assert.equal(bot.config.sandbox.image, 'node:22-slim');
+      assert.equal(bot.config.sandbox.type, 'just-bash');
     });
 
     test('reloadBot() does not recreate container when only non-sandbox config changes', async () => {

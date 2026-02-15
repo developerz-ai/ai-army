@@ -449,8 +449,8 @@ describe('validate command - integration with real ConfigLoader/Validator', () =
       model: 'claude-sonnet-4-5',
       tools: ['bash', 'readFile', 'writeFile'],
       sandbox: {
-        type: 'docker',
-        image: 'node:22-slim',
+        type: 'incus',
+        incusImage: 'node:22-slim',
         memory: '2g',
         cpus: 1,
       },

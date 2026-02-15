@@ -28,7 +28,7 @@ function createMainConfig(overrides = {}) {
   return {
     defaults: {
       model: { provider: 'anthropic', model: 'claude-sonnet-4-5' },
-      sandbox: { type: 'docker', image: 'node:22-slim' },
+      sandbox: { type: 'incus', incusImage: 'node:22-slim' },
     },
     providers: {
       anthropic: { type: 'anthropic', apiKey: 'test-key' },
@@ -717,7 +717,7 @@ describe('Orchestrator', () => {
       const mainConfig = createMainConfig({
         defaults: {
           model: { provider: 'anthropic' },
-          sandbox: { type: 'docker', image: 'node:22-slim' },
+          sandbox: { type: 'incus', incusImage: 'node:22-slim' },
         },
         bots: {
           'my-bot': {
