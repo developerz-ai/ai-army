@@ -295,9 +295,6 @@ export class BotManager {
         const assignment = await this.workerAssigner.assignBot(botId, workerPreference);
         bot.workerId = assignment.workerId;
 
-        if (assignment.dockerHost) {
-          containerOptions.dockerHost = assignment.dockerHost;
-        }
         if (assignment.incusHost) {
           containerOptions.incusHost = assignment.incusHost;
         }

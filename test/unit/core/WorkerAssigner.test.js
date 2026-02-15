@@ -2,7 +2,7 @@
  * Unit tests for WorkerAssigner
  *
  * Tests bot-to-worker assignment with pattern matching, load balancing,
- * failover, rebalancing, and Docker host resolution.
+ * failover, rebalancing, and Incus host resolution.
  */
 
 import { test, describe, beforeEach, mock } from 'node:test';
@@ -78,13 +78,10 @@ function createWorker(overrides = {}) {
  * @returns {Object} Mock SSHTunnelManager
  */
 function createMockSSHTunnelManager(overrides = {}) {
-  const tunnels = new Map();
   const incusTunnels = new Map();
 
   return {
-    _tunnels: tunnels,
     _incusTunnels: incusTunnels,
-    getDockerHost: mock.fn(workerId => tunnels.get(workerId) || null),
     getIncusHost: mock.fn(workerId => incusTunnels.get(workerId) || null),
     ...overrides,
   };
@@ -173,7 +170,7 @@ describe('WorkerAssigner', () => {
 
       assert.equal(result.workerId, 'w2');
       assert.equal(result.workerType, WORKER_TYPES.LOCAL);
-      assert.equal(result.dockerHost, null); // Local worker
+      assert.equal(result.incusHost, null); // Local worker
     });
 
     test('throws when botId is empty', async () => {
@@ -463,80 +460,6 @@ describe('WorkerAssigner', () => {
   });
 
   // ==========================================================================
-  // Docker host resolution
-  // ==========================================================================
-
-  describe('Docker host resolution', () => {
-    test('returns null dockerHost for local workers', async () => {
-      const worker = createWorker({ id: 'local', type: WORKER_TYPES.LOCAL });
-      registry._workers.set('local', worker);
-
-      const assigner = new WorkerAssigner(registry, { logger });
-      const result = await assigner.assignBot('my-bot');
-
-      assert.equal(result.dockerHost, null);
-      assert.equal(result.workerType, WORKER_TYPES.LOCAL);
-    });
-
-    test('returns SSH tunnel dockerHost for remote workers', async () => {
-      const worker = createWorker({
-        id: 'gpu-server',
-        type: WORKER_TYPES.REMOTE,
-        host: '192.168.1.100',
-      });
-      registry._workers.set('gpu-server', worker);
-
-      const tunnelManager = createMockSSHTunnelManager();
-      tunnelManager._tunnels.set('gpu-server', 'tcp://127.0.0.1:54321');
-
-      const assigner = new WorkerAssigner(registry, {
-        sshTunnelManager: tunnelManager,
-        logger,
-      });
-
-      const result = await assigner.assignBot('my-bot');
-
-      assert.equal(result.dockerHost, 'tcp://127.0.0.1:54321');
-      assert.equal(result.workerType, WORKER_TYPES.REMOTE);
-    });
-
-    test('falls back to direct host for remote worker without tunnel', async () => {
-      const worker = createWorker({
-        id: 'gpu-server',
-        type: WORKER_TYPES.REMOTE,
-        host: '192.168.1.100',
-      });
-      registry._workers.set('gpu-server', worker);
-
-      const tunnelManager = createMockSSHTunnelManager();
-      // No tunnel set for gpu-server
-
-      const assigner = new WorkerAssigner(registry, {
-        sshTunnelManager: tunnelManager,
-        logger,
-      });
-
-      const result = await assigner.assignBot('my-bot');
-
-      assert.equal(result.dockerHost, 'tcp://192.168.1.100:2375');
-    });
-
-    test('uses direct host when no sshTunnelManager provided', async () => {
-      const worker = createWorker({
-        id: 'gpu-server',
-        type: WORKER_TYPES.REMOTE,
-        host: '10.0.0.5',
-      });
-      registry._workers.set('gpu-server', worker);
-
-      const assigner = new WorkerAssigner(registry, { logger });
-      const result = await assigner.assignBot('my-bot');
-
-      assert.equal(result.dockerHost, 'tcp://10.0.0.5:2375');
-    });
-  });
-
-  // ==========================================================================
   // Incus host resolution
   // ==========================================================================
 
@@ -575,14 +498,13 @@ describe('WorkerAssigner', () => {
 
     test('returns null incusHost when no Incus tunnel exists for remote worker', async () => {
       const worker = createWorker({
-        id: 'docker-server',
+        id: 'remote-server',
         type: WORKER_TYPES.REMOTE,
         host: '192.168.1.100',
       });
-      registry._workers.set('docker-server', worker);
+      registry._workers.set('remote-server', worker);
 
       const tunnelManager = createMockSSHTunnelManager();
-      tunnelManager._tunnels.set('docker-server', 'tcp://127.0.0.1:54321');
       // No Incus tunnel set
 
       const assigner = new WorkerAssigner(registry, {
@@ -592,31 +514,7 @@ describe('WorkerAssigner', () => {
 
       const result = await assigner.assignBot('my-bot');
 
-      assert.equal(result.dockerHost, 'tcp://127.0.0.1:54321');
       assert.equal(result.incusHost, null);
-    });
-
-    test('returns both dockerHost and incusHost when both tunnels exist', async () => {
-      const worker = createWorker({
-        id: 'dual-server',
-        type: WORKER_TYPES.REMOTE,
-        host: '192.168.1.150',
-      });
-      registry._workers.set('dual-server', worker);
-
-      const tunnelManager = createMockSSHTunnelManager();
-      tunnelManager._tunnels.set('dual-server', 'tcp://127.0.0.1:54321');
-      tunnelManager._incusTunnels.set('dual-server', 'tcp://127.0.0.1:54322');
-
-      const assigner = new WorkerAssigner(registry, {
-        sshTunnelManager: tunnelManager,
-        logger,
-      });
-
-      const result = await assigner.assignBot('my-bot');
-
-      assert.equal(result.dockerHost, 'tcp://127.0.0.1:54321');
-      assert.equal(result.incusHost, 'tcp://127.0.0.1:54322');
     });
 
     test('returns null incusHost when no sshTunnelManager is provided', async () => {
@@ -631,31 +529,6 @@ describe('WorkerAssigner', () => {
       const result = await assigner.assignBot('my-bot');
 
       assert.equal(result.incusHost, null);
-      // Docker falls back to direct host
-      assert.equal(result.dockerHost, 'tcp://10.0.0.5:2375');
-    });
-
-    test('handles sshTunnelManager without getIncusHost method', async () => {
-      const worker = createWorker({
-        id: 'remote-server',
-        type: WORKER_TYPES.REMOTE,
-        host: '10.0.0.5',
-      });
-      registry._workers.set('remote-server', worker);
-
-      // SSHTunnelManager that only has getDockerHost (no getIncusHost)
-      const tunnelManager = {
-        getDockerHost: mock.fn(() => 'tcp://127.0.0.1:54321'),
-      };
-
-      const assigner = new WorkerAssigner(registry, {
-        sshTunnelManager: tunnelManager,
-        logger,
-      });
-      const result = await assigner.assignBot('my-bot');
-
-      assert.equal(result.incusHost, null);
-      assert.equal(result.dockerHost, 'tcp://127.0.0.1:54321');
     });
 
     test('includes incusHost in failover reassignment results', async () => {
@@ -679,7 +552,6 @@ describe('WorkerAssigner', () => {
 
       const tunnelManager = createMockSSHTunnelManager();
       tunnelManager._incusTunnels.set('w2', 'tcp://127.0.0.1:55322');
-      tunnelManager._tunnels.set('w2', 'tcp://127.0.0.1:55321');
 
       const assigner = new WorkerAssigner(registry, {
         sshTunnelManager: tunnelManager,
@@ -691,7 +563,6 @@ describe('WorkerAssigner', () => {
 
       assert.equal(results.reassigned.length, 1);
       assert.equal(results.reassigned[0].toWorkerId, 'w2');
-      assert.equal(results.reassigned[0].dockerHost, 'tcp://127.0.0.1:55321');
       assert.equal(results.reassigned[0].incusHost, 'tcp://127.0.0.1:55322');
     });
   });
