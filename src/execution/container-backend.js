@@ -13,7 +13,6 @@
  * @enum {string}
  */
 export const BACKEND_TYPES = {
-  DOCKER: 'docker',
   INCUS: 'incus',
   JUST_BASH: 'just-bash',
 };

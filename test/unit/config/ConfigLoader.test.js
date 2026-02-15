@@ -361,7 +361,7 @@ describe('ConfigLoader', () => {
     test('handles bot config inheritance scenario', () => {
       const globalDefaults = {
         model: { provider: 'anthropic', model: 'claude-sonnet-4-5' },
-        sandbox: { type: 'docker', image: 'node:22-slim' },
+        sandbox: { type: 'incus', incusImage: 'node:22-slim' },
         tools: ['bash', 'readFile', 'writeFile'],
       };
       const botConfig = {
@@ -375,7 +375,7 @@ describe('ConfigLoader', () => {
       assert.deepEqual(result, {
         id: 'my-bot',
         model: { provider: 'anthropic', model: 'claude-haiku-4-5' },
-        sandbox: { type: 'docker', image: 'node:22-slim' },
+        sandbox: { type: 'incus', incusImage: 'node:22-slim' },
         tools: ['bash', 'grep'],
       });
     });

@@ -234,25 +234,25 @@ describe('ErrorHandler', () => {
       assert.equal(handler.classifyError(err), 'config');
     });
 
-    // ------ Docker errors ------
-    test('classifies DockerError as docker', () => {
-      const err = createNamedError('DockerError', 'Container crashed');
-      assert.equal(handler.classifyError(err), 'docker');
+    // ------ Container / execution errors ------
+    test('classifies ContainerBackendError as container', () => {
+      const err = createNamedError('ContainerBackendError', 'Container crashed');
+      assert.equal(handler.classifyError(err), 'container');
     });
 
-    test('classifies ContainerPoolError as docker', () => {
+    test('classifies ContainerPoolError as container', () => {
       const err = createNamedError('ContainerPoolError', 'No containers available');
-      assert.equal(handler.classifyError(err), 'docker');
+      assert.equal(handler.classifyError(err), 'container');
     });
 
-    test('classifies ToolExecutionError as docker', () => {
+    test('classifies ToolExecutionError as container', () => {
       const err = createNamedError('ToolExecutionError', 'Bash failed');
-      assert.equal(handler.classifyError(err), 'docker');
+      assert.equal(handler.classifyError(err), 'container');
     });
 
-    test('classifies DangerousCommandError as docker', () => {
+    test('classifies DangerousCommandError as container', () => {
       const err = createNamedError('DangerousCommandError', 'rm -rf /');
-      assert.equal(handler.classifyError(err), 'docker');
+      assert.equal(handler.classifyError(err), 'container');
     });
 
     // ------ Database errors ------
@@ -313,14 +313,14 @@ describe('ErrorHandler', () => {
       assert.equal(handler.classifyError(err), 'network');
     });
 
-    test('classifies docker-related message as docker', () => {
-      const err = new Error('Docker daemon not running');
-      assert.equal(handler.classifyError(err), 'docker');
+    test('classifies container-related message as container', () => {
+      const err = new Error('Container exited with code 137');
+      assert.equal(handler.classifyError(err), 'container');
     });
 
-    test('classifies container-related message as docker', () => {
-      const err = new Error('Container exited with code 137');
-      assert.equal(handler.classifyError(err), 'docker');
+    test('classifies incus-related message as container', () => {
+      const err = new Error('Incus daemon not responding');
+      assert.equal(handler.classifyError(err), 'container');
     });
 
     test('classifies database-related message as database', () => {
@@ -350,13 +350,13 @@ describe('ErrorHandler', () => {
 
     // ------ Cause chain classification ------
     test('classifies by cause when direct class is unknown', () => {
-      const cause = createNamedError('DockerError', 'Container died');
+      const cause = createNamedError('ContainerBackendError', 'Container died');
       const wrapper = new Error('Operation failed', { cause });
-      assert.equal(handler.classifyError(wrapper), 'docker');
+      assert.equal(handler.classifyError(wrapper), 'container');
     });
 
     test('does not recurse into cause if direct class matches', () => {
-      const cause = createNamedError('DockerError', 'Container died');
+      const cause = createNamedError('ContainerBackendError', 'Container died');
       const wrapper = createNamedError('ConfigError', 'Config issue', { cause });
       assert.equal(handler.classifyError(wrapper), 'config');
     });
@@ -452,14 +452,14 @@ describe('ErrorHandler', () => {
     });
 
     test('stores error in database when storage is available', async () => {
-      const err = createNamedError('DockerError', 'Container crashed');
+      const err = createNamedError('ContainerBackendError', 'Container crashed');
       await handler.logError(err, { botId: 'support' });
 
       assert.equal(storage.queries.length, 1);
       const { sql, params } = storage.queries[0];
       assert.ok(sql.includes('INSERT INTO error_logs'));
-      assert.equal(params[0], 'docker'); // category
-      assert.equal(params[1], 'DockerError'); // error_name
+      assert.equal(params[0], 'container'); // category
+      assert.equal(params[1], 'ContainerBackendError'); // error_name
       assert.equal(params[2], 'Container crashed'); // message
       assert.ok(params[3]); // stack
       assert.ok(params[4].includes('"botId"')); // context JSON
@@ -585,11 +585,11 @@ describe('ErrorHandler', () => {
     });
 
     test('cause chain classification with redaction', async () => {
-      const cause = createNamedError('DockerError', 'Image pull with ghp_token123');
+      const cause = createNamedError('ContainerBackendError', 'Image pull with ghp_token123');
       const wrapper = new Error('Deploy failed', { cause });
 
       const entry = await handler.logError(wrapper);
-      assert.equal(entry.category, 'docker');
+      assert.equal(entry.category, 'container');
       assert.ok(!entry.error.message.includes('ghp_'));
     });
   });

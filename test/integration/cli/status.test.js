@@ -153,8 +153,8 @@ function createBotConfig(overrides = {}) {
     description: 'A test bot',
     tools: ['bash', 'readFile'],
     sandbox: {
-      type: 'docker',
-      image: 'node:22-slim',
+      type: 'incus',
+      incusImage: 'node:22-slim',
       memory: '2g',
       cpus: 2,
       packages: ['git'],

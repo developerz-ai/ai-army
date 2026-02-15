@@ -17,8 +17,9 @@
  * @exports {WorkerRegistry} - Registry for worker instances
  * @exports {WorkerAssigner} - Assigns work to available workers
  * @exports {AgentRunner} - Runs AI agent execution loops
- * @exports {ContainerPool} - Manages pooled Docker containers
- * @exports {DockerManager} - Low-level Docker container management
+ * @exports {ContainerPool} - Manages pooled containers
+ * @exports {IncusBackend} - Incus/LXC container backend
+ * @exports {IncusClient} - Low-level Incus API client
  * @exports {ToolExecutor} - Executes tools in sandboxed environments
  * @exports {ToolRegistry} - Registry for available tools
  * @exports {VariableSubstitutor} - Substitutes variables in templates
@@ -62,7 +63,8 @@ export { AgentRunner } from './agent/agent-runner.js';
 
 // Execution
 export { ContainerPool } from './execution/container-pool.js';
-export { DockerManager } from './execution/docker-manager.js';
+export { IncusBackend } from './execution/incus-backend.js';
+export { IncusClient } from './execution/incus-client.js';
 export { ToolExecutor } from './execution/tool-executor.js';
 
 // Tools

@@ -5,8 +5,7 @@
       "model": "openrouter/aurora-alpha"
     },
     "sandbox": {
-      "type": "docker",
-      "image": "node:22-slim"
+      "type": "incus"
     }
   },
   "providers": {

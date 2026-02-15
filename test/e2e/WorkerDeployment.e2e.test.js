@@ -439,11 +439,11 @@ describe('WorkerDeployment E2E - Full Lifecycle', { skip: !DB_AVAILABLE }, () =>
 
       const containerPool = {
         initializeContainer: mock.fn(async (botId, config) => {
-          currentImage = config.sandbox?.image || 'node:22-slim';
+          currentImage = config.sandbox?.incusImage || config.sandbox?.image || 'node:22-slim';
           return { id: `container-${botId}`, status: 'running', image: currentImage };
         }),
         createContainer: mock.fn(async (botId, config) => {
-          currentImage = config.sandbox?.image || 'node:22-slim';
+          currentImage = config.sandbox?.incusImage || config.sandbox?.image || 'node:22-slim';
           return { id: `container-${botId}`, status: 'running', image: currentImage };
         }),
         hasContainer: mock.fn(() => true),
@@ -483,7 +483,7 @@ describe('WorkerDeployment E2E - Full Lifecycle', { skip: !DB_AVAILABLE }, () =>
         id: 'update-bot',
         provider: 'anthropic',
         model: 'claude-sonnet-4-5',
-        sandbox: { type: 'docker', image: 'node:22-slim' },
+        sandbox: { type: 'incus', incusImage: 'node:22-slim' },
       });
 
       await botManager.startBot('update-bot');
@@ -503,7 +503,7 @@ describe('WorkerDeployment E2E - Full Lifecycle', { skip: !DB_AVAILABLE }, () =>
         id: 'update-bot',
         provider: 'anthropic',
         model: 'claude-sonnet-4-5',
-        sandbox: { type: 'docker', image: 'node:23-slim' }, // Updated image
+        sandbox: { type: 'incus', incusImage: 'node:23-slim' }, // Updated image
       });
 
       await botManager.startBot('update-bot');
@@ -655,11 +655,11 @@ describe('WorkerDeployment E2E - Full Lifecycle', { skip: !DB_AVAILABLE }, () =>
 
       const containerPool = {
         initializeContainer: mock.fn(async (_botId, config) => {
-          containerImage = config.sandbox?.image || 'node:22-slim';
+          containerImage = config.sandbox?.incusImage || config.sandbox?.image || 'node:22-slim';
           return { id: 'full-container', status: 'running', image: containerImage };
         }),
         createContainer: mock.fn(async (_botId, config) => {
-          containerImage = config.sandbox?.image || 'node:22-slim';
+          containerImage = config.sandbox?.incusImage || config.sandbox?.image || 'node:22-slim';
           return { id: 'full-container', status: 'running', image: containerImage };
         }),
         hasContainer: mock.fn(() => true),
@@ -704,7 +704,7 @@ describe('WorkerDeployment E2E - Full Lifecycle', { skip: !DB_AVAILABLE }, () =>
         id: 'full-bot',
         provider: 'anthropic',
         model: 'claude-sonnet-4-5',
-        sandbox: { type: 'docker', image: 'node:22-slim' },
+        sandbox: { type: 'incus', incusImage: 'node:22-slim' },
       });
 
       await botManager.startBot('full-bot');
@@ -731,7 +731,7 @@ describe('WorkerDeployment E2E - Full Lifecycle', { skip: !DB_AVAILABLE }, () =>
         id: 'full-bot',
         provider: 'anthropic',
         model: 'claude-sonnet-4-5',
-        sandbox: { type: 'docker', image: 'node:23-slim' }, // Updated image
+        sandbox: { type: 'incus', incusImage: 'node:23-slim' }, // Updated image
       });
 
       await botManager.startBot('full-bot');

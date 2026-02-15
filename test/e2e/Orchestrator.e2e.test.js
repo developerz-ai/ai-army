@@ -105,7 +105,7 @@ function createValidConfig(overrides = {}) {
   return {
     defaults: {
       model: { provider: 'anthropic', model: 'claude-sonnet-4-5' },
-      sandbox: { type: 'docker', image: 'node:22-slim' },
+      sandbox: { type: 'incus', incusImage: 'node:22-slim' },
     },
     providers: {
       anthropic: { type: 'anthropic', apiKey: 'test-key-e2e-123' },

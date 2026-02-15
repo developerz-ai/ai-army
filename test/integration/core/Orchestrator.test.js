@@ -87,7 +87,7 @@ function createValidConfig(overrides = {}) {
   return {
     defaults: {
       model: { provider: 'anthropic', model: 'claude-sonnet-4-5' },
-      sandbox: { type: 'docker', image: 'node:22-slim' },
+      sandbox: { type: 'incus', incusImage: 'node:22-slim' },
     },
     providers: {
       anthropic: { type: 'anthropic', apiKey: 'test-key-abc123' },
@@ -341,7 +341,7 @@ describe('Orchestrator Integration - Filesystem', () => {
       const config = createValidConfig({
         defaults: {
           model: { provider: 'anthropic', model: 'claude-sonnet-4-5' },
-          sandbox: { type: 'docker', image: 'node:22-slim' },
+          sandbox: { type: 'incus', incusImage: 'node:22-slim' },
         },
       });
 
@@ -633,10 +633,10 @@ describe('Orchestrator Integration - Filesystem', () => {
       orchestrator.registerChannelAdapter('slack', MockSlack);
 
       await orchestrator.start();
-      assert.equal(orchestrator.channels.size, 1);
+      assert.equal(orchestrator.channelManager.getChannelCount(), 1);
 
-      const adapter = orchestrator.channels.get('slack-main');
-      assert.ok(adapter.initialized);
+      const channel = orchestrator.channelManager.getChannel('slack-main');
+      assert.ok(channel.adapter.initialized);
 
       await orchestrator.stop();
 
@@ -916,9 +916,9 @@ describe('Orchestrator Integration - Filesystem', () => {
 
       await orchestrator.start();
 
-      assert.equal(orchestrator.channels.size, 2);
-      assert.ok(orchestrator.channels.get('slack-main').initialized);
-      assert.ok(orchestrator.channels.get('discord-main').initialized);
+      assert.equal(orchestrator.channelManager.getChannelCount(), 2);
+      assert.ok(orchestrator.channelManager.getChannel('slack-main').adapter.initialized);
+      assert.ok(orchestrator.channelManager.getChannel('discord-main').adapter.initialized);
 
       await orchestrator.stop();
       assert.equal(orchestrator.channels.size, 0);
@@ -1105,7 +1105,7 @@ describe('Orchestrator Integration - Filesystem', () => {
         const config = {
           defaults: {
             model: { provider: 'anthropic', model: 'claude-sonnet-4-5' },
-            sandbox: { type: 'docker', image: 'node:22-slim' },
+            sandbox: { type: 'incus', incusImage: 'node:22-slim' },
           },
           providers: {
             anthropic: { type: 'anthropic', apiKey: '${TEST_ORCH_API_KEY}' },
@@ -1148,7 +1148,7 @@ describe('Orchestrator Integration - Filesystem', () => {
         const config = {
           defaults: {
             model: { provider: 'anthropic', model: 'claude-sonnet-4-5' },
-            sandbox: { type: 'docker', image: 'node:22-slim' },
+            sandbox: { type: 'incus', incusImage: 'node:22-slim' },
           },
           providers: {
             anthropic: { type: 'anthropic', apiKey: '${ORCH_MISSING_VAR:-fallback-key}' },

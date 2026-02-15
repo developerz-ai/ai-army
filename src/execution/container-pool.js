@@ -3,15 +3,13 @@
  *
  * Manages persistent containers for bot execution using pluggable backends.
  * Provides container reuse, health monitoring, and automatic recycling.
- * Supports multiple backend types (Docker, Incus) and remote hosts.
+ * Supports multiple backend types (Incus, JustBash) and remote hosts.
  *
  * @module execution/container-pool
  */
 
 import { ContainerBackend, ContainerBackendError, BACKEND_TYPES } from './container-backend.js';
-import { DockerBackend } from './docker-backend.js';
 import { IncusBackend } from './incus-backend.js';
-import { DockerError } from './docker-manager.js';
 
 /**
  * Custom error class for ContainerPool-related errors
@@ -35,17 +33,13 @@ export class ContainerPoolError extends Error {
 /**
  * Manages a pool of containers for bot execution
  *
- * Supports pluggable container backends (Docker, Incus, etc.) via the
- * ContainerBackend interface. Accepts either a ContainerBackend instance
- * or a legacy DockerManager for backward compatibility.
+ * Supports pluggable container backends (Incus, etc.) via the
+ * ContainerBackend interface.
  *
  * @example
- * // Using a ContainerBackend (preferred)
- * const backend = new DockerBackend();
+ * // Using a ContainerBackend
+ * const backend = new IncusBackend();
  * const pool = new ContainerPool(backend);
- *
- * // Using a legacy DockerManager (backward compatible)
- * const pool = new ContainerPool(dockerManager);
  *
  * // Initialize a container for a bot
  * await pool.initializeContainer('my-bot', botConfig, workspace);
@@ -60,42 +54,24 @@ export class ContainerPool {
   /**
    * Create a new ContainerPool instance
    *
-   * Accepts either a ContainerBackend instance or a DockerManager for
-   * backward compatibility. When a DockerManager is passed, it is
-   * automatically wrapped in a DockerBackend adapter.
-   *
-   * @param {ContainerBackend|Object} backend - ContainerBackend or DockerManager instance
-   * @throws {ContainerPoolError} When backend is not provided
+   * @param {ContainerBackend} backend - ContainerBackend instance
+   * @throws {ContainerPoolError} When backend is not provided or not a ContainerBackend
    */
   constructor(backend) {
     if (!backend) {
-      throw new ContainerPoolError('DockerManager is required', {
+      throw new ContainerPoolError('Backend is required', {
         operation: 'constructor',
       });
     }
 
-    // Determine if we received a ContainerBackend or a legacy DockerManager
-    if (backend instanceof ContainerBackend) {
-      /** @type {ContainerBackend} Default backend for container operations */
-      this._defaultBackend = backend;
-    } else {
-      // Legacy path: wrap DockerManager in a DockerBackend adapter
-      // Create a DockerBackend that reuses the existing DockerManager instance
-      const dockerBackend = new DockerBackend();
-      // Replace the internally-created DockerManager with the provided one
-      dockerBackend.manager = backend;
-      this._defaultBackend = dockerBackend;
+    if (!(backend instanceof ContainerBackend)) {
+      throw new ContainerPoolError('Backend must be a ContainerBackend instance', {
+        operation: 'constructor',
+      });
     }
 
-    /**
-     * Backward-compatible alias for the default DockerManager.
-     * Tools (bash-tool.js, file-tools.js) reference `containerPool.dockerManager`
-     * for exec operations. This property provides that access regardless of
-     * whether the pool was constructed with a backend or DockerManager.
-     *
-     * @type {Object} DockerManager-compatible object with exec(), healthCheck(), etc.
-     */
-    this.dockerManager = this._defaultBackend.manager || this._defaultBackend;
+    /** @type {ContainerBackend} Default backend for container operations */
+    this._defaultBackend = backend;
 
     /** @type {Map<string, Object>} Map of botId -> container */
     this.containers = new Map();
@@ -106,19 +82,8 @@ export class ContainerPool {
     /** @type {Map<string, Object>} Map of botId -> workspace configuration */
     this.workspaces = new Map();
 
-    /** @type {IncusBackend|null} Shared default Incus backend (lazily created) */
-    this._defaultIncusBackend = null;
-
     /** @type {Map<string, ContainerBackend>} Map of botId -> backend for per-bot overrides */
     this.backends = new Map();
-
-    /**
-     * Backward-compatible alias for `this.backends`.
-     * Existing code that references `this.dockerManagers` continues to work.
-     * @type {Map<string, Object>}
-     * @deprecated Use `this.backends` instead
-     */
-    this.dockerManagers = this.backends;
   }
 
   /**
@@ -183,24 +148,22 @@ export class ContainerPool {
    * Creates and starts a container with the specified configuration.
    * If a container already exists for this bot, it will be recycled first.
    * Routes to the correct backend based on `botConfig.sandbox.type`:
-   * - `'docker'` or undefined → Docker backend (default)
-   * - `'incus'` → Incus backend (when available)
-   * Supports remote Docker hosts via the options.dockerHost parameter.
+   * - `'incus'` or undefined → Incus backend (default)
+   * Supports remote Incus hosts via the options.incusHost parameter.
    *
    * @param {string} botId - Bot identifier
    * @param {Object} botConfig - Bot configuration
    * @param {string} botConfig.id - Bot ID (should match botId parameter)
    * @param {Object} [botConfig.sandbox] - Sandbox configuration
-   * @param {string} [botConfig.sandbox.type] - Backend type ('docker', 'incus', 'just-bash')
-   * @param {string} [botConfig.sandbox.image] - Docker image
+   * @param {string} [botConfig.sandbox.type] - Backend type ('incus', 'just-bash')
+   * @param {string} [botConfig.sandbox.image] - Container image
    * @param {string} [botConfig.sandbox.memory] - Memory limit
    * @param {number} [botConfig.sandbox.cpus] - CPU cores
    * @param {Array<string>} [botConfig.sandbox.packages] - Packages to install
    * @param {Object} workspace - Workspace configuration
    * @param {string} workspace.root - Root path for workspace mount
    * @param {Object} [options={}] - Additional options
-   * @param {string} [options.dockerHost] - Docker host override for remote workers
-   *   (e.g., 'tcp://127.0.0.1:54321' for SSH-tunneled remote Docker)
+   * @param {string} [options.incusHost] - Incus socket path for remote Incus daemon
    * @returns {Promise<Object>} Container object
    * @throws {ContainerPoolError} When container creation fails
    */
@@ -241,11 +204,8 @@ export class ContainerPool {
       const container = await backend.createContainer(config, workspace);
       await backend.startContainer(container);
 
-      // Build package list (auto-add Docker CLI when dockerAccess enabled)
+      // Build package list
       const packages = [...(botConfig.sandbox?.packages || [])];
-      if (botConfig.sandbox?.dockerAccess && !packages.includes('docker.io')) {
-        packages.push('docker.io');
-      }
 
       // Install packages if specified
       if (packages.length > 0) {
@@ -262,11 +222,7 @@ export class ContainerPool {
       // Clean up per-bot backend on failure
       this.backends.delete(botId);
 
-      if (
-        err instanceof ContainerPoolError ||
-        err instanceof DockerError ||
-        err instanceof ContainerBackendError
-      ) {
+      if (err instanceof ContainerPoolError || err instanceof ContainerBackendError) {
         throw err;
       }
 
@@ -309,11 +265,10 @@ export class ContainerPool {
       // Stop and remove the container
       await backend.stopContainer(container);
     } catch (err) {
-      // Log but don't fail if stop/remove fails (container might already be gone)
-      if (err instanceof DockerError && err.message?.includes('No such container')) {
+      if (err instanceof ContainerBackendError && err.message?.includes('not found')) {
         // Container already gone, this is fine
       } else {
-        // For other errors, still continue with cleanup but wrap the error
+        // For other errors, still continue with cleanup but warn
         console.warn(`Warning: Failed to stop container for bot ${botId}: ${err.message}`);
       }
     }
@@ -488,56 +443,37 @@ export class ContainerPool {
    * Get the appropriate backend for a bot, considering sandbox type and remote hosts
    *
    * Routes to the correct backend based on:
-   * 1. `botConfig.sandbox.type` — selects backend type (docker, incus, etc.)
-   * 2. `options.dockerHost` — creates a remote Docker backend if specified
-   * 3. `options.incusHost` — creates an Incus backend with a remote socket if specified
+   * 1. `botConfig.sandbox.type` — selects backend type (incus, etc.)
+   * 2. `options.incusHost` — creates an Incus backend with a remote socket if specified
    *
-   * For Docker backends with a remote host, creates a new DockerBackend instance
-   * pointing at the remote Docker daemon. For Incus backends with a remote host,
-   * creates an IncusBackend pointing at the tunneled socket.
+   * For Incus backends with a remote host, creates an IncusBackend pointing
+   * at the tunneled socket.
    *
    * @param {string} botId - Bot identifier
    * @param {Object} botConfig - Bot configuration
    * @param {Object} [options={}] - Backend options
-   * @param {string} [options.dockerHost] - Docker host URL (e.g., 'tcp://127.0.0.1:54321')
    * @param {string} [options.incusHost] - Incus socket path for remote Incus daemon
    * @returns {ContainerBackend} Backend instance
    * @private
    */
   _getBackend(botId, botConfig, options = {}) {
-    const { dockerHost, incusHost } = options;
-    const sandboxType = botConfig.sandbox?.type || BACKEND_TYPES.DOCKER;
+    const { incusHost } = options;
+    const sandboxType = botConfig.sandbox?.type || BACKEND_TYPES.INCUS;
 
     // Route based on sandbox type
     switch (sandboxType) {
-      case BACKEND_TYPES.INCUS: {
+      case BACKEND_TYPES.INCUS:
+      default: {
         if (!incusHost) {
-          // Reuse or lazily create a shared default Incus backend
-          if (!this._defaultIncusBackend) {
-            this._defaultIncusBackend = new IncusBackend();
-          }
-          this.backends.set(botId, this._defaultIncusBackend);
-          return this._defaultIncusBackend;
+          // Use the injected default backend directly
+          this.backends.set(botId, this._defaultBackend);
+          return this._defaultBackend;
         }
 
         // Create a remote Incus backend with custom socket path
         const incusBackend = new IncusBackend({ socketPath: incusHost });
         this.backends.set(botId, incusBackend);
         return incusBackend;
-      }
-
-      case BACKEND_TYPES.DOCKER:
-      default: {
-        // Docker backend: check for remote host override
-        if (!dockerHost) {
-          return this._defaultBackend;
-        }
-
-        // Create a remote Docker backend
-        const dockerOpts = this._parseDockerHost(dockerHost);
-        const remoteBackend = new DockerBackend(dockerOpts);
-        this.backends.set(botId, remoteBackend);
-        return remoteBackend;
       }
     }
   }
@@ -554,34 +490,5 @@ export class ContainerPool {
    */
   _getBackendForBot(botId) {
     return this.backends.has(botId) ? this.backends.get(botId) : this._defaultBackend;
-  }
-
-  /**
-   * Parse a Docker host URL into dockerode connection options
-   *
-   * Supports formats:
-   * - `tcp://host:port` → { host, port }
-   * - `unix:///path/to/socket` → { socketPath }
-   * - `/path/to/socket` → socketPath string
-   *
-   * @param {string} dockerHost - Docker host URL
-   * @returns {Object|string} Dockerode connection options
-   * @private
-   */
-  _parseDockerHost(dockerHost) {
-    if (dockerHost.startsWith('tcp://')) {
-      const url = new URL(dockerHost);
-      return {
-        host: url.hostname,
-        port: parseInt(url.port, 10) || 2375,
-      };
-    }
-
-    if (dockerHost.startsWith('unix://')) {
-      return { socketPath: dockerHost.slice(7) };
-    }
-
-    // Assume it's a socket path
-    return dockerHost;
   }
 }
