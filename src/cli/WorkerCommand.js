@@ -366,7 +366,7 @@ async function workerUpdate({ workerId, image, workerRegistry, containerPool, wr
  * @param {string} command - Subcommand name ('list' | 'status' | 'stop' | 'start' | 'update')
  * @param {Object} [options={}] - Command options
  * @param {string} [options.workerId] - Worker ID (for status/stop/start/update)
- * @param {string} [options.image] - container image (for update --image)
+ * @param {string} [options.image] - Container image (for update --image)
  * @param {Object} [options.output=process.stdout] - Writable stream for output
  * @param {Object} [options.storage] - Storage instance (for creating WorkerRegistry)
  * @param {Object} [options.workerRegistry] - Pre-configured WorkerRegistry (for DI/testing)
