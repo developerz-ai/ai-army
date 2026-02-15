@@ -8,5 +8,8 @@
     "readFile",
     "writeFile"
   ],
-  "mcpServers": ["filesystem"]
+  "mcpServers": ["filesystem"],
+  "sandbox": {
+    "type": "incus"
+  }
 }

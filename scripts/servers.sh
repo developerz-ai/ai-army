@@ -8,6 +8,8 @@ WORKER2_HOST="ubuntu@vps-02a9b234.vps.ovh.net"
 
 ALL_SERVERS=("$MASTER_HOST" "$WORKER1_HOST" "$WORKER2_HOST")
 SERVER_NAMES=("master" "worker1" "worker2")
+WORKER_SERVERS=("$WORKER1_HOST" "$WORKER2_HOST")
+WORKER_NAMES=("worker1" "worker2")
 
 DEPLOY_DIR="/home/ubuntu/ai-army"
 SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
