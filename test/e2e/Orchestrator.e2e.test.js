@@ -21,7 +21,7 @@
  * Mock components:
  * - AgentRunner (to avoid real LLM API calls)
  * - Channel adapters (to avoid Slack/Discord connections)
- * - BotManager (to avoid Docker dependency)
+ * - BotManager (to avoid Incus container dependency)
  *
  * Uses per-worker databases for parallel test execution.
  */
@@ -231,7 +231,7 @@ function createMockAgentRunner(result) {
 }
 
 /**
- * Create a mock AgentRunner that simulates tool calling (Docker-like execution)
+ * Create a mock AgentRunner that simulates tool calling (Incus container execution)
  * @param {Object} [options={}] - Tool behavior options
  * @returns {Object} Mock agent runner with tool calls
  */
@@ -468,7 +468,7 @@ describe('Orchestrator E2E - Full Message Flow', { skip: !DB_AVAILABLE }, () => 
       }
     });
 
-    test('message with tool calls: Slack -> AI -> Docker bash -> response', async () => {
+    test('message with tool calls: Slack -> AI -> Incus bash -> response', async () => {
       const config = createValidConfig({
         channels: {
           'slack-dev': { type: 'slack', botToken: 'xoxb-e2e-dev' },

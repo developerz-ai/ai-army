@@ -3,7 +3,7 @@
  *
  * Tests the complete worker deployment lifecycle:
  *   1. Register worker node
- *   2. Provision bot to Docker container on worker
+ *   2. Provision bot to Incus container on worker
  *   3. Assign task to bot
  *   4. Verify task execution and result
  *   5. Update bot container image
@@ -13,8 +13,8 @@
  * Uses real components:
  * - Real PostgresStorage with real PostgreSQL (per-worker database)
  * - Real WorkerRegistry (worker node management)
- * - Real BotManager (bot lifecycle with Docker containers)
- * - Real ContainerPool (Docker container management)
+ * - Real BotManager (bot lifecycle with Incus containers)
+ * - Real ContainerPool (Incus container management)
  * - Real MigrationRunner (schema setup)
  *
  * Mock components:
@@ -208,14 +208,14 @@ describe('WorkerDeployment E2E - Full Lifecycle', { skip: !DB_AVAILABLE }, () =>
   // Bot Provisioning
   // ===========================================================================
 
-  describe('Bot provisioning to Docker container', () => {
+  describe('Bot provisioning to Incus container', () => {
     test('provision bot to local worker container', async () => {
       const workerRegistry = new WorkerRegistry(storage);
       const soulLoader = createMockSoulLoader('You are a test bot.');
       const configValidator = createMockConfigValidator();
 
-      // Note: ContainerPool requires Docker to be running
-      // For E2E tests without Docker, we'll mock ContainerPool
+      // Note: ContainerPool requires Incus to be running
+      // For E2E tests without Incus, we'll mock ContainerPool
       const containerPool = {
         initializeContainer: mock.fn(async (_botId, _config) => ({
           id: 'container-abc123',
