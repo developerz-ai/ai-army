@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
-# Provision a server with Docker + Node.js 22
-# Usage: ./scripts/provision-server.sh [user@host]
-# If no host given, provisions all servers from servers.sh
+# Provision the master server with Docker + Node.js 22
+# Workers use provision-worker.sh (Incus) instead
+#
+# Usage:
+#   ./scripts/provision-server.sh              # Provision master
+#   ./scripts/provision-server.sh user@host    # Provision a specific host with Docker
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/servers.sh"
 
-provision_one() {
+provision_master() {
   local host="$1"
-  echo "Provisioning $host ..."
+  echo "Provisioning master ($host) with Docker + Node.js..."
   ssh $SSH_OPTS "$host" 'bash -s' << 'REMOTE'
 set -e
 
@@ -41,17 +44,13 @@ docker --version
 docker compose version
 node --version
 npm --version
-echo "=== PROVISIONING COMPLETE ==="
+echo "=== MASTER PROVISIONING COMPLETE ==="
 REMOTE
   echo "Done: $host"
 }
 
 if [ $# -gt 0 ]; then
-  provision_one "$1"
+  provision_master "$1"
 else
-  for host in "${ALL_SERVERS[@]}"; do
-    provision_one "$host" &
-  done
-  wait
-  echo "All servers provisioned."
+  provision_master "$MASTER_HOST"
 fi
