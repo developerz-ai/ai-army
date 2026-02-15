@@ -320,7 +320,7 @@ export class Orchestrator {
       await this._createComponents();
 
       // Log available sandbox backends
-      const defaultSandboxType = this.config?.defaults?.sandbox?.type || BACKEND_TYPES.DOCKER;
+      const defaultSandboxType = this.config?.defaults?.sandbox?.type || BACKEND_TYPES.INCUS;
       const availableBackends = Object.values(BACKEND_TYPES).join(', ');
       this._log(
         `📦 Sandbox backends available: ${availableBackends} (default: ${defaultSandboxType})`
@@ -1708,7 +1708,7 @@ export class Orchestrator {
    * ensuring at least one worker is available for bot placement.
    *
    * Worker initialization failure is non-fatal — the system falls back
-   * to local-only Docker management.
+   * to local-only container management.
    *
    * @returns {Promise<void>}
    * @private
@@ -1846,7 +1846,7 @@ export class Orchestrator {
     } catch (err) {
       // Worker initialization failure is non-fatal
       this._log(`⚠️ Worker initialization failed: ${err.message}`);
-      this._log('⚠️ Falling back to local-only Docker management');
+      this._log('⚠️ Falling back to local-only container management');
     }
   }
 

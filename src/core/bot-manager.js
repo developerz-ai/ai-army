@@ -7,7 +7,7 @@
  *
  * Dependencies:
  * - storage: PostgresStorage instance for persisting bot state
- * - containerPool: ContainerPool instance for Docker container management
+ * - containerPool: ContainerPool instance for container management
  * - soulLoader: SoulLoader instance for loading bot personality files
  * - configValidator: ConfigValidator instance for validating bot configs
  * - skillRegistry: SkillRegistry instance for resolving bot skills (optional)
@@ -57,7 +57,7 @@ export class BotManager {
   /**
    * Create a BotManager instance
    * @param {Object} storage - PostgresStorage instance for persistence
-   * @param {Object} containerPool - ContainerPool instance for Docker containers
+   * @param {Object} containerPool - ContainerPool instance for containers
    * @param {Object} soulLoader - SoulLoader instance for loading soul.md files
    * @param {Object} [options={}] - Configuration options
    * @param {Object} [options.configValidator] - ConfigValidator instance (created if not provided)
@@ -256,7 +256,7 @@ export class BotManager {
   /**
    * Start a loaded bot
    *
-   * Creates a Docker container via the ContainerPool and sets
+   * Creates a container via the ContainerPool and sets
    * the bot's status to 'running'. The bot must have been loaded first.
    *
    * @param {string} botId - Bot identifier
@@ -363,7 +363,7 @@ export class BotManager {
   /**
    * Stop a running bot
    *
-   * Stops the Docker container gracefully and sets the bot's status
+   * Stops the container gracefully and sets the bot's status
    * to 'stopped'. The bot remains in the Map and can be restarted.
    *
    * @param {string} botId - Bot identifier
