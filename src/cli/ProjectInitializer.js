@@ -282,7 +282,7 @@ export class ProjectInitializer {
         {
           defaults: {
             model: { provider: 'anthropic', model: 'claude-sonnet-4-5' },
-            sandbox: { type: 'incus', image: 'ai-army-base' },
+            sandbox: { type: 'incus', incusImage: 'ai-army-base' },
           },
           providers: {
             anthropic: {
