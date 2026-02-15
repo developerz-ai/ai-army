@@ -22,7 +22,6 @@ import {
   AgentRunner,
   // Execution
   ContainerPool,
-  DockerManager,
   ToolExecutor,
   // Tools
   ToolRegistry,
@@ -135,11 +134,6 @@ describe('Execution exports', () => {
   test('ContainerPool exports correctly', () => {
     assert.ok(ContainerPool);
     assert.strictEqual(typeof ContainerPool, 'function');
-  });
-
-  test('DockerManager exports correctly', () => {
-    assert.ok(DockerManager);
-    assert.strictEqual(typeof DockerManager, 'function');
   });
 
   test('ToolExecutor exports correctly', () => {

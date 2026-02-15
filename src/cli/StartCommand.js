@@ -11,7 +11,7 @@ import { Orchestrator, OrchestratorError } from '../core/orchestrator.js';
 import { PostgresStorage } from '../adapters/storage/postgres.js';
 import { BotManager } from '../core/bot-manager.js';
 import { ContainerPool } from '../execution/container-pool.js';
-import { DockerManager } from '../execution/docker-manager.js';
+import { IncusBackend } from '../execution/incus-backend.js';
 import { SoulLoader } from '../utils/SoulLoader.js';
 import { SessionManager } from '../core/session-manager.js';
 import { MessageProcessor } from '../core/message-processor.js';
@@ -148,7 +148,6 @@ export async function runStart({
   _checkProductionWarnings({ write, env });
 
   // Shared instances for components that need to communicate
-  let sharedDockerManager;
   let sharedContainerPool;
 
   // Create orchestrator if not injected
@@ -166,10 +165,10 @@ export async function runStart({
       },
       botManagerFactory: (storage, _config) => {
         if (!storage) return null;
-        // Create shared DockerManager and ContainerPool
-        if (!sharedDockerManager) {
-          sharedDockerManager = new DockerManager();
-          sharedContainerPool = new ContainerPool(sharedDockerManager);
+        // Create shared IncusBackend and ContainerPool
+        if (!sharedContainerPool) {
+          const backend = new IncusBackend();
+          sharedContainerPool = new ContainerPool(backend);
         }
         const soulLoader = new SoulLoader();
         return new BotManager(storage, sharedContainerPool, soulLoader, {
@@ -185,8 +184,8 @@ export async function runStart({
         if (!sessionManager || !storage) return null;
         // Reuse the shared ContainerPool from botManagerFactory
         if (!sharedContainerPool) {
-          sharedDockerManager = new DockerManager();
-          sharedContainerPool = new ContainerPool(sharedDockerManager);
+          const backend = new IncusBackend();
+          sharedContainerPool = new ContainerPool(backend);
         }
         const toolRegistry = new ToolRegistry(sharedContainerPool);
         // Register built-in tools

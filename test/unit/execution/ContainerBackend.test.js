@@ -7,7 +7,7 @@
  * - Custom error class (ContainerBackendError) works correctly
  *
  * Note: These are unit tests for the interface contract.
- * DockerBackend.test.js tests the concrete implementation.
+ * IncusBackend.test.js tests the concrete implementation.
  */
 
 import { test, describe } from 'node:test';
@@ -26,7 +26,7 @@ import {
 function createTestBackend(implementations = {}) {
   class TestBackend extends ContainerBackend {
     constructor() {
-      super(BACKEND_TYPES.DOCKER);
+      super(BACKEND_TYPES.INCUS);
     }
   }
 
@@ -44,7 +44,7 @@ describe('ContainerBackend', () => {
   describe('constructor', () => {
     test('cannot be instantiated directly', () => {
       assert.throws(
-        () => new ContainerBackend(BACKEND_TYPES.DOCKER),
+        () => new ContainerBackend(BACKEND_TYPES.INCUS),
         err => {
           assert.equal(err.name, 'ContainerBackendError');
           assert.match(err.message, /abstract and cannot be instantiated directly/);
@@ -57,13 +57,13 @@ describe('ContainerBackend', () => {
     test('can be extended by subclasses', () => {
       class TestBackend extends ContainerBackend {
         constructor() {
-          super(BACKEND_TYPES.DOCKER);
+          super(BACKEND_TYPES.INCUS);
         }
       }
 
       const backend = new TestBackend();
       assert.ok(backend instanceof ContainerBackend);
-      assert.equal(backend.type, BACKEND_TYPES.DOCKER);
+      assert.equal(backend.type, BACKEND_TYPES.INCUS);
     });
 
     test('stores backend type', () => {
@@ -88,7 +88,7 @@ describe('ContainerBackend', () => {
           assert.equal(err.name, 'ContainerBackendError');
           assert.match(err.message, /createContainer\(\) not implemented/);
           assert.equal(err.operation, 'createContainer');
-          assert.equal(err.backend, BACKEND_TYPES.DOCKER);
+          assert.equal(err.backend, BACKEND_TYPES.INCUS);
           return true;
         }
       );
@@ -103,7 +103,7 @@ describe('ContainerBackend', () => {
           assert.equal(err.name, 'ContainerBackendError');
           assert.match(err.message, /startContainer\(\) not implemented/);
           assert.equal(err.operation, 'startContainer');
-          assert.equal(err.backend, BACKEND_TYPES.DOCKER);
+          assert.equal(err.backend, BACKEND_TYPES.INCUS);
           return true;
         }
       );
@@ -118,7 +118,7 @@ describe('ContainerBackend', () => {
           assert.equal(err.name, 'ContainerBackendError');
           assert.match(err.message, /stopContainer\(\) not implemented/);
           assert.equal(err.operation, 'stopContainer');
-          assert.equal(err.backend, BACKEND_TYPES.DOCKER);
+          assert.equal(err.backend, BACKEND_TYPES.INCUS);
           return true;
         }
       );
@@ -133,7 +133,7 @@ describe('ContainerBackend', () => {
           assert.equal(err.name, 'ContainerBackendError');
           assert.match(err.message, /exec\(\) not implemented/);
           assert.equal(err.operation, 'exec');
-          assert.equal(err.backend, BACKEND_TYPES.DOCKER);
+          assert.equal(err.backend, BACKEND_TYPES.INCUS);
           return true;
         }
       );
@@ -148,7 +148,7 @@ describe('ContainerBackend', () => {
           assert.equal(err.name, 'ContainerBackendError');
           assert.match(err.message, /healthCheck\(\) not implemented/);
           assert.equal(err.operation, 'healthCheck');
-          assert.equal(err.backend, BACKEND_TYPES.DOCKER);
+          assert.equal(err.backend, BACKEND_TYPES.INCUS);
           return true;
         }
       );
@@ -163,7 +163,7 @@ describe('ContainerBackend', () => {
           assert.equal(err.name, 'ContainerBackendError');
           assert.match(err.message, /installPackages\(\) not implemented/);
           assert.equal(err.operation, 'installPackages');
-          assert.equal(err.backend, BACKEND_TYPES.DOCKER);
+          assert.equal(err.backend, BACKEND_TYPES.INCUS);
           return true;
         }
       );
@@ -178,7 +178,7 @@ describe('ContainerBackend', () => {
           assert.equal(err.name, 'ContainerBackendError');
           assert.match(err.message, /removeContainerByName\(\) not implemented/);
           assert.equal(err.operation, 'removeContainerByName');
-          assert.equal(err.backend, BACKEND_TYPES.DOCKER);
+          assert.equal(err.backend, BACKEND_TYPES.INCUS);
           return true;
         }
       );
@@ -193,7 +193,7 @@ describe('ContainerBackend', () => {
           assert.equal(err.name, 'ContainerBackendError');
           assert.match(err.message, /listManagedContainers\(\) not implemented/);
           assert.equal(err.operation, 'listManagedContainers');
-          assert.equal(err.backend, BACKEND_TYPES.DOCKER);
+          assert.equal(err.backend, BACKEND_TYPES.INCUS);
           return true;
         }
       );
@@ -208,7 +208,7 @@ describe('ContainerBackend', () => {
           assert.equal(err.name, 'ContainerBackendError');
           assert.match(err.message, /getContainerByBotId\(\) not implemented/);
           assert.equal(err.operation, 'getContainerByBotId');
-          assert.equal(err.backend, BACKEND_TYPES.DOCKER);
+          assert.equal(err.backend, BACKEND_TYPES.INCUS);
           return true;
         }
       );
@@ -223,7 +223,7 @@ describe('ContainerBackend', () => {
           assert.equal(err.name, 'ContainerBackendError');
           assert.match(err.message, /getInfo\(\) not implemented/);
           assert.equal(err.operation, 'getInfo');
-          assert.equal(err.backend, BACKEND_TYPES.DOCKER);
+          assert.equal(err.backend, BACKEND_TYPES.INCUS);
           return true;
         }
       );
@@ -277,16 +277,16 @@ describe('ContainerBackend', () => {
   });
 
   describe('BACKEND_TYPES', () => {
-    test('defines DOCKER backend type', () => {
-      assert.equal(BACKEND_TYPES.DOCKER, 'docker');
-    });
-
     test('defines INCUS backend type', () => {
       assert.equal(BACKEND_TYPES.INCUS, 'incus');
     });
 
     test('defines JUST_BASH backend type', () => {
       assert.equal(BACKEND_TYPES.JUST_BASH, 'just-bash');
+    });
+
+    test('does not define DOCKER backend type', () => {
+      assert.equal(BACKEND_TYPES.DOCKER, undefined);
     });
   });
 });
@@ -318,8 +318,8 @@ describe('ContainerBackendError', () => {
   });
 
   test('stores backend', () => {
-    const error = new ContainerBackendError('Test error', { backend: BACKEND_TYPES.DOCKER });
-    assert.equal(error.backend, BACKEND_TYPES.DOCKER);
+    const error = new ContainerBackendError('Test error', { backend: BACKEND_TYPES.INCUS });
+    assert.equal(error.backend, BACKEND_TYPES.INCUS);
   });
 
   test('stores cause via standard Error options', () => {

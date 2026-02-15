@@ -3,7 +3,7 @@
  *
  * Handles:
  * - Logging errors to stdout and optionally to database
- * - Classifying errors by type (config, runtime, network, docker, database)
+ * - Classifying errors by type (config, runtime, network, container, database)
  * - Redacting API keys and secrets from error messages
  *
  * @module utils/ErrorHandler
@@ -56,11 +56,11 @@ const ERROR_CLASS_MAP = {
   ConfigValidationError: 'config',
   ConfigError: 'config',
 
-  // Docker / execution errors
-  DockerError: 'docker',
-  ContainerPoolError: 'docker',
-  ToolExecutionError: 'docker',
-  DangerousCommandError: 'docker',
+  // Container / execution errors
+  ContainerBackendError: 'container',
+  ContainerPoolError: 'container',
+  ToolExecutionError: 'container',
+  DangerousCommandError: 'container',
 
   // Database errors
   StorageError: 'database',
@@ -89,7 +89,7 @@ const ERROR_MESSAGE_HINTS = [
     keywords: ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'socket', 'network'],
     category: 'network',
   },
-  { keywords: ['docker', 'container', 'image'], category: 'docker' },
+  { keywords: ['container', 'image', 'incus', 'lxc'], category: 'container' },
   { keywords: ['database', 'postgres', 'sql', 'query', 'connection pool'], category: 'database' },
   {
     keywords: [
@@ -211,7 +211,7 @@ export class ErrorHandler {
    * 3. Default to 'runtime'
    *
    * @param {Error} error - The error to classify
-   * @returns {string} Category: 'config' | 'runtime' | 'network' | 'docker' | 'database'
+   * @returns {string} Category: 'config' | 'runtime' | 'network' | 'container' | 'database'
    */
   classifyError(error) {
     if (!error || !(error instanceof Error)) {

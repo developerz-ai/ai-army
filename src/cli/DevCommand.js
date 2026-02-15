@@ -17,7 +17,7 @@ import { ConfigWatcher, ConfigWatcherError } from '../config/ConfigWatcher.js';
 import { PostgresStorage } from '../adapters/storage/postgres.js';
 import { BotManager } from '../core/bot-manager.js';
 import { ContainerPool } from '../execution/container-pool.js';
-import { DockerManager } from '../execution/docker-manager.js';
+import { IncusBackend } from '../execution/incus-backend.js';
 import { SoulLoader } from '../utils/SoulLoader.js';
 import { SessionManager } from '../core/session-manager.js';
 import { MessageProcessor } from '../core/message-processor.js';
@@ -88,8 +88,8 @@ export async function runDev({
       },
       botManagerFactory: (storage, _config) => {
         if (!storage) return null;
-        const dockerManager = new DockerManager();
-        const containerPool = new ContainerPool(dockerManager);
+        const backend = new IncusBackend();
+        const containerPool = new ContainerPool(backend);
         const soulLoader = new SoulLoader();
         return new BotManager(storage, containerPool, soulLoader, {
           toolRegistry: null,
@@ -102,8 +102,8 @@ export async function runDev({
       },
       messageProcessorFactory: (sessionManager, storage, _config) => {
         if (!sessionManager || !storage) return null;
-        const dockerManager = new DockerManager();
-        const containerPool = new ContainerPool(dockerManager);
+        const backend = new IncusBackend();
+        const containerPool = new ContainerPool(backend);
         const toolRegistry = new ToolRegistry(containerPool);
         const agentRunner = new AgentRunner(ModelFactory, toolRegistry);
         return new MessageProcessor(sessionManager, agentRunner, storage);
