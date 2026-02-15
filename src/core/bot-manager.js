@@ -300,7 +300,7 @@ export class BotManager {
         }
       }
 
-      // Create container via ContainerPool (routes to Docker or Incus backend)
+      // Create container via ContainerPool (Incus backend)
       const container = await this.containerPool.initializeContainer(
         botId,
         bot.config,
