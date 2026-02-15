@@ -43,8 +43,7 @@ describe('ConfigValidator', () => {
             model: 'claude-sonnet-4-5',
           },
           sandbox: {
-            type: 'docker',
-            image: 'node:22-slim',
+            type: 'incus',
           },
         },
         providers: {
@@ -358,13 +357,13 @@ describe('ConfigValidator', () => {
       const validator = new ConfigValidator();
 
       const config = {
-        id: 'docker-bot',
+        id: 'incus-bot',
         soul: './soul.md',
         provider: 'anthropic',
         model: 'claude-sonnet-4-5',
         sandbox: {
-          type: 'docker',
-          image: 'python:3.11-slim',
+          type: 'incus',
+          incusImage: 'images:ubuntu/24.04/cloud',
           packages: ['git', 'curl'],
           memory: '4g',
           cpus: 4,
@@ -373,8 +372,8 @@ describe('ConfigValidator', () => {
 
       const result = validator.validateBotConfig(config);
 
-      assert.equal(result.sandbox.type, 'docker');
-      assert.equal(result.sandbox.image, 'python:3.11-slim');
+      assert.equal(result.sandbox.type, 'incus');
+      assert.equal(result.sandbox.incusImage, 'images:ubuntu/24.04/cloud');
       assert.deepEqual(result.sandbox.packages, ['git', 'curl']);
     });
 
@@ -636,7 +635,6 @@ describe('ConfigValidator', () => {
           soul: './soul.md',
           provider: 'anthropic',
           model: 'claude-sonnet-4-5',
-          channel: 'slack',
         },
       };
 
@@ -668,7 +666,7 @@ describe('ConfigValidator', () => {
       assert.ok(result.errors.length > 1);
     });
 
-    test('detects invalid channel reference', () => {
+    test('detects duplicate channel names in bot channels array', () => {
       const validator = new ConfigValidator();
 
       const mainConfig = {
@@ -686,14 +684,17 @@ describe('ConfigValidator', () => {
           soul: './soul.md',
           provider: 'anthropic',
           model: 'claude-sonnet-4-5',
-          channel: 'nonexistent-channel', // Invalid reference
+          channels: [
+            { name: 'slack-eng', type: 'slack', botToken: 'token1' },
+            { name: 'slack-eng', type: 'slack', botToken: 'token2' },
+          ],
         },
       };
 
       const result = validator.validateAll(mainConfig, botConfigs);
 
       assert.ok(!result.valid);
-      assert.ok(result.errors.some(e => e.path === 'channel'));
+      assert.ok(result.errors.some(e => e.code === 'duplicate_channel_name'));
     });
 
     test('detects invalid MCP server reference', () => {
@@ -871,12 +872,12 @@ describe('Zod Schemas', () => {
         fallbacks: ['claude-haiku-4-5'],
         temperature: 0.5,
         maxTokens: 4096,
-        channel: 'slack-main',
+        channels: [{ name: 'slack-main', type: 'slack', botToken: 'test' }],
         sessionPer: 'thread',
         workspace: { root: './data/full-bot' },
         sandbox: {
-          type: 'docker',
-          image: 'node:22-slim',
+          type: 'incus',
+          incusImage: 'images:ubuntu/24.04/cloud',
           packages: ['git'],
           memory: '2g',
           cpus: 2,
@@ -898,12 +899,6 @@ describe('Zod Schemas', () => {
   });
 
   describe('SandboxConfigSchema', () => {
-    test('accepts docker sandbox type', () => {
-      const result = SandboxConfigSchema.safeParse({ type: 'docker' });
-      assert.ok(result.success);
-      assert.equal(result.data.type, 'docker');
-    });
-
     test('accepts incus sandbox type', () => {
       const result = SandboxConfigSchema.safeParse({ type: 'incus' });
       assert.ok(result.success);
@@ -916,14 +911,19 @@ describe('Zod Schemas', () => {
       assert.equal(result.data.type, 'just-bash');
     });
 
-    test('defaults type to docker', () => {
+    test('defaults type to incus', () => {
       const result = SandboxConfigSchema.safeParse({});
       assert.ok(result.success);
-      assert.equal(result.data.type, 'docker');
+      assert.equal(result.data.type, 'incus');
     });
 
     test('rejects invalid sandbox type', () => {
       const result = SandboxConfigSchema.safeParse({ type: 'podman' });
+      assert.ok(!result.success);
+    });
+
+    test('rejects docker sandbox type', () => {
+      const result = SandboxConfigSchema.safeParse({ type: 'docker' });
       assert.ok(!result.success);
     });
 
@@ -943,17 +943,6 @@ describe('Zod Schemas', () => {
       assert.ok(result.success);
       assert.equal(result.data.incusImage, undefined);
       assert.equal(result.data.incusProfile, undefined);
-    });
-
-    test('docker type ignores incus fields gracefully', () => {
-      const result = SandboxConfigSchema.safeParse({
-        type: 'docker',
-        incusImage: 'images:ubuntu/24.04',
-        incusProfile: 'custom',
-      });
-      assert.ok(result.success);
-      assert.equal(result.data.type, 'docker');
-      assert.equal(result.data.incusImage, 'images:ubuntu/24.04');
     });
 
     test('accepts full incus config with resource limits', () => {
@@ -1652,29 +1641,15 @@ describe('Zod Schemas', () => {
       assert.equal(result.data.channels[1].restrictions.allowDMs, true);
     });
 
-    test('accepts bot config without channels array (backward compatible)', () => {
+    test('accepts bot config without channels array', () => {
       const result = BotConfigSchema.safeParse({
         id: 'simple-bot',
         soul: './soul.md',
         provider: 'anthropic',
         model: 'claude-sonnet-4-5',
-        channel: 'slack-main',
       });
       assert.ok(result.success);
-      assert.equal(result.data.channel, 'slack-main');
       assert.equal(result.data.channels, undefined);
-    });
-
-    test('accepts bot config with both channel and channels', () => {
-      const result = BotConfigSchema.safeParse({
-        id: 'dual-bot',
-        soul: './soul.md',
-        provider: 'anthropic',
-        model: 'claude-sonnet-4-5',
-        channel: 'slack-main',
-        channels: [{ name: 'discord-main', type: 'discord', token: 'test' }],
-      });
-      assert.ok(result.success);
     });
 
     test('accepts bot config with empty channels array', () => {

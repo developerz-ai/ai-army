@@ -255,11 +255,10 @@ const McpServerConfigSchema = z.object({
 // =============================================================================
 
 /**
- * Schema for Docker sandbox configuration
+ * Schema for sandbox configuration
  */
 const SandboxConfigSchema = z.object({
-  type: z.enum(['docker', 'incus', 'just-bash']).default('docker'),
-  image: z.string().default('node:22-slim'),
+  type: z.enum(['incus', 'just-bash']).default('incus'),
   incusImage: z.string().optional(),
   incusProfile: z.string().optional(),
   packages: z.array(z.string()).optional(),
@@ -276,7 +275,6 @@ const SandboxConfigSchema = z.object({
     ])
     .optional()
     .default('bridge'),
-  dockerAccess: z.boolean().optional().default(false),
 });
 
 // =============================================================================
@@ -353,7 +351,7 @@ const SecretCacheConfigSchema = z.object({
  * Schema for secrets provider configuration
  *
  * Supports two levels:
- * - Simple: just `provider` and optional `config` (backward-compatible)
+ * - Simple: just `provider` and optional `config`
  * - Extended: `default` adapter, `adapters` map, and `cache` settings
  */
 const SecretsConfigSchema = z.object({
@@ -654,8 +652,6 @@ export const BotConfigSchema = z
     temperature: z.number().min(0).max(2).optional(),
     maxTokens: z.number().int().positive().optional(),
 
-    // Channel assignment (single channel - backward compatible)
-    channel: z.string().optional(),
     // Multi-channel support: array of channel configs per bot
     channels: z.array(BotChannelConfigSchema).optional(),
     sessionPer: z.enum(['user', 'channel', 'thread']).optional().default('user'),
@@ -1176,7 +1172,6 @@ export class ConfigValidator {
   _validateCrossReferences(mainConfig, botConfigs) {
     const errors = [];
     const providers = Object.keys(mainConfig.providers || {});
-    const channels = Object.keys(mainConfig.channels || {});
     const mcpServers = Object.keys(mainConfig.mcpServers || {});
 
     for (const [botId, botConfig] of Object.entries(botConfigs)) {
@@ -1191,16 +1186,6 @@ export class ConfigValidator {
             context: `bots/${botId}/config.json`,
           });
         }
-      }
-
-      // Check single channel reference (backward-compatible)
-      if (botConfig.channel && channels.length > 0 && !channels.includes(botConfig.channel)) {
-        errors.push({
-          path: 'channel',
-          message: `Channel '${botConfig.channel}' not found in main config channels`,
-          code: 'invalid_reference',
-          context: `bots/${botId}/config.json`,
-        });
       }
 
       // Check multi-channel references (channels[] array)
