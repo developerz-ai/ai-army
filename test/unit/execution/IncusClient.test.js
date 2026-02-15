@@ -618,6 +618,84 @@ describe('IncusClient', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // execCommand — stdout/stderr log retrieval
+  // ---------------------------------------------------------------------------
+
+  describe('execCommand log retrieval', () => {
+    test('reads stdout from log endpoint when output ref is present', async () => {
+      const client = new IncusClient();
+
+      const { requestMock } = setupHttpMock([
+        // exec POST → sync with output references
+        {
+          statusCode: 200,
+          body: {
+            type: 'sync',
+            metadata: {
+              status: 'Success',
+              metadata: {
+                return: 0,
+                output: {
+                  1: '/1.0/instances/test/logs/stdout.log',
+                  2: '/1.0/instances/test/logs/stderr.log',
+                },
+              },
+            },
+          },
+        },
+        // GET stdout log
+        { statusCode: 200, body: 'hello world' },
+        // GET stderr log
+        { statusCode: 200, body: 'some warning' },
+      ]);
+
+      http.request = requestMock;
+
+      const result = await client.execCommand('test', ['echo', 'hello']);
+
+      assert.equal(result.exitCode, 0);
+      assert.equal(result.stdout, 'hello world');
+      assert.equal(result.stderr, 'some warning');
+    });
+
+    test('falls back to empty string when log retrieval fails', async () => {
+      const client = new IncusClient();
+
+      const { requestMock } = setupHttpMock([
+        // exec POST → sync with output references
+        {
+          statusCode: 200,
+          body: {
+            type: 'sync',
+            metadata: {
+              status: 'Success',
+              metadata: {
+                return: 0,
+                output: {
+                  1: '/1.0/instances/test/logs/stdout.log',
+                  2: '/1.0/instances/test/logs/stderr.log',
+                },
+              },
+            },
+          },
+        },
+        // GET stdout log → 404 error
+        { statusCode: 404, body: 'not found' },
+        // GET stderr log → 404 error
+        { statusCode: 404, body: 'not found' },
+      ]);
+
+      http.request = requestMock;
+
+      const result = await client.execCommand('test', ['echo', 'hello']);
+
+      assert.equal(result.exitCode, 0);
+      assert.equal(result.stdout, '');
+      assert.equal(result.stderr, '');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // pushFile
   // ---------------------------------------------------------------------------
 
@@ -635,6 +713,20 @@ describe('IncusClient', () => {
       assert.ok(calls[0].options.path.includes('/1.0/instances/test-container/files'));
       assert.ok(calls[0].options.path.includes('path=%2Fhome%2Fagent%2Ftest.txt'));
       assert.equal(calls[0].options.headers['Content-Type'], 'application/octet-stream');
+    });
+
+    test('does not include uid/gid/mode headers when not provided', async () => {
+      const client = new IncusClient();
+
+      const { requestMock, calls } = setupHttpMock([{ statusCode: 200, body: '' }]);
+
+      http.request = requestMock;
+
+      await client.pushFile('test-container', '/tmp/test.txt', 'content');
+
+      assert.equal(calls[0].options.headers['X-Incus-uid'], undefined);
+      assert.equal(calls[0].options.headers['X-Incus-gid'], undefined);
+      assert.equal(calls[0].options.headers['X-Incus-mode'], undefined);
     });
 
     test('includes uid, gid, and mode headers when provided', async () => {
@@ -829,6 +921,45 @@ describe('IncusClient', () => {
         err => {
           assert.equal(err.name, 'IncusClientError');
           assert.ok(err.message.includes('no operation ID'));
+          return true;
+        }
+      );
+    });
+
+    test('throws when async operation has err field but non-Failure status', async () => {
+      const client = new IncusClient();
+
+      const { requestMock } = setupHttpMock([
+        // Start → async
+        {
+          statusCode: 202,
+          body: {
+            type: 'async',
+            operation: '/1.0/operations/err-op',
+            metadata: {},
+          },
+        },
+        // Wait → has err field but status is not 'Failure'
+        {
+          statusCode: 200,
+          body: {
+            type: 'sync',
+            metadata: {
+              id: 'err-op',
+              status: 'Cancelled',
+              err: 'Operation was cancelled',
+            },
+          },
+        },
+      ]);
+
+      http.request = requestMock;
+
+      await assert.rejects(
+        () => client.startInstance('test-container'),
+        err => {
+          assert.equal(err.name, 'IncusClientError');
+          assert.ok(err.message.includes('Operation was cancelled'));
           return true;
         }
       );
@@ -1054,6 +1185,33 @@ describe('IncusClient', () => {
         err => {
           assert.equal(err.name, 'IncusClientError');
           assert.ok(err.message.includes('file operation failed'));
+          return true;
+        }
+      );
+    });
+
+    test('uses fallback message when API error has no error field', async () => {
+      const client = new IncusClient();
+
+      const { requestMock } = setupHttpMock([
+        {
+          statusCode: 404,
+          body: {
+            type: 'error',
+            error_code: 404,
+            status: 'Not Found',
+            // No 'error' field
+          },
+        },
+      ]);
+
+      http.request = requestMock;
+
+      await assert.rejects(
+        () => client.getInstanceState('test'),
+        err => {
+          assert.equal(err.name, 'IncusClientError');
+          assert.ok(err.message.includes('Incus API error'));
           return true;
         }
       );
