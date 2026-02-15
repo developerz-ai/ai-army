@@ -56,7 +56,6 @@ import { AuditRouter } from '../api/routers/audit-router.js';
 import { WorkerRouter } from '../api/routers/worker-router.js';
 import { ServerRouter } from '../api/routers/server-router.js';
 import { TemplateRouter } from '../api/routers/template-router.js';
-import { LegacyRedirectRouter } from '../api/routers/legacy-redirect-router.js';
 import { BACKEND_TYPES } from '../execution/container-backend.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -270,7 +269,7 @@ export class Orchestrator {
     this.channelAdapters = new Map();
     this.secretAdapters = new Map();
 
-    // Initialized channel instances (kept for backward compatibility)
+    // Initialized channel instances
     this.channels = new Map();
 
     // Middleware chain
@@ -1242,8 +1241,7 @@ export class Orchestrator {
    * Step 7: Initialize channel adapters from config
    *
    * Creates a ChannelManager (if not injected), registers all adapter types,
-   * and initializes each configured channel. Falls back to direct channel
-   * management for backward compatibility.
+   * and initializes each configured channel.
    *
    * @returns {Promise<{initialized: string[], failed: string[]}>} Results with initialized/failed channel names
    * @private
@@ -1284,11 +1282,6 @@ export class Orchestrator {
         }
 
         await this.channelManager.initializeChannel(name, channelConfig);
-        // Mirror into this.channels for backward compatibility
-        const channel = this.channelManager.getChannel(name);
-        if (channel && channel.adapter) {
-          this.channels.set(name, channel.adapter);
-        }
         results.initialized.push(name);
         this._log(`  📡 Initialized channel: ${name} (${channelConfig.type})`);
       } catch (err) {
@@ -1323,8 +1316,10 @@ export class Orchestrator {
    * @private
    */
   _setupChannelHandlers() {
+    const channelCount = this.channelManager ? this.channelManager.getChannelCount() : 0;
+
     if (!this.messageRouter || !this.messageProcessor) {
-      if (this.channels.size > 0) {
+      if (channelCount > 0) {
         this._log(
           '⏭️ MessageRouter or MessageProcessor not available, ' + 'skipping channel handler wiring'
         );
@@ -1332,12 +1327,13 @@ export class Orchestrator {
       return;
     }
 
+    if (!this.channelManager || channelCount === 0) {
+      return;
+    }
+
     let wiredCount = 0;
 
-    // Use ChannelManager if available, fall back to direct channels map
-    const channelEntries = this.channelManager
-      ? this.channelManager.listChannels().map(ch => [ch.name, ch.adapter])
-      : Array.from(this.channels.entries());
+    const channelEntries = this.channelManager.listChannels().map(ch => [ch.name, ch.adapter]);
 
     for (const [channelName, adapter] of channelEntries) {
       if (!adapter || typeof adapter.onMessage !== 'function') {
@@ -2027,9 +2023,8 @@ export class Orchestrator {
   /**
    * Close all channel connections
    *
-   * Stops the health monitor and uses ChannelManager.stopAll() when
-   * available, falling back to direct adapter cleanup for backward
-   * compatibility.
+   * Stops the health monitor and uses ChannelManager.stopAll() for
+   * graceful shutdown.
    *
    * @returns {Promise<void>}
    * @private
@@ -2038,27 +2033,12 @@ export class Orchestrator {
     // Stop health monitoring
     this._stopHealthMonitor();
 
-    // Use ChannelManager for graceful shutdown if available
+    // Use ChannelManager for graceful shutdown
     if (this.channelManager) {
       const results = await this.channelManager.stopAll();
       if (results.failed.length > 0) {
         const failedNames = results.failed.map(f => f.name).join(', ');
         this._log(`⚠️ Some channels failed to stop: ${failedNames}`);
-      }
-      this.channels.clear();
-      return;
-    }
-
-    // Fallback: direct adapter cleanup
-    for (const [name, adapter] of this.channels) {
-      try {
-        if (typeof adapter.close === 'function') {
-          await adapter.close();
-        } else if (typeof adapter.disconnect === 'function') {
-          await adapter.disconnect();
-        }
-      } catch (err) {
-        this._log(`⚠️ Failed to close channel '${name}': ${err.message}`);
       }
     }
     this.channels.clear();
@@ -2266,11 +2246,6 @@ export class Orchestrator {
           this._log(`⚠️ Channel '${name}' unhealthy, attempting reconnect...`);
           const reconnected = await this.channelManager.reconnectChannel(name);
 
-          // Update backward-compatible channels map
-          if (reconnected && reconnected.adapter) {
-            this.channels.set(name, reconnected.adapter);
-          }
-
           // Re-wire message handler if processing pipeline is available
           const canWire =
             reconnected && reconnected.adapter && this.messageRouter && this.messageProcessor;
@@ -2310,11 +2285,8 @@ export class Orchestrator {
    *
    * Creates the APIServer with all available routers (AdminRouter,
    * HealthRouter, BotRouter, SessionRouter, QueueRouter, MetricsRouter,
-   * AuditRouter, WorkerRouter, LegacyRedirectRouter, ServerRouter,
-   * TemplateRouter), then starts listening on the configured port/host.
-   *
-   * The LegacyRedirectRouter provides backward-compatible mapping from
-   * `/api/bots` to `/api/v1/workers` for consumers of the legacy API.
+   * AuditRouter, WorkerRouter, ServerRouter, TemplateRouter), then starts
+   * listening on the configured port/host.
    *
    * API server startup failure is non-fatal — the system continues
    * without the REST API.
@@ -2454,19 +2426,6 @@ export class Orchestrator {
           routers.push(workerRouter);
         } catch (err) {
           this._log(`  ⚠️ Failed to create WorkerRouter: ${err.message}`);
-        }
-      }
-
-      // LegacyRedirectRouter — /api/bots -> /api/v1/workers backward compat
-      if (workerRouter) {
-        try {
-          const legacyRouter = new LegacyRedirectRouter({
-            workerRouter,
-            logger: this.logger,
-          });
-          routers.push(legacyRouter);
-        } catch (err) {
-          this._log(`  ⚠️ Failed to create LegacyRedirectRouter: ${err.message}`);
         }
       }
 

@@ -2,12 +2,10 @@
  * Integration tests for v1 Router Registration in APIServer
  *
  * Tests the complete HTTP lifecycle with v1 routers (WorkerRouter,
- * ServerRouter, TemplateRouter, LegacyRedirectRouter) wired into
- * the APIServer:
+ * ServerRouter, TemplateRouter) wired into the APIServer:
  * - WorkerRouter serves /api/v1/workers
  * - ServerRouter serves /api/v1/servers
  * - TemplateRouter serves /api/v1/templates
- * - LegacyRedirectRouter maps /api/bots -> /api/v1/workers
  * - Multiple routers coexist in a single APIServer
  *
  * Run with: npm run test:integration
@@ -20,7 +18,6 @@ import { APIServer } from '../../../src/api/api-server.js';
 import { WorkerRouter } from '../../../src/api/routers/worker-router.js';
 import { ServerRouter } from '../../../src/api/routers/server-router.js';
 import { TemplateRouter } from '../../../src/api/routers/template-router.js';
-import { LegacyRedirectRouter } from '../../../src/api/routers/legacy-redirect-router.js';
 
 // ============================================================================
 // Test Helpers
@@ -414,81 +411,6 @@ describe('v1 Router Registration Integration', () => {
   });
 
   // ==========================================================================
-  // Legacy Redirect via APIServer
-  // ==========================================================================
-
-  describe('LegacyRedirectRouter via APIServer', () => {
-    test('GET /api/bots redirects to /api/v1/workers and returns data', async () => {
-      const botManager = createMockBotManager();
-      const workerRouter = new WorkerRouter({
-        botManager,
-        apiKey: null,
-        logger: null,
-      });
-      const legacyRouter = new LegacyRedirectRouter({
-        workerRouter,
-        logger: null,
-      });
-
-      server = new APIServer({
-        routers: [legacyRouter, workerRouter],
-        logger: null,
-      });
-
-      const port = await getAvailablePort();
-      await server.start(port);
-
-      const response = await sendRequest({
-        port,
-        path: '/api/bots',
-      });
-
-      assert.equal(response.statusCode, 200);
-      assert.ok(response.body.workers);
-      assert.equal(response.body.workers.length, 1);
-      assert.equal(response.body.workers[0].id, 'test-worker');
-
-      // Check legacy redirect header
-      assert.ok(response.headers['x-legacy-redirect']);
-      assert.match(response.headers['x-legacy-redirect'], /\/api\/bots -> \/api\/v1\/workers/);
-
-      await server.stop();
-    });
-
-    test('GET /api/bots/:id redirects to /api/v1/workers/:id', async () => {
-      const botManager = createMockBotManager();
-      const workerRouter = new WorkerRouter({
-        botManager,
-        apiKey: null,
-        logger: null,
-      });
-      const legacyRouter = new LegacyRedirectRouter({
-        workerRouter,
-        logger: null,
-      });
-
-      server = new APIServer({
-        routers: [legacyRouter, workerRouter],
-        logger: null,
-      });
-
-      const port = await getAvailablePort();
-      await server.start(port);
-
-      const response = await sendRequest({
-        port,
-        path: '/api/bots/test-worker',
-      });
-
-      assert.equal(response.statusCode, 200);
-      assert.equal(response.body.id, 'test-worker');
-      assert.ok(response.headers['x-legacy-redirect']);
-
-      await server.stop();
-    });
-  });
-
-  // ==========================================================================
   // Multiple Routers Coexisting
   // ==========================================================================
 
@@ -513,13 +435,9 @@ describe('v1 Router Registration Integration', () => {
         apiKey: null,
         logger: null,
       });
-      const legacyRouter = new LegacyRedirectRouter({
-        workerRouter,
-        logger: null,
-      });
 
       server = new APIServer({
-        routers: [workerRouter, legacyRouter, serverRouter, templateRouter],
+        routers: [workerRouter, serverRouter, templateRouter],
         logger: null,
       });
 
@@ -540,11 +458,6 @@ describe('v1 Router Registration Integration', () => {
       const templatesRes = await sendRequest({ port, path: '/api/v1/templates' });
       assert.equal(templatesRes.statusCode, 200);
       assert.equal(templatesRes.body.templates.length, 2);
-
-      // Test legacy redirect
-      const legacyRes = await sendRequest({ port, path: '/api/bots' });
-      assert.equal(legacyRes.statusCode, 200);
-      assert.ok(legacyRes.headers['x-legacy-redirect']);
 
       // Non-matching path returns 404
       const notFoundRes = await sendRequest({ port, path: '/api/v1/unknown' });

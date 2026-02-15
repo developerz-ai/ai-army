@@ -633,10 +633,10 @@ describe('Orchestrator Integration - Filesystem', () => {
       orchestrator.registerChannelAdapter('slack', MockSlack);
 
       await orchestrator.start();
-      assert.equal(orchestrator.channels.size, 1);
+      assert.equal(orchestrator.channelManager.getChannelCount(), 1);
 
-      const adapter = orchestrator.channels.get('slack-main');
-      assert.ok(adapter.initialized);
+      const channel = orchestrator.channelManager.getChannel('slack-main');
+      assert.ok(channel.adapter.initialized);
 
       await orchestrator.stop();
 
@@ -916,9 +916,9 @@ describe('Orchestrator Integration - Filesystem', () => {
 
       await orchestrator.start();
 
-      assert.equal(orchestrator.channels.size, 2);
-      assert.ok(orchestrator.channels.get('slack-main').initialized);
-      assert.ok(orchestrator.channels.get('discord-main').initialized);
+      assert.equal(orchestrator.channelManager.getChannelCount(), 2);
+      assert.ok(orchestrator.channelManager.getChannel('slack-main').adapter.initialized);
+      assert.ok(orchestrator.channelManager.getChannel('discord-main').adapter.initialized);
 
       await orchestrator.stop();
       assert.equal(orchestrator.channels.size, 0);

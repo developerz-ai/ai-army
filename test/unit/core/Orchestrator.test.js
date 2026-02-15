@@ -762,10 +762,10 @@ describe('Orchestrator', () => {
 
       await orchestrator.start();
 
-      assert.equal(orchestrator.channels.size, 1);
-      assert.ok(orchestrator.channels.has('slack-main'));
-      const adapter = orchestrator.channels.get('slack-main');
-      assert.equal(adapter.initialized, true);
+      assert.equal(orchestrator.channelManager.getChannelCount(), 1);
+      const channel = orchestrator.channelManager.getChannel('slack-main');
+      assert.ok(channel);
+      assert.equal(channel.adapter.initialized, true);
     });
 
     test('skips channels without registered adapter and counts as failed', async () => {
@@ -865,8 +865,8 @@ describe('Orchestrator', () => {
       await orchestrator.start();
 
       assert.equal(orchestrator.state, 'running');
-      assert.equal(orchestrator.channels.size, 1);
-      assert.ok(orchestrator.channels.has('slack-main'));
+      assert.equal(orchestrator.channelManager.getChannelCount(), 1);
+      assert.ok(orchestrator.channelManager.getChannel('slack-main'));
     });
   });
 
@@ -908,7 +908,7 @@ describe('Orchestrator', () => {
       orchestrator.registerChannelAdapter('slack', MockAdapter);
 
       await orchestrator.start();
-      assert.equal(orchestrator.channels.size, 1);
+      assert.equal(orchestrator.channelManager.getChannelCount(), 1);
 
       await orchestrator.stop();
 
@@ -1460,7 +1460,7 @@ describe('Orchestrator', () => {
       await orch.start();
 
       assert.equal(orch.state, 'running');
-      assert.equal(orch.channels.size, 1);
+      assert.equal(orch.channelManager.getChannelCount(), 1);
       assert.equal(orch.middlewares.length, 1);
       assert.ok(logs.some(l => l.includes('AI Army started')));
 
@@ -1549,9 +1549,9 @@ describe('Orchestrator', () => {
 
       await orch.start();
 
-      assert.equal(orch.channels.size, 1);
-      const adapter = orch.channels.get('slack-main');
-      assert.ok(adapter.messageHandler, 'onMessage handler should be registered');
+      assert.equal(orch.channelManager.getChannelCount(), 1);
+      const channel = orch.channelManager.getChannel('slack-main');
+      assert.ok(channel.adapter.messageHandler, 'onMessage handler should be registered');
 
       await orch.stop();
     });
@@ -1605,8 +1605,8 @@ describe('Orchestrator', () => {
 
       await orch.start();
 
-      const adapter = orch.channels.get('slack-main');
-      assert.equal(adapter.messageHandler, null, 'No handler should be set');
+      const channel = orch.channelManager.getChannel('slack-main');
+      assert.equal(channel.adapter.messageHandler, null, 'No handler should be set');
       assert.ok(
         logs.some(l => l.includes('skipping channel handler wiring')),
         'Should log skip message'
@@ -1635,8 +1635,8 @@ describe('Orchestrator', () => {
 
       await orch.start();
 
-      const adapter = orch.channels.get('slack-main');
-      assert.equal(adapter.messageHandler, null);
+      const channel = orch.channelManager.getChannel('slack-main');
+      assert.equal(channel.adapter.messageHandler, null);
 
       await orch.stop();
     });
@@ -1776,7 +1776,7 @@ describe('Orchestrator', () => {
       await orch.start();
 
       // Simulate incoming message
-      const adapter = orch.channels.get('slack-main');
+      const { adapter } = orch.channelManager.getChannel('slack-main');
       await adapter.messageHandler({
         type: 'slack',
         userId: 'U123',
@@ -1834,7 +1834,7 @@ describe('Orchestrator', () => {
 
       await orch.start();
 
-      const adapter = orch.channels.get('slack-main');
+      const { adapter } = orch.channelManager.getChannel('slack-main');
       await adapter.messageHandler({
         type: 'slack',
         userId: 'U123',
@@ -1880,7 +1880,7 @@ describe('Orchestrator', () => {
 
       await orch.start();
 
-      const adapter = orch.channels.get('slack-main');
+      const { adapter } = orch.channelManager.getChannel('slack-main');
       await adapter.messageHandler({
         type: 'slack',
         userId: 'U123',
@@ -1925,7 +1925,7 @@ describe('Orchestrator', () => {
 
       await orch.start();
 
-      const adapter = orch.channels.get('slack-main');
+      const { adapter } = orch.channelManager.getChannel('slack-main');
       await adapter.messageHandler({
         type: 'slack',
         userId: 'U123',
@@ -1968,7 +1968,7 @@ describe('Orchestrator', () => {
 
       await orch.start();
 
-      const adapter = orch.channels.get('slack-main');
+      const { adapter } = orch.channelManager.getChannel('slack-main');
       // Should not throw even though router errors
       await adapter.messageHandler({
         type: 'slack',
@@ -2014,7 +2014,7 @@ describe('Orchestrator', () => {
 
       await orch.start();
 
-      const adapter = orch.channels.get('slack-main');
+      const { adapter } = orch.channelManager.getChannel('slack-main');
       await adapter.messageHandler({
         type: 'slack',
         userId: 'U123',
@@ -2061,8 +2061,8 @@ describe('Orchestrator', () => {
       await orch.start();
 
       // Both channels should have handlers wired
-      const slackAdapter = orch.channels.get('slack-main');
-      const discordAdapter = orch.channels.get('discord-main');
+      const { adapter: slackAdapter } = orch.channelManager.getChannel('slack-main');
+      const { adapter: discordAdapter } = orch.channelManager.getChannel('discord-main');
       assert.ok(slackAdapter.messageHandler);
       assert.ok(discordAdapter.messageHandler);
 
@@ -2963,7 +2963,7 @@ describe('Orchestrator', () => {
 
       await orch.start();
 
-      const adapter = orch.channels.get('slack-main');
+      const { adapter } = orch.channelManager.getChannel('slack-main');
       await adapter.messageHandler({
         type: 'slack',
         userId: 'U123',
@@ -3015,7 +3015,7 @@ describe('Orchestrator', () => {
 
       await orch.start();
 
-      const adapter = orch.channels.get('slack-main');
+      const { adapter } = orch.channelManager.getChannel('slack-main');
       await adapter.messageHandler({
         type: 'slack',
         userId: 'U123',
@@ -3058,7 +3058,7 @@ describe('Orchestrator', () => {
       // (the handler should fall through to direct processing)
       orch.messageQueue = null;
 
-      const adapter = orch.channels.get('slack-main');
+      const { adapter } = orch.channelManager.getChannel('slack-main');
       await adapter.messageHandler({
         type: 'slack',
         userId: 'U123',
@@ -3113,7 +3113,7 @@ describe('Orchestrator', () => {
 
       await orch.start();
 
-      const adapter = orch.channels.get('slack-main');
+      const { adapter } = orch.channelManager.getChannel('slack-main');
       await adapter.messageHandler({
         type: 'slack',
         userId: 'U123',
@@ -3191,8 +3191,6 @@ describe('Orchestrator', () => {
       // ChannelManager should have been created
       assert.ok(orch.channelManager);
       assert.equal(orch.channelManager.getChannelCount(), 1);
-      // backward-compat channels map should still be populated
-      assert.equal(orch.channels.size, 1);
 
       await orch.stop();
     });
