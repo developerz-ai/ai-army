@@ -6,18 +6,17 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/servers.sh"
 
-for i in "${!ALL_SERVERS[@]}"; do
-  name="${SERVER_NAMES[$i]}"
-  host="${ALL_SERVERS[$i]}"
+status_master() {
+  local host="$1"
   echo "============================================"
-  echo "  $name ($host)"
+  echo "  master ($host)"
   echo "============================================"
 
   # Check SSH
   if ! ssh $SSH_OPTS "$host" "echo connected" &>/dev/null; then
     echo "  SSH: FAILED"
     echo ""
-    continue
+    return
   fi
   echo "  SSH: OK"
 
@@ -34,4 +33,42 @@ for i in "${!ALL_SERVERS[@]}"; do
   echo "  Health: $health"
 
   echo ""
+}
+
+status_worker() {
+  local name="$1"
+  local host="$2"
+  echo "============================================"
+  echo "  $name ($host)"
+  echo "============================================"
+
+  # Check SSH
+  if ! ssh $SSH_OPTS "$host" "echo connected" &>/dev/null; then
+    echo "  SSH: FAILED"
+    echo ""
+    return
+  fi
+  echo "  SSH: OK"
+
+  # Check Incus
+  incus_ver=$(run_on "$host" "incus --version 2>/dev/null" || echo "NOT INSTALLED")
+  echo "  Incus: $incus_ver"
+
+  # Check LXC containers
+  echo "  LXC Containers:"
+  run_on "$host" "incus list --format table 2>/dev/null" || echo "    (none or Incus not installed)"
+
+  # Check base images
+  echo "  Base Images:"
+  run_on "$host" "incus image list --format table 2>/dev/null" || echo "    (none)"
+
+  echo ""
+}
+
+# Check master
+status_master "$MASTER_HOST"
+
+# Check workers
+for i in "${!WORKER_SERVERS[@]}"; do
+  status_worker "${WORKER_NAMES[$i]}" "${WORKER_SERVERS[$i]}"
 done

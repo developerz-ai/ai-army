@@ -4,7 +4,7 @@
 #   ./scripts/deploy-all.sh           # Deploy to all servers
 #   ./scripts/deploy-all.sh master    # Deploy to master only
 #   ./scripts/deploy-all.sh worker1   # Deploy to worker1 only
-#   ./scripts/deploy-all.sh --full    # Full rebuild on all servers
+#   ./scripts/deploy-all.sh --full    # Full rebuild on master
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -23,16 +23,8 @@ for arg in "$@"; do
   esac
 done
 
-deploy_to() {
-  local name="$1"
-  local host="$2"
-
-  echo "=== Deploying to $name ($host) ==="
-
-  # Create deploy dir
-  run_on "$host" "mkdir -p $DEPLOY_DIR"
-
-  # Sync code (exclude heavy/sensitive dirs)
+sync_code() {
+  local host="$1"
   echo "  Syncing code..."
   rsync -az --delete \
     --exclude 'node_modules' \
@@ -43,7 +35,20 @@ deploy_to() {
     --exclude '.env.local' \
     -e "ssh $SSH_OPTS" \
     "$PROJECT_DIR/" "$host:$DEPLOY_DIR/"
+}
 
+deploy_master() {
+  local host="$1"
+
+  echo "=== Deploying to master ($host) ==="
+
+  # Create deploy dir
+  run_on "$host" "mkdir -p $DEPLOY_DIR"
+
+  # Sync code
+  sync_code "$host"
+
+  # Build and start Docker Compose stack
   echo "  Building and starting containers..."
   if [ "$FULL_BUILD" = true ]; then
     run_on "$host" "cd $DEPLOY_DIR && sg docker -c 'docker compose down 2>/dev/null || true' && sg docker -c 'docker compose build --no-cache' && sg docker -c 'docker compose up -d'"
@@ -51,6 +56,7 @@ deploy_to() {
     run_on "$host" "cd $DEPLOY_DIR && sg docker -c 'docker compose up -d --build'"
   fi
 
+  # Health check
   echo "  Waiting for health check..."
   local retries=20
   for i in $(seq 1 $retries); do
@@ -69,6 +75,32 @@ deploy_to() {
   echo "  Running migrations..."
   run_on "$host" "cd $DEPLOY_DIR && sg docker -c 'docker compose exec -T app node bin/cli.js migrate'" 2>&1 || echo "  (migration may have already run)"
 
+  echo "=== master deployed ==="
+  echo ""
+}
+
+deploy_worker() {
+  local name="$1"
+  local host="$2"
+
+  echo "=== Deploying to $name ($host) ==="
+
+  # Create deploy dir
+  run_on "$host" "mkdir -p $DEPLOY_DIR"
+
+  # Sync code (workers host LXC containers managed remotely by master)
+  sync_code "$host"
+
+  # Verify Incus is available
+  echo "  Checking Incus..."
+  if run_on "$host" "command -v incus &>/dev/null"; then
+    echo "  Incus: $(run_on "$host" "incus --version")"
+    echo "  Containers:"
+    run_on "$host" "incus list --format table 2>/dev/null" || echo "    (none)"
+  else
+    echo "  WARNING: Incus not installed. Run: ./scripts/provision-worker.sh $name"
+  fi
+
   echo "=== $name deployed ==="
   echo ""
 }
@@ -76,13 +108,14 @@ deploy_to() {
 # Resolve target
 if [ -n "$TARGET" ]; then
   case "$TARGET" in
-    master)  deploy_to "master"  "$MASTER_HOST" ;;
-    worker1) deploy_to "worker1" "$WORKER1_HOST" ;;
-    worker2) deploy_to "worker2" "$WORKER2_HOST" ;;
+    master)  deploy_master "$MASTER_HOST" ;;
+    worker1) deploy_worker "worker1" "$WORKER1_HOST" ;;
+    worker2) deploy_worker "worker2" "$WORKER2_HOST" ;;
   esac
 else
-  for i in "${!ALL_SERVERS[@]}"; do
-    deploy_to "${SERVER_NAMES[$i]}" "${ALL_SERVERS[$i]}"
+  deploy_master "$MASTER_HOST"
+  for i in "${!WORKER_SERVERS[@]}"; do
+    deploy_worker "${WORKER_NAMES[$i]}" "${WORKER_SERVERS[$i]}"
   done
 fi
 
