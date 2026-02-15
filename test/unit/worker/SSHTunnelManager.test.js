@@ -94,8 +94,8 @@ describe('TUNNEL_STATES', () => {
 
 describe('SOCKET_TYPES', () => {
   test('exports frozen socket type constants', () => {
-    assert.equal(SOCKET_TYPES.DOCKER, 'docker');
     assert.equal(SOCKET_TYPES.INCUS, 'incus');
+    assert.equal(SOCKET_TYPES.DOCKER, undefined);
     assert.ok(Object.isFrozen(SOCKET_TYPES));
   });
 });
@@ -325,7 +325,7 @@ describe('SSHTunnelManager', () => {
       assert.equal(result.state, TUNNEL_STATES.CONNECTED);
       assert.ok(typeof result.localPort === 'number');
       assert.ok(result.localPort > 0);
-      assert.match(result.dockerHost, /^tcp:\/\/127\.0\.0\.1:\d+$/);
+      assert.match(result.incusHost, /^tcp:\/\/127\.0\.0\.1:\d+$/);
     });
 
     test('stores tunnel in internal map', async () => {
@@ -427,81 +427,42 @@ describe('SSHTunnelManager', () => {
       assert.ok(manager.tunnels.has('worker-2'));
     });
 
-    test('defaults socketType to docker when not specified', async () => {
+    test('always uses incus socketType', async () => {
       const config = createTunnelConfig();
       const result = await manager.createTunnel(config);
 
-      assert.equal(result.socketType, SOCKET_TYPES.DOCKER);
-      assert.ok(result.dockerHost);
-      assert.equal(result.incusHost, null);
+      assert.equal(result.socketType, SOCKET_TYPES.INCUS);
+      assert.ok(result.incusHost);
     });
 
-    test('creates incus tunnel when socketType is incus', async () => {
-      const config = createTunnelConfig({ socketType: 'incus' });
+    test('creates incus tunnel with incusHost', async () => {
+      const config = createTunnelConfig();
       const result = await manager.createTunnel(config);
 
       assert.equal(result.socketType, SOCKET_TYPES.INCUS);
       assert.ok(result.incusHost);
       assert.match(result.incusHost, /^tcp:\/\/127\.0\.0\.1:\d+$/);
-      assert.equal(result.dockerHost, null);
       assert.equal(result.state, TUNNEL_STATES.CONNECTED);
     });
 
-    test('throws when socketType is invalid', async () => {
-      const config = createTunnelConfig({ socketType: 'invalid' });
-
-      await assert.rejects(
-        () => manager.createTunnel(config),
-        err => {
-          assert.equal(err.name, 'SSHTunnelError');
-          assert.equal(err.operation, 'createTunnel');
-          assert.match(err.message, /Invalid socketType/);
-          assert.match(err.message, /invalid/);
-          return true;
-        }
-      );
-    });
-
-    test('returns incusHost and dockerHost in result for incus tunnel', async () => {
-      const config = createTunnelConfig({ socketType: 'incus' });
+    test('returns incusHost and socketType in result', async () => {
+      const config = createTunnelConfig();
       const result = await manager.createTunnel(config);
 
-      assert.ok('dockerHost' in result);
       assert.ok('incusHost' in result);
       assert.ok('socketType' in result);
-      assert.equal(result.dockerHost, null);
       assert.ok(result.incusHost);
-    });
-
-    test('returns incusHost and dockerHost in result for docker tunnel', async () => {
-      const config = createTunnelConfig({ socketType: 'docker' });
-      const result = await manager.createTunnel(config);
-
-      assert.ok('dockerHost' in result);
-      assert.ok('incusHost' in result);
-      assert.ok('socketType' in result);
-      assert.ok(result.dockerHost);
-      assert.equal(result.incusHost, null);
+      assert.equal(result.socketType, SOCKET_TYPES.INCUS);
     });
 
     test('logs incus socket type in tunnel established message', async () => {
-      await manager.createTunnel(createTunnelConfig({ socketType: 'incus' }));
+      await manager.createTunnel(createTunnelConfig());
 
       const logMsg = mockLogger.info.mock.calls.find(call =>
         call.arguments[0].includes('Tunnel established')
       );
       assert.ok(logMsg);
       assert.match(logMsg.arguments[0], /forwarding incus socket/);
-    });
-
-    test('logs docker socket type in tunnel established message', async () => {
-      await manager.createTunnel(createTunnelConfig({ socketType: 'docker' }));
-
-      const logMsg = mockLogger.info.mock.calls.find(call =>
-        call.arguments[0].includes('Tunnel established')
-      );
-      assert.ok(logMsg);
-      assert.match(logMsg.arguments[0], /forwarding docker socket/);
     });
   });
 
@@ -621,7 +582,7 @@ describe('SSHTunnelManager', () => {
       assert.equal(health.workerId, 'gpu-server');
       assert.equal(health.healthy, true);
       assert.equal(health.state, TUNNEL_STATES.CONNECTED);
-      assert.ok(health.dockerHost);
+      assert.ok(health.incusHost);
       assert.ok(typeof health.localPort === 'number');
       assert.ok(typeof health.uptime === 'number');
       assert.ok(health.uptime >= 0);
@@ -633,7 +594,7 @@ describe('SSHTunnelManager', () => {
       assert.equal(health.workerId, 'nonexistent');
       assert.equal(health.healthy, false);
       assert.equal(health.state, TUNNEL_STATES.CLOSED);
-      assert.equal(health.dockerHost, null);
+      assert.equal(health.incusHost, null);
       assert.equal(health.localPort, null);
       assert.equal(health.uptime, null);
       assert.equal(health.error, 'No tunnel found');
@@ -681,31 +642,23 @@ describe('SSHTunnelManager', () => {
         }
       );
     });
-  });
 
-  // --------------------------------------------------------------------------
-  // getDockerHost()
-  // --------------------------------------------------------------------------
-
-  describe('getDockerHost()', () => {
-    test('returns docker host for connected tunnel', async () => {
+    test('returns incusHost and socketType for connected tunnel', async () => {
       await manager.createTunnel(createTunnelConfig());
 
-      const host = manager.getDockerHost('gpu-server');
-      assert.match(host, /^tcp:\/\/127\.0\.0\.1:\d+$/);
+      const health = await manager.healthCheck('gpu-server');
+
+      assert.equal(health.workerId, 'gpu-server');
+      assert.equal(health.healthy, true);
+      assert.equal(health.socketType, SOCKET_TYPES.INCUS);
+      assert.ok(health.incusHost);
     });
 
-    test('returns null for non-existent tunnel', () => {
-      const host = manager.getDockerHost('nonexistent');
-      assert.equal(host, null);
-    });
+    test('returns null socketType when no tunnel found', async () => {
+      const health = await manager.healthCheck('nonexistent');
 
-    test('returns null for disconnected tunnel', async () => {
-      await manager.createTunnel(createTunnelConfig());
-      manager.tunnels.get('gpu-server').state = TUNNEL_STATES.FAILED;
-
-      const host = manager.getDockerHost('gpu-server');
-      assert.equal(host, null);
+      assert.equal(health.socketType, null);
+      assert.equal(health.incusHost, null);
     });
   });
 
@@ -714,18 +667,11 @@ describe('SSHTunnelManager', () => {
   // --------------------------------------------------------------------------
 
   describe('getIncusHost()', () => {
-    test('returns incus host for connected incus tunnel', async () => {
-      await manager.createTunnel(createTunnelConfig({ socketType: 'incus' }));
-
-      const host = manager.getIncusHost('gpu-server');
-      assert.match(host, /^tcp:\/\/127\.0\.0\.1:\d+$/);
-    });
-
-    test('returns null for docker tunnel', async () => {
+    test('returns incus host for connected tunnel', async () => {
       await manager.createTunnel(createTunnelConfig());
 
       const host = manager.getIncusHost('gpu-server');
-      assert.equal(host, null);
+      assert.match(host, /^tcp:\/\/127\.0\.0\.1:\d+$/);
     });
 
     test('returns null for non-existent tunnel', () => {
@@ -734,7 +680,7 @@ describe('SSHTunnelManager', () => {
     });
 
     test('returns null for disconnected tunnel', async () => {
-      await manager.createTunnel(createTunnelConfig({ socketType: 'incus' }));
+      await manager.createTunnel(createTunnelConfig());
       manager.tunnels.get('gpu-server').state = TUNNEL_STATES.FAILED;
 
       const host = manager.getIncusHost('gpu-server');
@@ -747,15 +693,8 @@ describe('SSHTunnelManager', () => {
   // --------------------------------------------------------------------------
 
   describe('getHost()', () => {
-    test('returns docker host for docker tunnel', async () => {
+    test('returns incus host for tunnel', async () => {
       await manager.createTunnel(createTunnelConfig());
-
-      const host = manager.getHost('gpu-server');
-      assert.match(host, /^tcp:\/\/127\.0\.0\.1:\d+$/);
-    });
-
-    test('returns incus host for incus tunnel', async () => {
-      await manager.createTunnel(createTunnelConfig({ socketType: 'incus' }));
 
       const host = manager.getHost('gpu-server');
       assert.match(host, /^tcp:\/\/127\.0\.0\.1:\d+$/);
@@ -780,75 +719,21 @@ describe('SSHTunnelManager', () => {
   // --------------------------------------------------------------------------
 
   describe('_getRemoteSocketPath()', () => {
-    test('returns default Docker socket path for docker type', () => {
-      const path = manager._getRemoteSocketPath({ socketType: 'docker' });
-      assert.equal(path, '/var/run/docker.sock');
-    });
-
-    test('returns custom Docker socket path when specified', () => {
-      const path = manager._getRemoteSocketPath({
-        socketType: 'docker',
-        dockerSocketPath: '/custom/docker.sock',
-      });
-      assert.equal(path, '/custom/docker.sock');
-    });
-
-    test('returns default Incus socket path for incus type', () => {
-      const path = manager._getRemoteSocketPath({ socketType: 'incus' });
+    test('returns default Incus socket path', () => {
+      const path = manager._getRemoteSocketPath({});
       assert.equal(path, '/var/lib/incus/unix.socket');
     });
 
     test('returns custom Incus socket path when specified', () => {
       const path = manager._getRemoteSocketPath({
-        socketType: 'incus',
         incusSocketPath: '/custom/incus.socket',
       });
       assert.equal(path, '/custom/incus.socket');
     });
-
-    test('defaults to Docker socket path for undefined socketType', () => {
-      const path = manager._getRemoteSocketPath({});
-      assert.equal(path, '/var/run/docker.sock');
-    });
   });
 
   // --------------------------------------------------------------------------
-  // healthCheck() — Incus-specific
-  // --------------------------------------------------------------------------
-
-  describe('healthCheck() — Incus socket type', () => {
-    test('returns healthy with incusHost for connected incus tunnel', async () => {
-      await manager.createTunnel(createTunnelConfig({ socketType: 'incus' }));
-
-      const health = await manager.healthCheck('gpu-server');
-
-      assert.equal(health.workerId, 'gpu-server');
-      assert.equal(health.healthy, true);
-      assert.equal(health.socketType, SOCKET_TYPES.INCUS);
-      assert.ok(health.incusHost);
-      assert.equal(health.dockerHost, null);
-    });
-
-    test('returns socketType in health check for docker tunnel', async () => {
-      await manager.createTunnel(createTunnelConfig());
-
-      const health = await manager.healthCheck('gpu-server');
-
-      assert.equal(health.socketType, SOCKET_TYPES.DOCKER);
-      assert.ok(health.dockerHost);
-      assert.equal(health.incusHost, null);
-    });
-
-    test('returns null socketType when no tunnel found', async () => {
-      const health = await manager.healthCheck('nonexistent');
-
-      assert.equal(health.socketType, null);
-      assert.equal(health.incusHost, null);
-    });
-  });
-
-  // --------------------------------------------------------------------------
-  // listTunnels() — Incus-specific
+  // listTunnels()
   // --------------------------------------------------------------------------
 
   describe('listTunnels()', () => {
@@ -877,45 +762,35 @@ describe('SSHTunnelManager', () => {
 
       assert.equal(tunnel.workerId, 'gpu-server');
       assert.equal(tunnel.state, TUNNEL_STATES.CONNECTED);
-      assert.equal(tunnel.socketType, SOCKET_TYPES.DOCKER);
-      assert.ok(tunnel.dockerHost);
-      assert.equal(tunnel.incusHost, null);
+      assert.equal(tunnel.socketType, SOCKET_TYPES.INCUS);
+      assert.ok(tunnel.incusHost);
       assert.ok(typeof tunnel.localPort === 'number');
       assert.equal(tunnel.host, '192.168.1.100');
       assert.equal(tunnel.reconnectAttempts, 0);
       assert.ok(tunnel.createdAt instanceof Date);
     });
 
-    test('includes incusHost and socketType for incus tunnels', async () => {
-      await manager.createTunnel(createTunnelConfig({ socketType: 'incus' }));
+    test('includes incusHost and socketType for tunnels', async () => {
+      await manager.createTunnel(createTunnelConfig());
 
       const tunnels = manager.listTunnels();
       const tunnel = tunnels[0];
 
       assert.equal(tunnel.socketType, SOCKET_TYPES.INCUS);
       assert.ok(tunnel.incusHost);
-      assert.equal(tunnel.dockerHost, null);
     });
 
-    test('lists mixed docker and incus tunnels', async () => {
-      await manager.createTunnel(createTunnelConfig({ workerId: 'docker-worker' }));
-      await manager.createTunnel(
-        createTunnelConfig({ workerId: 'incus-worker', socketType: 'incus' })
-      );
+    test('lists multiple incus tunnels', async () => {
+      await manager.createTunnel(createTunnelConfig({ workerId: 'incus-worker-1' }));
+      await manager.createTunnel(createTunnelConfig({ workerId: 'incus-worker-2' }));
 
       const tunnels = manager.listTunnels();
       assert.equal(tunnels.length, 2);
 
-      const dockerTunnel = tunnels.find(t => t.workerId === 'docker-worker');
-      const incusTunnel = tunnels.find(t => t.workerId === 'incus-worker');
-
-      assert.equal(dockerTunnel.socketType, SOCKET_TYPES.DOCKER);
-      assert.ok(dockerTunnel.dockerHost);
-      assert.equal(dockerTunnel.incusHost, null);
-
-      assert.equal(incusTunnel.socketType, SOCKET_TYPES.INCUS);
-      assert.ok(incusTunnel.incusHost);
-      assert.equal(incusTunnel.dockerHost, null);
+      for (const tunnel of tunnels) {
+        assert.equal(tunnel.socketType, SOCKET_TYPES.INCUS);
+        assert.ok(tunnel.incusHost);
+      }
     });
   });
 
@@ -1156,7 +1031,7 @@ describe('SSHTunnelManager', () => {
     });
 
     test('tunnel config stores socketType in config copy', async () => {
-      const config = createTunnelConfig({ socketType: 'incus' });
+      const config = createTunnelConfig();
       await manager.createTunnel(config);
 
       const tunnel = manager.tunnels.get('gpu-server');
@@ -1164,9 +1039,8 @@ describe('SSHTunnelManager', () => {
       assert.equal(tunnel.socketType, 'incus');
     });
 
-    test('custom incusSocketPath is used for incus tunnels', async () => {
+    test('custom incusSocketPath is used for tunnels', async () => {
       const config = createTunnelConfig({
-        socketType: 'incus',
         incusSocketPath: '/custom/incus.socket',
       });
       await manager.createTunnel(config);
@@ -1176,20 +1050,6 @@ describe('SSHTunnelManager', () => {
       );
       assert.ok(logMsg);
       assert.match(logMsg.arguments[0], /\/custom\/incus\.socket/);
-    });
-
-    test('custom dockerSocketPath is used for docker tunnels', async () => {
-      const config = createTunnelConfig({
-        socketType: 'docker',
-        dockerSocketPath: '/custom/docker.sock',
-      });
-      await manager.createTunnel(config);
-
-      const logMsg = mockLogger.info.mock.calls.find(call =>
-        call.arguments[0].includes('Tunnel established')
-      );
-      assert.ok(logMsg);
-      assert.match(logMsg.arguments[0], /\/custom\/docker\.sock/);
     });
   });
 });

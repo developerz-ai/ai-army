@@ -56,7 +56,7 @@ function createMockSSHTunnelManager(options = {}) {
       }
       const tunnel = {
         workerId: config.workerId,
-        dockerHost: `tcp://127.0.0.1:${12345 + tunnels.size}`,
+        incusHost: `tcp://127.0.0.1:${12345 + tunnels.size}`,
         localPort: 12345 + tunnels.size,
         state: 'connected',
       };
@@ -77,7 +77,7 @@ function createMockSSHTunnelManager(options = {}) {
         workerId,
         healthy: true,
         state: 'connected',
-        dockerHost: tunnel.dockerHost,
+        incusHost: tunnel.incusHost,
         localPort: tunnel.localPort,
         uptime: 1000,
       };

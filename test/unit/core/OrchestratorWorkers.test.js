@@ -174,7 +174,7 @@ function createMockSSHTunnelManager(overrides = {}) {
     createTunnel: mock.fn(async config => {
       const tunnel = {
         workerId: config.workerId,
-        dockerHost: `tcp://127.0.0.1:${54000 + tunnels.size}`,
+        incusHost: `tcp://127.0.0.1:${54000 + tunnels.size}`,
         localPort: 54000 + tunnels.size,
         state: 'connected',
       };
@@ -195,9 +195,9 @@ function createMockSSHTunnelManager(overrides = {}) {
       healthy: tunnels.has(workerId),
       state: tunnels.has(workerId) ? 'connected' : 'closed',
     })),
-    getDockerHost: mock.fn(workerId => {
+    getIncusHost: mock.fn(workerId => {
       const tunnel = tunnels.get(workerId);
-      return tunnel ? tunnel.dockerHost : null;
+      return tunnel ? tunnel.incusHost : null;
     }),
     listTunnels: mock.fn(() => [...tunnels.values()]),
     _tunnels: tunnels,
@@ -214,7 +214,7 @@ function createMockWorkerAssigner(overrides = {}) {
   return {
     assignBot: mock.fn(async () => ({
       workerId: 'local',
-      dockerHost: null,
+      incusHost: null,
       workerType: 'local',
     })),
     releaseBot: mock.fn(async () => true),
