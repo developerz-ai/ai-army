@@ -86,7 +86,7 @@ function createMockSSHTunnelManager(options = {}) {
       }
       return {
         workerId: config.workerId,
-        dockerHost: 'tcp://127.0.0.1:54321',
+        incusHost: 'tcp://127.0.0.1:54321',
         localPort: 54321,
         state: 'connected',
       };
@@ -96,7 +96,7 @@ function createMockSSHTunnelManager(options = {}) {
       workerId,
       healthy: true,
       state: 'connected',
-      dockerHost: 'tcp://127.0.0.1:54321',
+      incusHost: 'tcp://127.0.0.1:54321',
       localPort: 54321,
       uptime: 120000,
     })),

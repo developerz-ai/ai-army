@@ -1,14 +1,14 @@
 /**
  * ContainerPool - Container pooling and lifecycle management
  *
- * Manages persistent containers for bot execution using pluggable backends.
+ * Manages persistent containers for bot execution using the Incus backend.
  * Provides container reuse, health monitoring, and automatic recycling.
- * Supports multiple backend types (Incus, JustBash) and remote hosts.
+ * Supports remote Incus hosts via SSH tunnels.
  *
  * @module execution/container-pool
  */
 
-import { ContainerBackend, ContainerBackendError, BACKEND_TYPES } from './container-backend.js';
+import { ContainerBackend, ContainerBackendError } from './container-backend.js';
 import { IncusBackend } from './incus-backend.js';
 
 /**
@@ -33,8 +33,7 @@ export class ContainerPoolError extends Error {
 /**
  * Manages a pool of containers for bot execution
  *
- * Supports pluggable container backends (Incus, etc.) via the
- * ContainerBackend interface.
+ * Uses the Incus container backend via the ContainerBackend interface.
  *
  * @example
  * // Using a ContainerBackend
@@ -147,15 +146,13 @@ export class ContainerPool {
    *
    * Creates and starts a container with the specified configuration.
    * If a container already exists for this bot, it will be recycled first.
-   * Routes to the correct backend based on `botConfig.sandbox.type`:
-   * - `'incus'` or undefined → Incus backend (default)
-   * Supports remote Incus hosts via the options.incusHost parameter.
+   * Always uses the Incus backend. Supports remote Incus hosts via the
+   * options.incusHost parameter.
    *
    * @param {string} botId - Bot identifier
    * @param {Object} botConfig - Bot configuration
    * @param {string} botConfig.id - Bot ID (should match botId parameter)
    * @param {Object} [botConfig.sandbox] - Sandbox configuration
-   * @param {string} [botConfig.sandbox.type] - Backend type ('incus', 'just-bash')
    * @param {string} [botConfig.sandbox.image] - Container image
    * @param {string} [botConfig.sandbox.memory] - Memory limit
    * @param {number} [botConfig.sandbox.cpus] - CPU cores
@@ -194,7 +191,7 @@ export class ContainerPool {
         await this.recycleContainer(botId);
       }
 
-      // Determine which backend to use based on sandbox type and options
+      // Get the Incus backend (default or remote via incusHost option)
       const backend = this._getBackend(botId, botConfig, options);
 
       // Ensure botConfig has the correct id
@@ -440,42 +437,32 @@ export class ContainerPool {
   }
 
   /**
-   * Get the appropriate backend for a bot, considering sandbox type and remote hosts
+   * Get the appropriate Incus backend for a bot
    *
-   * Routes to the correct backend based on:
-   * 1. `botConfig.sandbox.type` — selects backend type (incus, etc.)
-   * 2. `options.incusHost` — creates an Incus backend with a remote socket if specified
-   *
-   * For Incus backends with a remote host, creates an IncusBackend pointing
-   * at the tunneled socket.
+   * If `options.incusHost` is specified, creates an IncusBackend pointing
+   * at the tunneled socket for remote execution. Otherwise uses the
+   * injected default backend.
    *
    * @param {string} botId - Bot identifier
-   * @param {Object} botConfig - Bot configuration
+   * @param {Object} _botConfig - Bot configuration (unused, kept for API consistency)
    * @param {Object} [options={}] - Backend options
    * @param {string} [options.incusHost] - Incus socket path for remote Incus daemon
    * @returns {ContainerBackend} Backend instance
    * @private
    */
-  _getBackend(botId, botConfig, options = {}) {
+  _getBackend(botId, _botConfig, options = {}) {
     const { incusHost } = options;
-    const sandboxType = botConfig.sandbox?.type || BACKEND_TYPES.INCUS;
 
-    // Route based on sandbox type
-    switch (sandboxType) {
-      case BACKEND_TYPES.INCUS:
-      default: {
-        if (!incusHost) {
-          // Use the injected default backend directly
-          this.backends.set(botId, this._defaultBackend);
-          return this._defaultBackend;
-        }
-
-        // Create a remote Incus backend with custom socket path
-        const incusBackend = new IncusBackend({ socketPath: incusHost });
-        this.backends.set(botId, incusBackend);
-        return incusBackend;
-      }
+    if (!incusHost) {
+      // Use the injected default backend directly
+      this.backends.set(botId, this._defaultBackend);
+      return this._defaultBackend;
     }
+
+    // Create a remote Incus backend with custom socket path
+    const incusBackend = new IncusBackend({ socketPath: incusHost });
+    this.backends.set(botId, incusBackend);
+    return incusBackend;
   }
 
   /**

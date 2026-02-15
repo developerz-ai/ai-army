@@ -1,15 +1,13 @@
 /**
- * SSHTunnelManager - SSH tunnel management for remote Docker and Incus access
+ * SSHTunnelManager - SSH tunnel management for remote Incus access
  *
  * Creates and manages SSH tunnels to remote worker nodes, forwarding
- * a local TCP port to the remote Docker socket (`/var/run/docker.sock`)
- * or Incus socket (`/var/lib/incus/unix.socket`).
- * This enables the master node to control Docker containers or Incus
- * instances on remote workers as if they were local.
+ * a local TCP port to the remote Incus socket (`/var/lib/incus/unix.socket`).
+ * This enables the master node to control Incus instances on remote workers
+ * as if they were local.
  *
  * Features:
- * - Create SSH tunnels with local port forwarding to remote Docker or Incus sockets
- * - Configurable socket type ('docker' or 'incus') per tunnel
+ * - Create SSH tunnels with local port forwarding to remote Incus sockets
  * - Health check tunnels via TCP connectivity verification
  * - Automatic reconnection with configurable retry policy
  * - Keep-alive for long-running tunnel connections
@@ -47,7 +45,6 @@ const DEFAULT_KEEPALIVE_COUNT_MAX = 3;
 const DEFAULT_RECONNECT_DELAY_MS = 2_000;
 const DEFAULT_MAX_RECONNECT_ATTEMPTS = 5;
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
-const DEFAULT_DOCKER_SOCKET_PATH = '/var/run/docker.sock';
 const DEFAULT_INCUS_SOCKET_PATH = '/var/lib/incus/unix.socket';
 
 /**
@@ -55,7 +52,6 @@ const DEFAULT_INCUS_SOCKET_PATH = '/var/lib/incus/unix.socket';
  * @type {Readonly<Object>}
  */
 export const SOCKET_TYPES = Object.freeze({
-  DOCKER: 'docker',
   INCUS: 'incus',
 });
 
@@ -80,36 +76,26 @@ export class SSHTunnelError extends Error {
 }
 
 /**
- * SSHTunnelManager - manages SSH tunnels to remote Docker daemons and Incus instances
+ * SSHTunnelManager - manages SSH tunnels to remote Incus instances
  *
  * @example
  * const manager = new SSHTunnelManager();
  *
- * // Create a tunnel to a remote worker's Docker socket (default)
+ * // Create a tunnel to a remote worker's Incus socket
  * const tunnel = await manager.createTunnel({
- *   workerId: 'gpu-server',
+ *   workerId: 'incus-server',
  *   host: '192.168.1.100',
  *   port: 22,
  *   username: 'deploy',
  *   privateKeyPath: '~/.ssh/id_rsa',
  * });
- * // tunnel.dockerHost => 'tcp://127.0.0.1:54321'
- *
- * // Create a tunnel to a remote worker's Incus socket
- * const incusTunnel = await manager.createTunnel({
- *   workerId: 'incus-server',
- *   host: '192.168.1.101',
- *   username: 'deploy',
- *   privateKeyPath: '~/.ssh/id_rsa',
- *   socketType: 'incus',
- * });
- * // incusTunnel.incusHost => 'tcp://127.0.0.1:54322'
+ * // tunnel.incusHost => 'tcp://127.0.0.1:54321'
  *
  * // Check tunnel health
- * const healthy = await manager.healthCheck('gpu-server');
+ * const healthy = await manager.healthCheck('incus-server');
  *
  * // Close tunnel when done
- * await manager.closeTunnel('gpu-server');
+ * await manager.closeTunnel('incus-server');
  */
 export class SSHTunnelManager {
   /**
@@ -151,12 +137,12 @@ export class SSHTunnelManager {
   // ============================================================================
 
   /**
-   * Create an SSH tunnel to a remote worker's Docker or Incus socket
+   * Create an SSH tunnel to a remote worker's Incus socket
    *
    * Establishes an SSH connection to the remote host and creates a local
    * TCP server that forwards connections through the SSH tunnel to the
-   * remote Docker socket or Incus socket. The resulting `dockerHost` or
-   * `incusHost` URL can be used with Dockerode or IncusClient respectively.
+   * remote Incus socket. The resulting `incusHost` URL can be used with
+   * IncusClient.
    *
    * @param {Object} config - Tunnel configuration
    * @param {string} config.workerId - Unique identifier for this worker tunnel
@@ -166,28 +152,15 @@ export class SSHTunnelManager {
    * @param {string} [config.privateKeyPath] - Path to SSH private key file
    * @param {string|Buffer} [config.privateKey] - SSH private key content directly
    * @param {string} [config.passphrase] - Passphrase for the private key
-   * @param {string} [config.dockerSocketPath=/var/run/docker.sock] - Remote Docker socket path
    * @param {string} [config.incusSocketPath=/var/lib/incus/unix.socket] - Remote Incus socket path
-   * @param {'docker'|'incus'} [config.socketType='docker'] - Which remote socket to forward
-   * @returns {Promise<Object>} Tunnel info with { workerId, dockerHost, incusHost, localPort, state, socketType }
+   * @returns {Promise<Object>} Tunnel info with { workerId, incusHost, localPort, state, socketType }
    * @throws {SSHTunnelError} If config validation fails or connection cannot be established
    */
   async createTunnel(config) {
     this._validateConfig(config);
 
     const { workerId } = config;
-    const socketType = config.socketType || SOCKET_TYPES.DOCKER;
-
-    // Validate socketType
-    if (socketType !== SOCKET_TYPES.DOCKER && socketType !== SOCKET_TYPES.INCUS) {
-      throw new SSHTunnelError(
-        `Invalid socketType '${socketType}': must be '${SOCKET_TYPES.DOCKER}' or '${SOCKET_TYPES.INCUS}'`,
-        {
-          operation: 'createTunnel',
-          workerId,
-        }
-      );
-    }
+    const socketType = SOCKET_TYPES.INCUS;
 
     // Check if tunnel already exists
     if (this.tunnels.has(workerId)) {
@@ -213,7 +186,6 @@ export class SSHTunnelManager {
       connection: null,
       server: null,
       localPort: null,
-      dockerHost: null,
       incusHost: null,
       reconnectAttempts: 0,
       createdAt: new Date(),
@@ -226,7 +198,6 @@ export class SSHTunnelManager {
 
       return {
         workerId: tunnelEntry.workerId,
-        dockerHost: tunnelEntry.dockerHost,
         incusHost: tunnelEntry.incusHost,
         localPort: tunnelEntry.localPort,
         state: tunnelEntry.state,
@@ -320,7 +291,7 @@ export class SSHTunnelManager {
    * server is listening. Returns a health status object with details.
    *
    * @param {string} workerId - Worker identifier
-   * @returns {Promise<Object>} Health status { workerId, healthy, state, dockerHost, incusHost, localPort, socketType, uptime }
+   * @returns {Promise<Object>} Health status { workerId, healthy, state, incusHost, localPort, socketType, uptime }
    * @throws {SSHTunnelError} If workerId is invalid
    */
   async healthCheck(workerId) {
@@ -336,7 +307,6 @@ export class SSHTunnelManager {
         workerId,
         healthy: false,
         state: TUNNEL_STATES.CLOSED,
-        dockerHost: null,
         incusHost: null,
         localPort: null,
         socketType: null,
@@ -356,26 +326,11 @@ export class SSHTunnelManager {
       workerId,
       healthy,
       state: tunnel.state,
-      dockerHost: tunnel.dockerHost,
       incusHost: tunnel.incusHost,
       localPort: tunnel.localPort,
       socketType: tunnel.socketType,
       uptime,
     };
-  }
-
-  /**
-   * Get the Docker host URL for a worker's tunnel
-   *
-   * @param {string} workerId - Worker identifier
-   * @returns {string|null} Docker host URL (e.g., 'tcp://127.0.0.1:54321') or null
-   */
-  getDockerHost(workerId) {
-    const tunnel = this.tunnels.get(workerId);
-    if (!tunnel || tunnel.state !== TUNNEL_STATES.CONNECTED) {
-      return null;
-    }
-    return tunnel.dockerHost;
   }
 
   /**
@@ -403,7 +358,7 @@ export class SSHTunnelManager {
     if (!tunnel || tunnel.state !== TUNNEL_STATES.CONNECTED) {
       return null;
     }
-    return tunnel.dockerHost || tunnel.incusHost;
+    return tunnel.incusHost;
   }
 
   /**
@@ -418,7 +373,6 @@ export class SSHTunnelManager {
         workerId,
         state: tunnel.state,
         socketType: tunnel.socketType,
-        dockerHost: tunnel.dockerHost,
         incusHost: tunnel.incusHost,
         localPort: tunnel.localPort,
         host: tunnel.config.host,
@@ -511,17 +465,11 @@ export class SSHTunnelManager {
    * Determine the remote socket path based on tunnel configuration
    *
    * @param {Object} config - Tunnel configuration
-   * @returns {string} Remote socket path to forward
+   * @returns {string} Remote Incus socket path to forward
    * @private
    */
   _getRemoteSocketPath(config) {
-    const { socketType } = config;
-
-    if (socketType === SOCKET_TYPES.INCUS) {
-      return config.incusSocketPath || DEFAULT_INCUS_SOCKET_PATH;
-    }
-
-    return config.dockerSocketPath || DEFAULT_DOCKER_SOCKET_PATH;
+    return config.incusSocketPath || DEFAULT_INCUS_SOCKET_PATH;
   }
 
   /**
@@ -529,7 +477,7 @@ export class SSHTunnelManager {
    *
    * Creates an SSH connection, then starts a local TCP server that
    * forwards incoming connections through the SSH channel to the
-   * remote Docker or Incus socket.
+   * remote Incus socket.
    *
    * @param {Object} tunnelEntry - Internal tunnel state object
    * @returns {Promise<void>}
@@ -551,20 +499,11 @@ export class SSHTunnelManager {
 
     tunnelEntry.connection = connection;
 
-    // Create local TCP server that forwards to remote socket
+    // Create local TCP server that forwards to remote Incus socket
     const localPort = await this._createForwardingServer(tunnelEntry, remoteSocketPath);
 
     tunnelEntry.localPort = localPort;
-
-    // Set the appropriate host field based on socket type
-    const hostUrl = `tcp://127.0.0.1:${localPort}`;
-    if (tunnelEntry.socketType === SOCKET_TYPES.INCUS) {
-      tunnelEntry.incusHost = hostUrl;
-      tunnelEntry.dockerHost = null;
-    } else {
-      tunnelEntry.dockerHost = hostUrl;
-      tunnelEntry.incusHost = null;
-    }
+    tunnelEntry.incusHost = `tcp://127.0.0.1:${localPort}`;
 
     tunnelEntry.state = TUNNEL_STATES.CONNECTED;
 
@@ -641,10 +580,10 @@ export class SSHTunnelManager {
    * Create a local TCP server that forwards connections through SSH to a remote Unix socket
    *
    * Each incoming TCP connection triggers an SSH forwardOut to the remote
-   * Unix socket (Docker or Incus), creating a bidirectional stream pipe.
+   * Incus Unix socket, creating a bidirectional stream pipe.
    *
    * @param {Object} tunnelEntry - Internal tunnel state object
-   * @param {string} remoteSocketPath - Remote Unix socket path (Docker or Incus)
+   * @param {string} remoteSocketPath - Remote Incus Unix socket path
    * @returns {Promise<number>} Local port number the server is listening on
    * @private
    */

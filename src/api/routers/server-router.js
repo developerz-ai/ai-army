@@ -409,10 +409,10 @@ export class ServerRouter {
               server.tunnel = {
                 state: health.state,
                 healthy: health.healthy,
-                dockerHost: health.dockerHost,
+                incusHost: health.incusHost,
               };
             } catch (_err) {
-              server.tunnel = { state: 'unknown', healthy: null, dockerHost: null };
+              server.tunnel = { state: 'unknown', healthy: null, incusHost: null };
             }
           }
 
@@ -487,7 +487,7 @@ export class ServerRouter {
           server.tunnel = {
             state: health.state,
             healthy: health.healthy,
-            dockerHost: health.dockerHost,
+            incusHost: health.incusHost,
             localPort: health.localPort,
             uptime: health.uptime,
           };
@@ -495,7 +495,7 @@ export class ServerRouter {
           server.tunnel = {
             state: 'unknown',
             healthy: null,
-            dockerHost: null,
+            incusHost: null,
             localPort: null,
             uptime: null,
           };

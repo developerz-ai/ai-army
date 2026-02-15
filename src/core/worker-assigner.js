@@ -10,7 +10,7 @@
  *
  * Dependencies:
  * - workerRegistry: WorkerRegistry instance for worker state queries
- * - sshTunnelManager: SSHTunnelManager instance for remote Docker access (optional)
+ * - sshTunnelManager: SSHTunnelManager instance for remote Incus access (optional)
  *
  * @module core/worker-assigner
  */
@@ -53,7 +53,7 @@ export class WorkerAssignerError extends Error {
  *
  * // Assign a bot to a worker
  * const assignment = await assigner.assignBot('devops-deploy');
- * // => { workerId: 'gpu-server', dockerHost: 'tcp://127.0.0.1:54321', incusHost: null }
+ * // => { workerId: 'gpu-server', incusHost: 'unix:///tmp/incus-gpu-server.sock' }
  *
  * // Failover bots from a dead worker
  * const reassigned = await assigner.failover('gpu-server');
@@ -67,7 +67,7 @@ export class WorkerAssigner {
    *
    * @param {Object} workerRegistry - WorkerRegistry instance for worker state
    * @param {Object} [options={}] - Configuration options
-   * @param {Object} [options.sshTunnelManager] - SSHTunnelManager for remote Docker access
+   * @param {Object} [options.sshTunnelManager] - SSHTunnelManager for remote Incus access
    * @param {Array<Object>} [options.assignmentRules=[]] - Pattern-based assignment rules
    * @param {string} options.assignmentRules[].pattern - Glob-like pattern for bot ID matching
    * @param {string} options.assignmentRules[].workerId - Target worker ID for matching bots
@@ -83,7 +83,7 @@ export class WorkerAssigner {
     /** @type {Object} WorkerRegistry instance */
     this.workerRegistry = workerRegistry;
 
-    /** @type {Object|null} SSHTunnelManager for remote Docker access */
+    /** @type {Object|null} SSHTunnelManager for remote Incus access */
     this.sshTunnelManager = options.sshTunnelManager || null;
 
     /** @type {Array<Object>} Pattern-based assignment rules */
@@ -109,14 +109,13 @@ export class WorkerAssigner {
    * 3. Fall back to load-balanced selection (least-loaded healthy worker)
    *
    * After selecting a worker, increments its load counter and resolves
-   * the Docker host (local socket or SSH tunnel endpoint).
+   * the Incus host (local socket or SSH tunnel endpoint).
    *
    * @param {string} botId - Bot identifier
    * @param {Object} [preference={}] - Assignment preferences
    * @param {string} [preference.workerId] - Preferred worker ID
    * @returns {Promise<Object>} Assignment result
    * @returns {string} result.workerId - Assigned worker ID
-   * @returns {string|null} result.dockerHost - Docker host for container creation
    * @returns {string|null} result.incusHost - Incus host for container creation (tunneled socket)
    * @returns {string} result.workerType - Worker type ('local' or 'remote')
    * @throws {WorkerAssignerError} If no worker is available or assignment fails
@@ -169,8 +168,7 @@ export class WorkerAssigner {
         );
       }
 
-      // Resolve Docker and Incus hosts for this worker
-      const dockerHost = this._resolveDockerHost(worker);
+      // Resolve Incus host for this worker
       const incusHost = this._resolveIncusHost(worker);
 
       // Track assignment
@@ -183,7 +181,6 @@ export class WorkerAssigner {
 
       return {
         workerId: worker.id,
-        dockerHost,
         incusHost,
         workerType: worker.type,
       };
@@ -453,14 +450,12 @@ export class WorkerAssigner {
 
           // Track new assignment
           this.assignments.set(botId, newWorker.id);
-          const dockerHost = this._resolveDockerHost(newWorker);
           const incusHost = this._resolveIncusHost(newWorker);
 
           results.reassigned.push({
             botId,
             fromWorkerId: failedWorkerId,
             toWorkerId: newWorker.id,
-            dockerHost,
             incusHost,
           });
 
@@ -662,39 +657,6 @@ export class WorkerAssigner {
   }
 
   /**
-   * Resolve the Docker host for a worker
-   *
-   * For local workers, returns null (uses default Docker socket).
-   * For remote workers, returns the SSH tunnel Docker host URL
-   * from the SSHTunnelManager.
-   *
-   * @param {Object} worker - Worker object from registry
-   * @returns {string|null} Docker host URL or null for local
-   * @private
-   */
-  _resolveDockerHost(worker) {
-    if (worker.type === WORKER_TYPES.LOCAL) {
-      return null;
-    }
-
-    // For remote workers, get Docker host from SSH tunnel
-    if (this.sshTunnelManager) {
-      const dockerHost = this.sshTunnelManager.getDockerHost(worker.id);
-      if (dockerHost) {
-        return dockerHost;
-      }
-
-      this.logger.warn(
-        `[WorkerAssigner] No SSH tunnel found for remote worker '${worker.id}', ` +
-          'using worker host directly'
-      );
-    }
-
-    // Fallback: construct Docker host from worker's host address
-    return `tcp://${worker.host}:2375`;
-  }
-
-  /**
    * Resolve the Incus host for a worker
    *
    * For local workers, returns null (uses default Incus socket).
@@ -711,14 +673,14 @@ export class WorkerAssigner {
     }
 
     // For remote workers, get Incus host from SSH tunnel
-    if (this.sshTunnelManager && typeof this.sshTunnelManager.getIncusHost === 'function') {
+    if (this.sshTunnelManager) {
       const incusHost = this.sshTunnelManager.getIncusHost(worker.id);
       if (incusHost) {
         return incusHost;
       }
     }
 
-    // No Incus tunnel available — return null (Docker fallback handled separately)
+    // No Incus tunnel available
     return null;
   }
 

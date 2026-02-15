@@ -295,15 +295,12 @@ export class BotManager {
         const assignment = await this.workerAssigner.assignBot(botId, workerPreference);
         bot.workerId = assignment.workerId;
 
-        if (assignment.dockerHost) {
-          containerOptions.dockerHost = assignment.dockerHost;
-        }
         if (assignment.incusHost) {
           containerOptions.incusHost = assignment.incusHost;
         }
       }
 
-      // Create container via ContainerPool (routes to Docker or Incus backend)
+      // Create container via ContainerPool (Incus backend)
       const container = await this.containerPool.initializeContainer(
         botId,
         bot.config,
