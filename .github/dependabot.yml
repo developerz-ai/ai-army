@@ -1,0 +1,61 @@
+# Weekly, with minor and patch updates grouped per ecosystem; a major update arrives on its own.
+# The 14-day cooldown lets a compromised release get caught before it reaches us. Security updates
+# are unaffected.
+version: 2
+updates:
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+      time: "15:00"
+    cooldown:
+      default-days: 14
+    groups:
+      docker-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "docker-compose"
+    directories:
+      - "/"
+      - "/demo"
+      - "/templates/basic"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+      time: "15:00"
+    cooldown:
+      default-days: 14
+    groups:
+      docker-compose-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+      time: "15:00"
+    cooldown:
+      default-days: 14
+    groups:
+      github-actions-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directories:
+      - "/"
+      - "/demo"
+      - "/mcp-servers/ai-army-client"
+      - "/mcp-servers/daniel-assistant"
+      - "/mcp-servers/my-assistant"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+      time: "15:00"
+    cooldown:
+      default-days: 14
+    groups:
+      npm-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
