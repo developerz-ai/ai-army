@@ -13,7 +13,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1 — Install production dependencies
 # ---------------------------------------------------------------------------
-FROM node:22-alpine AS deps
+FROM node:25-alpine AS deps
 
 WORKDIR /app
 
@@ -27,7 +27,7 @@ RUN npm ci --omit=dev --ignore-scripts && \
 # ---------------------------------------------------------------------------
 # Stage 2 — Production runtime
 # ---------------------------------------------------------------------------
-FROM node:22-alpine AS runtime
+FROM node:25-alpine AS runtime
 
 # Build-time metadata
 ARG VERSION=0.1.0
