@@ -3,4 +3,20 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 command -v mise >/dev/null && mise install
-npm ci && docker compose up -d --wait postgres && (docker exec ai-army-postgres psql -U ai_army -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='ai_army_test'" | grep -q 1 || docker exec ai-army-postgres psql -U ai_army -d postgres -c "CREATE DATABASE ai_army_test OWNER ai_army;")
+npm ci
+
+# postgres 18+ keeps its data in a major-version directory and refuses to start
+# while anything is mounted at the legacy /var/lib/postgresql/data path. Mount
+# the volume where the image expects it, without editing the compose file.
+compose=(docker compose -f docker-compose.yml)
+pg_image="$(docker compose config --images 2>/dev/null | grep '^postgres:' | head -1 || true)"
+pg_major="${pg_image##*postgres:}"
+pg_major="${pg_major%%[^0-9]*}"
+if [ "${pg_major:-0}" -ge 18 ] && docker compose config 2>/dev/null | grep -q 'target: /var/lib/postgresql/data'; then
+  override="$(mktemp)"
+  trap 'rm -f "$override"' EXIT
+  printf 'services:\n  postgres:\n    volumes: !override\n      - pgdata:/var/lib/postgresql\n' > "$override"
+  compose+=(-f "$override")
+fi
+
+"${compose[@]}" up -d --wait postgres && (docker exec ai-army-postgres psql -U ai_army -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='ai_army_test'" | grep -q 1 || docker exec ai-army-postgres psql -U ai_army -d postgres -c "CREATE DATABASE ai_army_test OWNER ai_army;")

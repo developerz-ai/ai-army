@@ -19,7 +19,7 @@ $ARGUMENTS
 
 ## Steps
 
-1. Resolve the directory: `date +%Y %m %d`, then the highest existing `1NN-*` under
+1. Resolve the directory: `date '+%Y %m %d'`, then the highest existing `1NN-*` under
    `docs/plans/<YYYY>/<MM>/<DD>/` plus 1, else `101`. Slug kebab-case, 5 words max.
 2. Explore read-only first — find the patterns to follow and the files to change.
 3. Write `overview.md`: goal (1-2 sentences), context (only the facts the executor needs,
