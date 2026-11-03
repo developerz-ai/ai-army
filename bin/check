@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# one-command check (typecheck + lint + test) — established by dz-runner setup mode. One command; adjust as the repo grows.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test TEST_MODE=true npm run lint && DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test TEST_MODE=true npm test
