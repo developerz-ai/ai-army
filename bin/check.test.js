@@ -6,6 +6,12 @@
  * database that does not answer — and never with exit 1, which the platform
  * reads as "the change is red" (.claude/skills/verify-change/SKILL.md).
  *
+ * Secrets: the gate's output must never carry a credential — the test database
+ * URL holds the password, and gate output ends up in captured logs. Both
+ * refusal paths therefore run against a fixture URL with a distinctive
+ * password, and assert that neither stdout nor stderr repeats it
+ * (.claude/skills/verify-change/SKILL.md).
+ *
  * Safety: when both preconditions pass, bin/check runs `npm test`, and the
  * suite would re-enter this file. Every case below therefore runs a COPY of
  * bin/check inside a temporary directory — never the repository's own
@@ -27,6 +33,15 @@ const execFileAsync = promisify(execFile);
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const CHECK_SOURCE = fileURLToPath(new URL('./check', import.meta.url));
 const REPO_NODE_MODULES = path.join(REPO_ROOT, 'node_modules');
+
+/**
+ * Password carried by the fixture database URL.
+ *
+ * It is deliberately distinctive: the refusal paths must never echo the
+ * database URL, and a one-character password could turn up in unrelated output
+ * by accident. A leak of this exact string on either stream fails the test.
+ */
+const FIXTURE_PASSWORD = 'fixture-password-must-not-leak';
 
 /** Temporary directories created by this suite, removed when it ends. */
 const tempDirs = [];
@@ -107,6 +122,44 @@ function findClosedPort() {
   });
 }
 
+/**
+ * Build a fixture database URL that nothing answers on.
+ *
+ * The URL carries the distinctive fixture password, so a gate that echoes it
+ * leaks a credential the assertions below can recognise.
+ *
+ * @param {number} port - A closed TCP port
+ * @returns {string} The fixture database URL
+ */
+function unreachableDatabaseUrl(port) {
+  return `postgresql://ai_army:${FIXTURE_PASSWORD}@127.0.0.1:${port}/ai_army_test`;
+}
+
+/**
+ * Assert that neither output stream carries the fixture credential.
+ *
+ * The gate names the resource it needs and the remedy, never the URL: the URL
+ * holds the password, and gate output ends up in captured logs
+ * (.claude/skills/verify-change/SKILL.md).
+ *
+ * @param {{ stdout: string, stderr: string }} result - The captured result
+ */
+function assertNoCredential(result) {
+  for (const [stream, text] of [
+    ['stdout', result.stdout],
+    ['stderr', result.stderr],
+  ]) {
+    assert.ok(
+      !text.includes(FIXTURE_PASSWORD),
+      `the gate must not print the database password on ${stream}`
+    );
+    assert.ok(
+      !text.includes('postgresql://'),
+      `the gate must not print the database URL on ${stream}`
+    );
+  }
+}
+
 describe('bin/check refusal paths', () => {
   test('exits 75 when node_modules is missing', async () => {
     const dir = await createTempDir('bin-check-no-modules-');
@@ -114,7 +167,7 @@ describe('bin/check refusal paths', () => {
     const port = await findClosedPort();
 
     const result = await runScript(script, {
-      TEST_DATABASE_URL: `postgresql://x:x@127.0.0.1:${port}/ai_army_test`,
+      TEST_DATABASE_URL: unreachableDatabaseUrl(port),
     });
 
     assert.equal(result.code, 75, 'a missing dependency tree must exit 75, never 1');
@@ -124,6 +177,7 @@ describe('bin/check refusal paths', () => {
       /Missing script/,
       'the gate must stop at the precondition instead of running npm'
     );
+    assertNoCredential(result);
   });
 
   test('exits 75 when the test database is unusable', async () => {
@@ -143,11 +197,16 @@ describe('bin/check refusal paths', () => {
     const port = await findClosedPort();
 
     const result = await runScript(script, {
-      TEST_DATABASE_URL: `postgresql://x:x@127.0.0.1:${port}/ai_army_test`,
+      TEST_DATABASE_URL: unreachableDatabaseUrl(port),
     });
 
     assert.equal(result.code, 75, 'an unusable test database must exit 75, never 1');
-    assert.match(result.stderr, /test database .* is not usable/);
+    // The refusal names the resource and the remedy. The generic wording —
+    // "the test database is not usable" — is the safe one; a diagnostic that
+    // still names the URL in between is accepted here as well, and
+    // assertNoCredential below is what keeps the URL out of the output.
+    assert.match(result.stderr, /test database(?: .*)? is not usable/);
+    assert.match(result.stderr, /run bin\/setup/, 'the refusal must name the remedy');
     assert.doesNotMatch(
       result.stderr,
       /node_modules is missing/,
@@ -158,5 +217,6 @@ describe('bin/check refusal paths', () => {
       /Missing script/,
       'the gate must stop at the precondition instead of running npm'
     );
+    assertNoCredential(result);
   });
 });
