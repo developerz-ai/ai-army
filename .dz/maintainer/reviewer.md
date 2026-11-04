@@ -7,7 +7,7 @@
 
 ## Stack
 
-Node 22+ / npm / ES modules. The gate is `bin/check` (`DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test TEST_MODE=true npm run lint && DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test TEST_MODE=true npm test`): a change that does not pass it is not proven, whatever its description says.
+Node 22+ / npm / ES modules. The gate is `bin/check` (lint, unit, integration, e2e, and demo config validation — one step per job in .github/workflows/ci.yml): a change that does not pass it is not proven, whatever its description says.
 
 ## Review conventions
 

@@ -25,8 +25,7 @@ $ARGUMENTS
 3. Explore read-only, in parallel, into a ranked worklist of PR-sized batches.
 4. Build primitive-first: one reusable primitive with its first real caller. No
    abstraction before a consumer.
-5. **Prove it.** `bin/setup` after any dependency change, then `bin/check`, which here is
-   `DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test TEST_MODE=true npm run lint && DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test TEST_MODE=true npm test`.
+5. **Prove it.** `bin/setup` after any dependency change, then `bin/check` — the local mirror of every CI job in .github/workflows/ci.yml (lint, unit, integration, e2e, demo validate).
    Red is not a pull request: fix the cause, never silence the gate. Add the failing test
    first — a green run that never went red proves nothing.
 6. **One pull request in flight, start to finish.** Open it, watch it to merged, run
