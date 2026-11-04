@@ -2,21 +2,45 @@
 # one-command setup — established by dz-runner setup mode. One command; adjust as the repo grows.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-command -v mise >/dev/null && mise install
-npm ci
 
-# postgres 18+ keeps its data in a major-version directory and refuses to start
-# while anything is mounted at the legacy /var/lib/postgresql/data path. Mount
-# the volume where the image expects it, without editing the compose file.
-compose=(docker compose -f docker-compose.yml)
-pg_image="$(docker compose config --images 2>/dev/null | grep '^postgres:' | head -1 || true)"
-pg_major="${pg_image##*postgres:}"
-pg_major="${pg_major%%[^0-9]*}"
-if [ "${pg_major:-0}" -ge 18 ] && docker compose config 2>/dev/null | grep -q 'target: /var/lib/postgresql/data'; then
-  override="$(mktemp)"
-  trap 'rm -f "$override"' EXIT
-  printf 'services:\n  postgres:\n    volumes: !override\n      - pgdata:/var/lib/postgresql\n' > "$override"
-  compose+=(-f "$override")
+if command -v mise >/dev/null 2>&1; then
+  mise install || echo "warning: mise install failed — continuing with the system node" >&2
 fi
 
-"${compose[@]}" up -d --wait postgres && (docker exec ai-army-postgres psql -U ai_army -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='ai_army_test'" | grep -q 1 || docker exec ai-army-postgres psql -U ai_army -d postgres -c "CREATE DATABASE ai_army_test OWNER ai_army;")
+npm ci
+
+# .env holds the local secrets and is gitignored. Create it from the tracked
+# template on a fresh checkout; never overwrite an existing one.
+if [ -f .env ]; then
+  env_state="kept (already present — not overwritten)"
+else
+  cp .env.example .env
+  env_state="created from .env.example"
+fi
+
+# PostgreSQL 18 keeps its data under /var/lib/postgresql/<major>/ and refuses
+# to start while anything is mounted at the legacy /var/lib/postgresql/data
+# path. docker-compose.yml mounts pgdata where the image expects it, so no
+# override file is needed here.
+docker compose -f docker-compose.yml up -d --wait postgres
+
+# The test suite runs against ai_army_test — create it once, idempotently.
+if docker exec ai-army-postgres psql -U ai_army -d postgres -tc \
+  "SELECT 1 FROM pg_database WHERE datname='ai_army_test'" | grep -q 1; then
+  test_db_state="ai_army_test (already present)"
+else
+  docker exec ai-army-postgres psql -U ai_army -d postgres -c \
+    "CREATE DATABASE ai_army_test OWNER ai_army;"
+  test_db_state="ai_army_test (created)"
+fi
+
+cat <<EOF
+Setup complete.
+  dependencies   npm ci done
+  .env           $env_state
+  postgres       ai-army-postgres running (localhost:${PG_PORT:-5432})
+  test database  $test_db_state
+
+Next: ./bin/dev runs the app, ./bin/check lints and tests.
+Replace the placeholder keys in .env before using a real provider.
+EOF

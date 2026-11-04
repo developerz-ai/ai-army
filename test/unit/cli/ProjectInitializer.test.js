@@ -368,9 +368,35 @@ describe('ProjectInitializer', () => {
       await ProjectInitializer.writeTemplateFiles(basePath);
 
       const content = await readFile(path.join(basePath, 'docker-compose.yml'));
-      assert.ok(content.includes('postgres:16'));
+      assert.ok(content.includes('postgres:18'));
+      assert.ok(!content.includes('postgres:16'));
       assert.ok(content.includes('POSTGRES_DB: ai_army'));
       assert.ok(content.includes('5432:5432'));
+    });
+
+    test('writes docker-compose.yml with pgdata on the postgres 18 data path', async () => {
+      const basePath = await createTempDir();
+
+      await ProjectInitializer.writeTemplateFiles(basePath);
+
+      const content = await readFile(path.join(basePath, 'docker-compose.yml'));
+
+      const mountTargets = [...content.matchAll(/^\s*-\s+\S+:(\/\S+)\s*$/gm)].map(
+        match => match[1]
+      );
+      assert.ok(mountTargets.length > 0, 'compose should declare at least one volume mount');
+      assert.ok(
+        mountTargets.includes('/var/lib/postgresql'),
+        'pgdata should be mounted at /var/lib/postgresql (postgres 18 layout)'
+      );
+      assert.ok(
+        !mountTargets.includes('/var/lib/postgresql/data'),
+        'postgres 18 refuses to start while a volume is mounted at the legacy path'
+      );
+      assert.ok(
+        !content.includes('/var/lib/postgresql/data'),
+        'the legacy postgres data path must not appear in the generated compose file'
+      );
     });
 
     test('writes .gitignore with standard entries', async () => {

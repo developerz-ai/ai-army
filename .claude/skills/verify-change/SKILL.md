@@ -10,20 +10,38 @@ applies: [typescript, javascript, node]
 
 ## The one gate
 
-`bin/check` is the gate. CI runs it and the pre-commit hook runs it, so a change that
-passes it locally passes everywhere.
+`bin/check` is the local gate: one command that lints and runs the whole test suite.
+
+CI does **not** run it. `.github/workflows/ci.yml` runs five separate check jobs —
+`lint`, `unit-tests`, `integration-tests`, `e2e-tests` and `validate-demo` (plus an
+`all-checks` job that only echoes once those five pass) — and never invokes
+`bin/check`. The repo’s pre-commit hook (`.githooks/pre-commit`) does run it, but only
+once you activate it per clone: `git config core.hooksPath .githooks`.
 
 | Step | Command | What it is |
 |------|---------|------------|
-| install | `bin/setup` | npm ci && docker compose up -d --wait postgres && (docker exec ai-army-postgres psql -U ai_army -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='ai_army_test'" \| grep -q 1 \|\| docker exec ai-army-postgres psql -U ai_army -d postgres -c "CREATE DATABASE ai_army_test OWNER ai_army;") |
+| install | `bin/setup` | npm ci; copies `.env.example` to `.env` when `.env` is missing (an existing `.env` is never overwritten); docker compose up -d --wait postgres; creates the `ai_army_test` database when it is missing |
 | run | `bin/dev` | node bin/cli.js dev — on developerz.ai runs, start it with code_bash_background when you need a running stack |
-| prove | `bin/check` | DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test TEST_MODE=true npm run lint && DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test TEST_MODE=true npm test |
+| prove | `bin/check` | guards its preconditions, then runs `npm run lint` and `npm test` with `DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test` and `TEST_MODE=true` — exit 0 pass, 75 a precondition is unmet, any other non-zero the change is red |
 | stop | `bin/stop` | docker compose stop — on developerz.ai runs, the platform runs this when your session ends — do not stop the stack yourself |
+
+## What `bin/check` actually does
+
+1. **Preconditions first.** No `node_modules`, or a test database that does not answer
+   at `postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test` (or a database
+   user that cannot create the per-worker test databases), ends the run with exit
+   **75**. The gate refused to grade: the environment is missing a resource — run
+   `bin/setup` and run the gate again.
+2. **Then the change.** `npm run lint`, then `npm test` (unit → integration → e2e)
+   with `DATABASE_URL` pointed at `ai_army_test` and `TEST_MODE=true`. A genuine
+   failure exits non-zero, and the change is red.
 
 ## Rules
 
 - Run every command from the repo root — the scripts `cd` there themselves.
 - `bin/check` red is not a pull request. Fix the cause, never silence the gate.
+- `bin/check` exiting 75 is not a red change either — that is the environment. Fix the
+  environment (usually `bin/setup`) and run the gate again.
 
 ## Exit codes `bin/check` must use
 

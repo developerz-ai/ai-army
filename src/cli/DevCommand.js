@@ -42,6 +42,52 @@ export class DevCommandError extends Error {
 }
 
 /**
+ * Find the name of a missing environment variable in an error chain
+ *
+ * Walks the `cause` chain because the orchestrator wraps the original
+ * ConfigError, which carries the variable name in `envVar`.
+ *
+ * @param {Error} err - Error to inspect
+ * @returns {string|null} The variable name, or null when the failure is not a missing env var
+ */
+function findMissingEnvVar(err) {
+  const seen = new Set();
+  let current = err;
+
+  while (current && typeof current === 'object' && !seen.has(current)) {
+    seen.add(current);
+
+    if (typeof current.envVar === 'string' && current.envVar.length > 0) {
+      return current.envVar;
+    }
+
+    const match = /environment variable '([^']+)'/.exec(current.message || '');
+    if (match) {
+      return match[1];
+    }
+
+    current = current.cause;
+  }
+
+  return null;
+}
+
+/**
+ * Print an actionable hint for a missing environment variable
+ *
+ * @param {string|null} missingVar - Name of the missing variable, if any
+ * @param {Function} write - Output writer
+ * @returns {void}
+ */
+function writeEnvHint(missingVar, write) {
+  if (!missingVar) {
+    return;
+  }
+  write(`   💡 Missing environment variable '${missingVar}'\n`);
+  write(`      Run ./bin/setup to create .env, or export it: export ${missingVar}=<value>\n`);
+}
+
+/**
  * Run the dev command
  *
  * Creates an Orchestrator, starts it, then uses ConfigWatcher to watch
@@ -57,7 +103,8 @@ export class DevCommandError extends Error {
  * @param {Function} [options.configWatcherFactory] - Factory to create ConfigWatcher (for DI/testing)
  * @param {Function} [options.onShutdown] - Callback after graceful shutdown
  * @param {Object} [options.processRef=process] - Process reference for signal handling
- * @returns {Promise<{ orchestrator: Object, watcher: Object|null }>} Started orchestrator and watcher
+ * @returns {Promise<{ orchestrator: Object, watcher: Object|null, success?: boolean }>} Started
+ *   orchestrator and watcher. On a failed startup the result carries `success: false`.
  */
 export async function runDev({
   configPath = './config.json',
@@ -182,22 +229,25 @@ export async function runDev({
 
     return { orchestrator: orch, watcher: configWatcher };
   } catch (err) {
+    const missingVar = findMissingEnvVar(err);
+
     if (err instanceof OrchestratorError) {
       write(`\n❌ Startup failed: ${err.message}\n`);
       if (err.component) {
         write(`   Component: ${err.component}\n`);
       }
+      writeEnvHint(missingVar, write);
       try {
         await orch.stop();
       } catch {
         // Ignore cleanup errors
       }
-      return { orchestrator: orch, watcher: null };
+      return { orchestrator: orch, watcher: null, success: false };
     }
+
+    writeEnvHint(missingVar, write);
     throw new DevCommandError(`Startup failed: ${err.message}`, {
       cause: err,
     });
   }
 }
-
-export default runDev;

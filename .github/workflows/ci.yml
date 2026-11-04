@@ -163,6 +163,12 @@ jobs:
 
       - name: Validate demo config
         run: cd demo && npx ai-army validate
+        env:
+          # demo/config.json interpolates ${ANTHROPIC_API_KEY}, so the config
+          # cannot even be loaded without it (src/config/ConfigLoader.js).
+          # This is a placeholder: validation checks the shape of the config
+          # and never calls the Anthropic API.
+          ANTHROPIC_API_KEY: ci-placeholder-not-a-real-key
 
   all-checks:
     name: "\u2705 All Checks Passed"

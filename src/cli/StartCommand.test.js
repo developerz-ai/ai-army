@@ -258,6 +258,34 @@ describe('StartCommand - runStart()', () => {
     assert.ok(result.orchestrator);
   });
 
+  test('resolves with success false when startup fails', async () => {
+    const startError = new OrchestratorError('Configuration validation failed', {
+      operation: 'start',
+      component: 'config',
+    });
+    const orch = createMockOrchestrator({ startError });
+
+    const result = await runStart({
+      orchestrator: orch,
+      output: out,
+      processRef: proc,
+    });
+
+    assert.equal(result.success, false);
+  });
+
+  test('resolves with success true after a successful start', async () => {
+    const orch = createMockOrchestrator();
+
+    const result = await runStart({
+      orchestrator: orch,
+      output: out,
+      processRef: proc,
+    });
+
+    assert.equal(result.success, true);
+  });
+
   test('handles shutdown errors gracefully', async () => {
     const orch = createMockOrchestrator({
       stopError: new Error('Shutdown error'),

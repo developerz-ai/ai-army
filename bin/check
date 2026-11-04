@@ -1,5 +1,62 @@
 #!/usr/bin/env bash
-# one-command check (typecheck + lint + test) — established by dz-runner setup mode. One command; adjust as the repo grows.
+# one-command check (lint + test) — established by dz-runner setup mode. One command; adjust as the repo grows.
+#
+# Exit codes — see .claude/skills/verify-change/SKILL.md:
+#   0                  the change passes
+#   75                 a resource this gate needs is unreachable: the gate refused
+#                      to grade — blame the environment, never the change
+#   any other non-zero the gate ran and the change is red — blame the change
 set -euo pipefail
 cd "$(dirname "$0")/.."
-DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test TEST_MODE=true npm run lint && DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test TEST_MODE=true npm test
+
+# The test suite derives its per-worker databases from DATABASE_URL
+# (test/helpers/setup.js), so the gate always talks to ai_army_test. Override
+# TEST_DATABASE_URL for other credentials — the database name stays the same.
+TEST_DATABASE_URL="${TEST_DATABASE_URL:-postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test}"
+
+# Precondition 1 — dependencies are installed.
+if [ ! -d node_modules ]; then
+  echo "bin/check: node_modules is missing — run bin/setup first." >&2
+  exit 75
+fi
+
+# Precondition 2 — the test database answers, and its user may create the
+# per-worker databases the suite clones from it. Without them the suite fails
+# for an environment reason, which must not be reported as a red change.
+if ! CHECK_DATABASE_URL="$TEST_DATABASE_URL" node --input-type=module -e '
+import pg from "pg";
+
+const client = new pg.Client({
+  connectionString: process.env.CHECK_DATABASE_URL,
+  connectionTimeoutMillis: 5000,
+});
+
+try {
+  await client.connect();
+  const { rows } = await client.query(
+    "SELECT current_database() AS db, current_user AS usr"
+  );
+  if (rows[0].db !== "ai_army_test") {
+    throw new Error(`connected to database "${rows[0].db}", the gate needs "ai_army_test"`);
+  }
+  const rights = await client.query(
+    "SELECT rolcreatedb FROM pg_roles WHERE rolname = current_user"
+  );
+  if (!rights.rows[0]?.rolcreatedb) {
+    throw new Error(
+      `database user "${rows[0].usr}" cannot create the per-worker test databases`
+    );
+  }
+} catch (err) {
+  process.stderr.write(`bin/check: ${err.message}\n`);
+  process.exit(1);
+} finally {
+  await client.end().catch(() => {});
+}
+'; then
+  echo "bin/check: the test database at $TEST_DATABASE_URL is not usable — run bin/setup." >&2
+  exit 75
+fi
+
+DATABASE_URL="$TEST_DATABASE_URL" TEST_MODE=true npm run lint
+DATABASE_URL="$TEST_DATABASE_URL" TEST_MODE=true npm test

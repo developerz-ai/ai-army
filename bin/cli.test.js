@@ -17,6 +17,20 @@ import { createProgram, runInit } from './cli.js';
 
 const execFileAsync = promisify(execFile);
 const CLI_PATH = new URL('./cli.js', import.meta.url).pathname;
+const PACKAGE_JSON_PATH = new URL('../package.json', import.meta.url);
+
+/**
+ * Read the package version from package.json
+ *
+ * The version is asserted against package.json instead of a hardcoded string,
+ * so a release bump cannot leave this suite asserting a stale number.
+ *
+ * @returns {Promise<string>} The package version
+ */
+async function readPackageVersion() {
+  const pkg = JSON.parse(await fs.readFile(PACKAGE_JSON_PATH, 'utf8'));
+  return pkg.version;
+}
 
 /** Track temp directories for cleanup */
 const tempDirs = [];
@@ -76,10 +90,10 @@ describe('createProgram()', () => {
     assert.equal(typeof program.parse, 'function');
   });
 
-  test('has the correct version', () => {
+  test('has the correct version', async () => {
     const program = createProgram();
 
-    assert.equal(program.version(), '0.1.0');
+    assert.equal(program.version(), await readPackageVersion());
   });
 
   test('registers init command', () => {
@@ -149,18 +163,29 @@ describe('createProgram()', () => {
     assert.ok(cmd.description().includes('reload'));
   });
 
-  test('registers all 7 commands', () => {
+  test('registers every top-level command', () => {
     const program = createProgram();
     const commandNames = program.commands.map(c => c.name());
 
-    assert.ok(commandNames.includes('init'));
-    assert.ok(commandNames.includes('validate'));
-    assert.ok(commandNames.includes('migrate'));
-    assert.ok(commandNames.includes('start'));
-    assert.ok(commandNames.includes('dev'));
-    assert.ok(commandNames.includes('status'));
-    assert.ok(commandNames.includes('reload'));
-    assert.equal(commandNames.length, 7);
+    const expectedCommands = [
+      'init',
+      'validate',
+      'migrate',
+      'start',
+      'dev',
+      'status',
+      'reload',
+      'instance',
+      'server',
+      'worker',
+      'deploy',
+      'generate',
+    ];
+
+    for (const name of expectedCommands) {
+      assert.ok(commandNames.includes(name), `${name} command should be registered`);
+    }
+    assert.equal(commandNames.length, expectedCommands.length);
   });
 });
 
@@ -352,7 +377,7 @@ describe('CLI subprocess execution', () => {
   test('--version shows version number', async () => {
     const { stdout } = await execFileAsync('node', [CLI_PATH, '--version']);
 
-    assert.ok(stdout.trim().match(/^\d+\.\d+\.\d+$/), 'Should output semver version');
+    assert.equal(stdout.trim(), await readPackageVersion());
   });
 
   test('init --help shows template option', async () => {
@@ -401,27 +426,83 @@ describe('CLI subprocess execution', () => {
     assert.ok(await fileExists(path.join(projectPath, 'package.json')));
   });
 
-  test('validate command outputs stub message', async () => {
-    const { stdout } = await execFileAsync('node', [CLI_PATH, 'validate']);
+  test('validate command validates a configuration', async () => {
+    // Run in an empty directory with a minimal, valid config: the command must
+    // exit 0 instead of depending on the repository's own config.json and .env
+    const tmpDir = await createTempDir();
+    await fs.writeFile(
+      path.join(tmpDir, 'config.json'),
+      JSON.stringify({
+        providers: { anthropic: { type: 'anthropic', apiKey: 'test-key' } },
+        channels: {},
+      })
+    );
+
+    const { stdout } = await execFileAsync('node', [CLI_PATH, 'validate'], { cwd: tmpDir });
 
     assert.ok(stdout.includes('Validating configuration'));
   });
 
   test('status command is wired and functional (not a stub)', async () => {
-    // Without DATABASE_URL, the status command should exit with error (not stub behavior)
-    // This verifies the command is properly wired to runStatus() instead of just printing a stub message
+    // Run in an empty directory: there is no .env file to supply DATABASE_URL and
+    // the variable is removed from the environment, so the command must fail on the
+    // missing variable. This verifies it is properly wired to runStatus() instead of
+    // just printing a stub message.
+    const tmpDir = await createTempDir();
     const env = { ...process.env };
     delete env.DATABASE_URL;
 
+    let failed = false;
     try {
-      await execFileAsync('node', [CLI_PATH, 'status'], { env });
-      assert.fail('Should have thrown due to missing DATABASE_URL');
+      await execFileAsync('node', [CLI_PATH, 'status'], { env, cwd: tmpDir });
     } catch (err) {
+      failed = true;
       // Should get a real error about DATABASE_URL, not "not yet implemented"
       assert.ok(err.stderr.includes('DATABASE_URL'), 'Should require DATABASE_URL');
       assert.ok(!err.stdout.includes('not yet implemented'), 'Should not be a stub');
       assert.ok(!err.stdout.includes('Checking status'), 'Should not print stub message');
     }
+    assert.ok(failed, 'Should have failed due to missing DATABASE_URL');
+  });
+
+  test('dev exits non-zero when startup fails', async () => {
+    // A missing config file fails at config load, before any database connection
+    const tmpDir = await createTempDir();
+    const missingConfig = path.join(tmpDir, 'missing-config.json');
+
+    let exitCode;
+    let stdout = '';
+
+    try {
+      await execFileAsync('node', [CLI_PATH, 'dev', '--config', missingConfig]);
+      exitCode = 0;
+    } catch (err) {
+      exitCode = err.code;
+      stdout = err.stdout || '';
+    }
+
+    assert.notEqual(exitCode, 0, 'Should exit non-zero when startup fails');
+    assert.ok(stdout.includes('Startup failed'), 'Should report the startup failure');
+  });
+
+  test('start exits non-zero when startup fails', async () => {
+    // A missing config file fails at config load, before any database connection
+    const tmpDir = await createTempDir();
+    const missingConfig = path.join(tmpDir, 'missing-config.json');
+
+    let exitCode;
+    let stdout = '';
+
+    try {
+      await execFileAsync('node', [CLI_PATH, 'start', '--config', missingConfig]);
+      exitCode = 0;
+    } catch (err) {
+      exitCode = err.code;
+      stdout = err.stdout || '';
+    }
+
+    assert.notEqual(exitCode, 0, 'Should exit non-zero when startup fails');
+    assert.ok(stdout.includes('Startup failed'), 'Should report the startup failure');
   });
 
   test('unknown command shows error', async () => {

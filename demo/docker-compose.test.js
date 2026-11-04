@@ -25,9 +25,11 @@ describe('demo/docker-compose.yml', () => {
     assert.ok(raw.length > 0, 'docker-compose.yml should have content');
   });
 
-  test('uses compose version 3.8', () => {
-    assert.ok(raw.includes("version: '3.8'") || raw.includes('version: "3.8"'),
-      'Should declare version 3.8');
+  test('omits the obsolete compose version key', () => {
+    assert.ok(
+      !/^version:/m.test(raw),
+      'Should not declare the obsolete "version" key — Docker Compose V2 ignores it and warns'
+    );
   });
 
   test('defines services section', () => {
@@ -99,10 +101,22 @@ describe('PostgreSQL service', () => {
     assert.ok(raw.includes('restart: unless-stopped'), 'Should have unless-stopped restart policy');
   });
 
-  test('uses named volume for data persistence', () => {
+  test('mounts the data volume at the PostgreSQL 18 path', () => {
+    const mounts = raw
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('- ') && line.includes('/var/lib/postgresql'));
+    assert.deepEqual(
+      mounts,
+      ['- postgres-data:/var/lib/postgresql'],
+      'Should mount postgres-data at /var/lib/postgresql (PostgreSQL 18 data path)'
+    );
+  });
+
+  test('does not use the legacy PostgreSQL data path', () => {
     assert.ok(
-      raw.includes('postgres-data:/var/lib/postgresql/data'),
-      'Should mount postgres-data volume'
+      !raw.includes('/var/lib/postgresql/data'),
+      'Should not use /var/lib/postgresql/data — PostgreSQL 18 refuses to start with that mount'
     );
   });
 
