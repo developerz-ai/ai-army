@@ -42,6 +42,9 @@ once you activate it per clone: `git config core.hooksPath .githooks`.
 - `bin/check` red is not a pull request. Fix the cause, never silence the gate.
 - `bin/check` exiting 75 is not a red change either — that is the environment. Fix the
   environment (usually `bin/setup`) and run the gate again.
+- The gate's output never carries a credential. The test database URL holds the
+  password, and gate output ends up in captured logs: refuse by naming the
+  resource (the test database) and the remedy (run `bin/setup`), never the URL.
 
 ## Exit codes `bin/check` must use
 
