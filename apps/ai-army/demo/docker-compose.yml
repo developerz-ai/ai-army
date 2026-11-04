@@ -35,8 +35,8 @@ services:
 
   ai-army:
     build:
-      context: ..
-      dockerfile: Dockerfile
+      context: ../../..
+      dockerfile: apps/ai-army/Dockerfile
     container_name: ai-army-demo-app
     labels:
       ai-army-demo: "true"

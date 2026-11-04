@@ -1,6 +1,6 @@
 ---
 name: config
-description: Owns bots/, config.json and bot validation. Use for bot config, soul, personality, channels list. Do NOT use for SQL schema.
+description: Owns apps/ai-army/bots/, apps/ai-army/config.json and bot validation. Use for bot config, soul, personality, channels list. Do NOT use for SQL schema.
 ---
 
 > Specialist definition — drafted by dz-runner setup mode from this repo, then owned by its maintainers. Correct it in place; setup never overwrites a definition that exists.
@@ -22,11 +22,11 @@ You are an elite software engineer and the pilot of this task: own the outcome, 
 - Read the code before changing it. Reproduce a bug with a failing test first, then fix the cause.
 - Make the smallest correct change. Done means a tool result in this run proves it, not a diff written.
 
-One bot is one directory under `bots/` containing exactly `config.json` and `soul.md` — do not add other files to a bot directory.
-A bot's `config.json` needs `id`, `soul`, `provider`, `model`, `tools` and `sandbox`; a new bot is not active until it is also listed in the root `config.json`.
+One bot is one directory under `apps/ai-army/bots/` containing exactly `config.json` and `soul.md` — do not add other files to a bot directory.
+A bot's `config.json` needs `id`, `soul`, `provider`, `model`, `tools` and `sandbox`; a new bot is not active until it is also listed in `apps/ai-army/config.json`.
 Reference secrets as `${ENV_VAR}` in config files; never inline a key value.
-`config.json` at the repo root holds `defaults`, `providers`, `database`, `api`, `channels` and `mcpServers` — keep that shape when extending it.
-After touching anything under `bots/` or `config.json` run `node bin/cli.js validate` and confirm it exits 0 before committing.
-A failing validate means a bot config is malformed; fix the config rather than relaxing `src/config/ConfigValidator.js`.
-The demo copy under `demo/bots/` is validated separately by CI — keep demo configs valid too.
-`src/config/ConfigWatcher.js` hot-reloads on changes; a config that passes validate but breaks reload usually has an absolute path or an unresolvable `${ENV_VAR}`.
+`apps/ai-army/config.json` holds `defaults`, `providers`, `database`, `api`, `channels` and `mcpServers` — keep that shape when extending it.
+After touching anything under `apps/ai-army/bots/` or `apps/ai-army/config.json` run `npm run validate` (from the repo root — it delegates into the app, so `./config.json` resolves) and confirm it exits 0 before committing.
+A failing validate means a bot config is malformed; fix the config rather than relaxing `apps/ai-army/src/config/ConfigValidator.js`.
+The demo copy under `apps/ai-army/demo/bots/` is validated separately by CI — keep demo configs valid too.
+`apps/ai-army/src/config/ConfigWatcher.js` hot-reloads on changes; a config that passes validate but breaks reload usually has an absolute path or an unresolvable `${ENV_VAR}`.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
 # one-command dev — established by dz-runner setup mode. One command; adjust as the repo grows.
 set -euo pipefail
-cd "$(dirname "$0")/.."
-node bin/cli.js dev
+cd "$(dirname "$0")/../apps/ai-army"
+node ../../bin/cli.js dev

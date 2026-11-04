@@ -25,18 +25,18 @@ import path from 'path';
 import { readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ProjectInitializer } from '../src/cli/ProjectInitializer.js';
-import { runValidate } from '../src/cli/ValidateCommand.js';
-import { runMigrate } from '../src/cli/MigrateCommand.js';
-import { runStart } from '../src/cli/StartCommand.js';
-import { runDev } from '../src/cli/DevCommand.js';
-import { runReload } from '../src/cli/ReloadCommand.js';
-import { runStatus } from '../src/cli/StatusCommand.js';
-import { runInstance } from '../src/cli/InstanceCommand.js';
-import { runServer } from '../src/cli/ServerCommand.js';
-import { runWorker } from '../src/cli/WorkerCommand.js';
-import { runDeploy } from '../src/cli/DeployCommand.js';
-import { runGenerate } from '../src/cli/GenerateCommand.js';
+import { ProjectInitializer } from '../apps/ai-army/src/cli/ProjectInitializer.js';
+import { runValidate } from '../apps/ai-army/src/cli/ValidateCommand.js';
+import { runMigrate } from '../apps/ai-army/src/cli/MigrateCommand.js';
+import { runStart } from '../apps/ai-army/src/cli/StartCommand.js';
+import { runDev } from '../apps/ai-army/src/cli/DevCommand.js';
+import { runReload } from '../apps/ai-army/src/cli/ReloadCommand.js';
+import { runStatus } from '../apps/ai-army/src/cli/StatusCommand.js';
+import { runInstance } from '../apps/ai-army/src/cli/InstanceCommand.js';
+import { runServer } from '../apps/ai-army/src/cli/ServerCommand.js';
+import { runWorker } from '../apps/ai-army/src/cli/WorkerCommand.js';
+import { runDeploy } from '../apps/ai-army/src/cli/DeployCommand.js';
+import { runGenerate } from '../apps/ai-army/src/cli/GenerateCommand.js';
 
 /**
  * Collect repeatable --override values into an array
@@ -71,7 +71,7 @@ async function withStorage(fn) {
     return;
   }
 
-  const { PostgresStorage } = await import('../src/adapters/storage/postgres.js');
+  const { PostgresStorage } = await import('../apps/ai-army/src/adapters/storage/postgres.js');
   const storage = new PostgresStorage(databaseUrl);
 
   try {
@@ -95,7 +95,7 @@ export function createProgram() {
   // Load version from package.json
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = dirname(__filename);
-  const packageJsonPath = path.join(__dirname, '../package.json');
+  const packageJsonPath = path.join(__dirname, '../apps/ai-army/package.json');
   const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
 
   program
@@ -132,7 +132,7 @@ export function createProgram() {
     .command('migrate')
     .description('Run database migrations')
     .action(async () => {
-      const { PostgresStorage } = await import('../src/adapters/storage/postgres.js');
+      const { PostgresStorage } = await import('../apps/ai-army/src/adapters/storage/postgres.js');
       const databaseUrl = process.env.DATABASE_URL;
       if (!databaseUrl) {
         process.stderr.write('❌ DATABASE_URL environment variable is required\n');
@@ -187,7 +187,7 @@ export function createProgram() {
     .description('Show system status')
     .option('-c, --config <path>', 'Config file path', './config.json')
     .action(async options => {
-      const { PostgresStorage } = await import('../src/adapters/storage/postgres.js');
+      const { PostgresStorage } = await import('../apps/ai-army/src/adapters/storage/postgres.js');
       const databaseUrl = process.env.DATABASE_URL;
       if (!databaseUrl) {
         process.stderr.write('❌ DATABASE_URL environment variable is required\n');

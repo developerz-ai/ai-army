@@ -3,7 +3,7 @@
 # Multi-stage build for minimal, secure runtime image.
 #
 # Build:
-#   docker build -t ai-army:latest .
+#   docker build -f apps/ai-army/Dockerfile -t ai-army:latest .
 #   docker build -t ai-army:1.0.0 --build-arg VERSION=1.0.0 .
 #
 # Run:
@@ -19,7 +19,7 @@ WORKDIR /app
 
 # Copy only package manifests first for optimal layer caching.
 # Changes to source code won't bust the npm ci cache.
-COPY package.json package-lock.json ./
+COPY apps/ai-army/package.json apps/ai-army/package-lock.json ./
 
 RUN npm ci --omit=dev --ignore-scripts && \
     npm cache clean --force
@@ -57,16 +57,16 @@ WORKDIR /app
 COPY --from=deps --chown=aiagent:aiagent /app/node_modules ./node_modules
 
 # Copy application source
-COPY --chown=aiagent:aiagent package.json ./
-COPY --chown=aiagent:aiagent src/ ./src/
+COPY --chown=aiagent:aiagent apps/ai-army/package.json ./
+COPY --chown=aiagent:aiagent apps/ai-army/src/ ./src/
 COPY --chown=aiagent:aiagent bin/ ./bin/
-COPY --chown=aiagent:aiagent migrations/ ./migrations/
-COPY --chown=aiagent:aiagent templates/ ./templates/
-COPY --chown=aiagent:aiagent skills/ ./skills/
+COPY --chown=aiagent:aiagent apps/ai-army/migrations/ ./migrations/
+COPY --chown=aiagent:aiagent apps/ai-army/templates/ ./templates/
+COPY --chown=aiagent:aiagent apps/ai-army/skills/ ./skills/
 
 # Bots directory — typically mounted at runtime, but copy defaults
-COPY --chown=aiagent:aiagent bots/ ./bots/
-COPY --chown=aiagent:aiagent config.json ./
+COPY --chown=aiagent:aiagent apps/ai-army/bots/ ./bots/
+COPY --chown=aiagent:aiagent apps/ai-army/config.json ./
 
 # Create data directory for runtime state (volume mount point)
 RUN mkdir -p /app/data && chown aiagent:aiagent /app/data

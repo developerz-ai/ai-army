@@ -40,12 +40,12 @@ npm install
 
 3. Copy environment variables:
 ```bash
-cp .env.example .env
+cp apps/ai-army/.env.example apps/ai-army/.env
 ```
 
 4. Run validation:
 ```bash
-npx ai-army validate
+npm run validate
 ```
 
 5. Run tests:
@@ -66,7 +66,7 @@ This uses `node --watch` to automatically restart on file changes.
 
 ### Before Committing
 
-Always run these commands before committing:
+Always run these commands before committing — from the repo root; the root `package.json` scripts delegate into `apps/ai-army/`:
 
 ```bash
 # Lint your code
@@ -81,9 +81,9 @@ npm test
 
 ### Validate Bot Configs
 
-After changes to `bots/` or `config.json`:
+After changes to `apps/ai-army/bots/` or `apps/ai-army/config.json`:
 ```bash
-npx ai-army validate
+npm run validate
 ```
 
 ## Code Style
@@ -376,7 +376,7 @@ Co-Authored-By: John Smith <john@example.com>
 
 2. **Validate bot configs:**
    ```bash
-   npx ai-army validate
+   npm run validate
    ```
 
 3. **Update documentation** if you've changed APIs or configuration
@@ -440,39 +440,50 @@ The CI workflow runs these in parallel for faster feedback.
 
 ```
 ai-army/
-├── bin/                    # CLI executables
-├── bots/                   # Bot configurations
-│   └── <bot-name>/
-│       ├── config.json     # Bot config
-│       └── soul.md         # Bot personality
-├── src/
-│   ├── core/              # Core orchestration
-│   ├── adapters/          # Channel adapters (Slack, Discord)
-│   ├── api/               # REST API server
-│   ├── config/            # Configuration management
-│   ├── database/          # Database layer
-│   ├── execution/         # Bot execution engine
-│   ├── mcp/               # Model Context Protocol
-│   ├── models/            # AI model integrations
-│   ├── queue/             # Message queuing
-│   ├── secrets/           # Secret management
-│   ├── skills/            # Bot skills/tools
-│   ├── webhooks/          # Webhook handlers
-│   └── worker/            # Worker management
-├── test/
-│   ├── unit/              # Unit tests
-│   ├── integration/       # Integration tests
-│   └── e2e/               # End-to-end tests
-├── migrations/            # Database migrations
-└── demo/                  # Demo configuration
+├── bin/                    # CLI executables and ops scripts (stays at the repo root)
+├── .github/                # CI workflows (stays at the repo root)
+├── README.md, CLAUDE.md, CONTRIBUTING.md   # Docs stay at the repo root
+└── apps/
+    └── ai-army/            # The application
+        ├── package.json    # App manifest (npm workspace member)
+        ├── config.json     # Army-wide configuration
+        ├── docker-compose.yml  # Compose stack
+        ├── bots/           # Bot configurations
+        │   └── <bot-name>/
+        │       ├── config.json     # Bot config
+        │       └── soul.md         # Bot personality
+        ├── src/
+        │   ├── core/       # Core orchestration
+        │   ├── adapters/   # Channel adapters (Slack, Discord)
+        │   ├── api/        # REST API server
+        │   ├── config/     # Configuration management
+        │   ├── database/   # Database layer
+        │   ├── execution/  # Bot execution engine
+        │   ├── mcp/        # Model Context Protocol
+        │   ├── models/     # AI model integrations
+        │   ├── queue/      # Message queuing
+        │   ├── secrets/    # Secret management
+        │   ├── skills/     # Bot skills/tools
+        │   ├── webhooks/   # Webhook handlers
+        │   └── worker/     # Worker management
+        ├── test/
+        │   ├── unit/       # Unit tests
+        │   ├── integration/ # Integration tests
+        │   └── e2e/        # End-to-end tests
+        ├── migrations/     # Database migrations
+        ├── scripts/        # App scripts
+        ├── templates/      # Bot templates
+        ├── skills/         # Bot skill definitions
+        ├── mcp-servers/    # MCP server definitions
+        └── demo/           # Demo configuration
 
 ```
 
 ### Bot Structure
 
-Each bot lives in `bots/<name>/`:
+Each bot lives in `apps/ai-army/bots/<name>/`:
 ```
-bots/my-bot/
+apps/ai-army/bots/my-bot/
 ├── config.json           # Bot configuration
 └── soul.md              # Personality and behavior
 ```

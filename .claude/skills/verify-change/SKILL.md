@@ -15,8 +15,8 @@ passes it locally passes everywhere.
 
 | Step | Command | What it is |
 |------|---------|------------|
-| install | `bin/setup` | npm ci && docker compose up -d --wait postgres && (docker exec ai-army-postgres psql -U ai_army -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='ai_army_test'" \| grep -q 1 \|\| docker exec ai-army-postgres psql -U ai_army -d postgres -c "CREATE DATABASE ai_army_test OWNER ai_army;") |
-| run | `bin/dev` | node bin/cli.js dev — on developerz.ai runs, start it with code_bash_background when you need a running stack |
+| install | `bin/setup` | npm install --no-package-lock && docker compose -f apps/ai-army/docker-compose.yml up -d --wait postgres && (docker exec ai-army-postgres psql -U ai_army -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='ai_army_test'" \| grep -q 1 \|\| docker exec ai-army-postgres psql -U ai_army -d postgres -c "CREATE DATABASE ai_army_test OWNER ai_army;") |
+| run | `bin/dev` | node bin/cli.js dev from apps/ai-army — on developerz.ai runs, start it with code_bash_background when you need a running stack |
 | prove | `bin/check` | DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test TEST_MODE=true npm run lint && DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test TEST_MODE=true npm test |
 | stop | `bin/stop` | docker compose stop — on developerz.ai runs, the platform runs this when your session ends — do not stop the stack yourself |
 

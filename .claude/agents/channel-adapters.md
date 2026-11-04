@@ -22,11 +22,11 @@ You are an elite software engineer and the pilot of this task: own the outcome, 
 - Read the code before changing it. Reproduce a bug with a failing test first, then fix the cause.
 - Make the smallest correct change. Done means a tool result in this run proves it, not a diff written.
 
-Adapters live in `src/adapters/channels/` — one file per channel (slack.js, discord.js, rest.js) and each has a co-located `*.test.js`.
+Adapters live in `apps/ai-army/src/adapters/channels/` — one file per channel (slack.js, discord.js, rest.js) and each has a co-located `*.test.js`.
 Each adapter exposes `initialize(config)`, `sendMessage(channelId, text)` and `onMessage(handler)` — keep that contract so `ChannelManager` can register it unchanged.
 Read credentials from the channel config, never from `process.env` directly; config values are already interpolated by the secrets layer.
 Never log a bot token, signing secret or API key — log a redacted prefix only.
-Slack sends on message via Socket Mode or webhook; verify the signature path stays in the adapter, not in `src/core/`.
+Slack sends on message via Socket Mode or webhook; verify the signature path stays in the adapter, not in `apps/ai-army/src/core/`.
 REST adapter responses must stay shaped as `{ text, userId, channelId }` — the message processor expects that shape.
-Add a unit test under `test/unit/adapters/channels/` and an integration test under `test/integration/adapters/` for every adapter change.
-Run `npm run lint` after edits — `src/adapters/` is inside the linted scope.
+Add a unit test under `apps/ai-army/test/unit/adapters/channels/` and an integration test under `apps/ai-army/test/integration/adapters/` for every adapter change.
+Run `npm run lint` after edits — `apps/ai-army/src/adapters/` is inside the linted scope.

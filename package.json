@@ -1,73 +1,25 @@
 {
-  "name": "ai-army",
+  "name": "ai-army-monorepo",
   "version": "0.2.0",
-  "description": "Open-source framework for orchestrating AI workers across distributed servers",
-  "type": "module",
-  "main": "src/index.js",
-  "bin": {
-    "ai-army": "./bin/cli.js"
-  },
-  "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch src/index.js",
-    "test": "npm run test:unit && npm run test:integration && npm run test:e2e",
-    "test:unit": "node --experimental-test-module-mocks --test 'test/unit/**/*.test.js' 'test/helpers/**/*.test.js' 'src/**/*.test.js'",
-    "test:integration": "node --experimental-test-module-mocks --test --test-force-exit --test-timeout=300000 'test/integration/**/*.test.js'",
-    "test:e2e": "node --experimental-test-module-mocks --test --test-force-exit --test-timeout=300000 'test/e2e/**/*.test.js'",
-    "test:watch": "node --experimental-test-module-mocks --test --watch 'src/**/*.test.js' 'test/**/*.test.js'",
-    "lint": "eslint src/ bin/ test/",
-    "lint:fix": "eslint src/ bin/ test/ --fix",
-    "validate": "node bin/cli.js validate",
-    "migrate": "node bin/cli.js migrate"
-  },
-  "keywords": [
-    "ai",
-    "agents",
-    "chatbots",
-    "multi-bot",
-    "orchestration",
-    "worker",
-    "distributed",
-    "ssh",
-    "slack",
-    "discord",
-    "framework"
+  "private": true,
+  "description": "Monorepo root — the AI Army app lives in apps/ai-army",
+  "workspaces": [
+    "apps/ai-army"
   ],
-  "author": "Developerz AI",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/developerz-ai/ai-army.git"
-  },
-  "bugs": {
-    "url": "https://github.com/developerz-ai/ai-army/issues"
-  },
-  "homepage": "https://github.com/developerz-ai/ai-army#readme",
   "engines": {
     "node": ">=22.0.0"
   },
-  "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.37",
-    "@ai-sdk/openai": "^3.0.25",
-    "@modelcontextprotocol/sdk": "^1.0.4",
-    "@openrouter/ai-sdk-provider": "^2.2.3",
-    "@slack/bolt": "^3.22.0",
-    "ai": "^6.0.81",
-    "chokidar": "^3.5.3",
-    "commander": "^14.0.3",
-    "deepmerge": "^4.3.1",
-    "discord.js": "^14.16.3",
-    "dotenv": "^16.4.7",
-    "dotenv-expand": "^12.0.1",
-    "js-yaml": "^4.1.1",
-    "pg": "^8.13.1",
-    "ssh2": "^1.16.0",
-    "zod": "^3.22.4"
-  },
-  "devDependencies": {
-    "eslint": "^9.17.0",
-    "eslint-config-prettier": "^9.1.0",
-    "eslint-plugin-prettier": "^5.2.1",
-    "prettier": "^3.4.2"
+  "scripts": {
+    "start": "npm run start --workspace apps/ai-army",
+    "dev": "npm run dev --workspace apps/ai-army",
+    "test": "npm run test --workspace apps/ai-army",
+    "test:unit": "npm run test:unit --workspace apps/ai-army",
+    "test:integration": "npm run test:integration --workspace apps/ai-army",
+    "test:e2e": "npm run test:e2e --workspace apps/ai-army",
+    "test:watch": "npm run test:watch --workspace apps/ai-army",
+    "lint": "npm run lint --workspace apps/ai-army",
+    "lint:fix": "npm run lint:fix --workspace apps/ai-army",
+    "validate": "npm run validate --workspace apps/ai-army",
+    "migrate": "npm run migrate --workspace apps/ai-army"
   }
 }

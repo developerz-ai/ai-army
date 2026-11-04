@@ -10,6 +10,10 @@ npx ai-army validate
 docker-compose up -d
 ```
 
+## Layout
+
+The application lives in `apps/ai-army/` — `src/`, `test/`, `bots/`, `scripts/`, `migrations/`, `templates/`, `demo/`, `mcp-servers/`, `skills/`, `config.json` and `docker-compose.yml`. Run `npm`/`npx`/`docker compose` commands from `apps/ai-army/`; the root `package.json` scripts delegate there. `bin/` and `.github/` stay at the repo root, and `bin/check` remains the gate, run from the repo root.
+
 ## Create New Bot
 
 Ask Claude: "Create a new bot called 'my-bot' that helps with..."

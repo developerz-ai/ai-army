@@ -3,12 +3,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 command -v mise >/dev/null && mise install
-npm ci
+# the package lockfile lives in apps/ai-army/package-lock.json, so install at the workspace root without writing a root lockfile (hoisted node_modules is what bin/cli.js and the tests resolve against)
+npm install --no-package-lock
 
 # postgres 18+ keeps its data in a major-version directory and refuses to start
 # while anything is mounted at the legacy /var/lib/postgresql/data path. Mount
 # the volume where the image expects it, without editing the compose file.
-compose=(docker compose -f docker-compose.yml)
+compose=(docker compose -f apps/ai-army/docker-compose.yml)
 pg_image="$(docker compose config --images 2>/dev/null | grep '^postgres:' | head -1 || true)"
 pg_major="${pg_image##*postgres:}"
 pg_major="${pg_major%%[^0-9]*}"

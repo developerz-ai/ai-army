@@ -11,7 +11,7 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { createProgram, runInit } from '../../../bin/cli.js';
+import { createProgram, runInit } from '../../../../bin/cli.js';
 
 describe('CLI - createProgram()', () => {
   test('creates a program with correct name and version', () => {

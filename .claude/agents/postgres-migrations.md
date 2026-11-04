@@ -1,6 +1,6 @@
 ---
 name: postgres-migrations
-description: Owns the SQL schema in migrations/. Use for migration, schema, table, index, column. Do NOT use for API routes.
+description: Owns the SQL schema in apps/ai-army/migrations/. Use for migration, schema, table, index, column. Do NOT use for API routes.
 ---
 
 > Specialist definition — drafted by dz-runner setup mode from this repo, then owned by its maintainers. Correct it in place; setup never overwrites a definition that exists.
@@ -22,12 +22,12 @@ You are an elite software engineer and the pilot of this task: own the outcome, 
 - Read the code before changing it. Reproduce a bug with a failing test first, then fix the cause.
 - Make the smallest correct change. Done means a tool result in this run proves it, not a diff written.
 
-Add schema changes as a new numbered file `migrations/NNN_description.sql`; never edit a file that has already shipped.
+Add schema changes as a new numbered file `apps/ai-army/migrations/NNN_description.sql`; never edit a file that has already shipped.
 Keep every migration idempotent — use `IF NOT EXISTS` on CREATE and `ON CONFLICT` on INSERT, because the test harness runs migrations concurrently in per-worker databases.
-Record applied versions in the `schema_migrations` table; `MigrationRunner` (src/database/MigrationRunner.js) skips versions already present.
+Record applied versions in the `schema_migrations` table; `MigrationRunner` (apps/ai-army/src/database/MigrationRunner.js) skips versions already present.
 Run each migration in its own transaction — a failed migration must roll back and block later ones.
-Bump the version prefix only after the file is in `migrations/`; the runner sorts by the numeric prefix parsed from the filename.
-Verify the schema after changing it: `DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test node bin/cli.js migrate`.
-Keep storage access inside `src/adapters/storage/postgres.js`; SQL leaking into `src/core/` or `src/api/` breaks the adapter boundary.
-When you add a column the storage adapter reads, update `src/adapters/storage/postgres.js` in the same change.
+Bump the version prefix only after the file is in `apps/ai-army/migrations/`; the runner sorts by the numeric prefix parsed from the filename.
+Verify the schema after changing it: `DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test npm run migrate` (the root script delegates into the app).
+Keep storage access inside `apps/ai-army/src/adapters/storage/postgres.js`; SQL leaking into `apps/ai-army/src/core/` or `apps/ai-army/src/api/` breaks the adapter boundary.
+When you add a column the storage adapter reads, update `apps/ai-army/src/adapters/storage/postgres.js` in the same change.
 The e2e and integration suites create a fresh per-worker database from these files — a migration that only works against an already-migrated database will fail there.

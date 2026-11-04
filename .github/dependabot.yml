@@ -4,7 +4,7 @@
 version: 2
 updates:
   - package-ecosystem: "docker"
-    directory: "/"
+    directory: "/apps/ai-army"
     schedule:
       interval: "weekly"
       day: "thursday"
@@ -17,9 +17,9 @@ updates:
         update-types: ["minor", "patch"]
   - package-ecosystem: "docker-compose"
     directories:
-      - "/"
-      - "/demo"
-      - "/templates/basic"
+      - "/apps/ai-army"
+      - "/apps/ai-army/demo"
+      - "/apps/ai-army/templates/basic"
     schedule:
       interval: "weekly"
       day: "thursday"
@@ -44,11 +44,11 @@ updates:
         update-types: ["minor", "patch"]
   - package-ecosystem: "npm"
     directories:
-      - "/"
-      - "/demo"
-      - "/mcp-servers/ai-army-client"
-      - "/mcp-servers/daniel-assistant"
-      - "/mcp-servers/my-assistant"
+      - "/apps/ai-army"
+      - "/apps/ai-army/demo"
+      - "/apps/ai-army/mcp-servers/ai-army-client"
+      - "/apps/ai-army/mcp-servers/daniel-assistant"
+      - "/apps/ai-army/mcp-servers/my-assistant"
     schedule:
       interval: "weekly"
       day: "thursday"

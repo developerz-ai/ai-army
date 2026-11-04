@@ -224,5 +224,5 @@ This demo is a **user project** that depends on the ai-army framework as an npm 
 The framework handles orchestration, session management, Docker execution, and message routing.
 The demo only defines configuration (what bots exist, their personalities, and their tools).
 
-The parent directory (`../`) contains the ai-army framework source code. See `../CLAUDE.md`
+The parent directory (`../`) contains the ai-army framework source code. See `../../CLAUDE.md`
 for framework-level development instructions and architecture documentation.

@@ -12,6 +12,8 @@
 #   - Docker with Compose V2
 #   - Copy .env.example to .env and configure values
 
+name: ai-army
+
 services:
   postgres:
     image: postgres:18-alpine
@@ -44,8 +46,8 @@ services:
 
   app:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: apps/ai-army/Dockerfile
     container_name: ai-army-app
     depends_on:
       postgres:
