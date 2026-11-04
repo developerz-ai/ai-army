@@ -54,7 +54,9 @@ try {
   await client.end().catch(() => {});
 }
 '; then
-  echo "bin/check: the test database at $TEST_DATABASE_URL is not usable — run bin/setup." >&2
+  # Name the resource and the remedy, never the URL: the URL holds the password,
+  # and gate output ends up in captured logs (.claude/skills/verify-change/SKILL.md).
+  echo "bin/check: the test database is not usable — run bin/setup." >&2
   exit 75
 fi
 
