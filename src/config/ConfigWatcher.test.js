@@ -154,7 +154,7 @@ describe('ConfigWatcher', () => {
         chokidarWatch: mockWatch,
       });
 
-      const paths = ['./config.json', './bots/**/*.json', './bots/**/*.md'];
+      const paths = ['./config.json', './bots'];
       await cw.watch(paths);
 
       assert.equal(mockWatch.mock.calls.length, 1);
@@ -253,7 +253,7 @@ describe('ConfigWatcher', () => {
         chokidarWatch: mockWatch,
       });
 
-      await cw.watch(['./bots/**/*.json']);
+      await cw.watch(['./bots']);
 
       // Simulate file addition
       await emit('add', './bots/new-bot/config.json');
