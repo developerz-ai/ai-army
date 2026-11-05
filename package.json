@@ -52,7 +52,7 @@
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@openrouter/ai-sdk-provider": "^2.2.3",
     "@slack/bolt": "^3.22.0",
-    "ai": "^6.0.81",
+    "ai": "^7.0.148",
     "chokidar": "^6.0.0",
     "commander": "^15.0.0",
     "deepmerge": "^4.3.1",
