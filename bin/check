@@ -1,5 +1,29 @@
 #!/usr/bin/env bash
-# one-command check (typecheck + lint + test) — established by dz-runner setup mode. One command; adjust as the repo grows.
+# one-command check — the local mirror of every job in .github/workflows/ci.yml
+# (lint → unit → integration → e2e → demo validate). Keep in sync with CI;
+# CI itself stays untouched. Established by dz-runner setup mode.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test TEST_MODE=true npm run lint && DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test TEST_MODE=true npm test
+
+# Dep trees every gate needs: root node_modules for npm run (lint/tests),
+# demo/node_modules for ci.yml's validate-demo (npx ai-army resolves there).
+# Missing resource → exit 75: environment, not the change (verify-change skill).
+if [ ! -d node_modules ]; then
+  echo "bin/check: root deps missing — run npm ci, or bin/setup (it installs root and demo deps); refusing to grade." >&2
+  exit 75
+fi
+if [ ! -d demo/node_modules ]; then
+  echo "bin/check: demo deps missing — run bin/setup first (it installs root and demo deps); refusing to grade." >&2
+  exit 75
+fi
+
+# ci.yml: lint
+npm run lint
+# ci.yml: unit-tests
+npm run test:unit
+# ci.yml: integration-tests (local stack creds from bin/setup; CI service uses test:test)
+DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test npm run test:integration
+# ci.yml: e2e-tests
+DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test TEST_MODE=true npm run test:e2e
+# ci.yml: validate-demo
+(cd demo && npm run validate)
