@@ -396,6 +396,44 @@ describe('AgentRunner', () => {
         generateTextMock.restore();
       });
 
+      test('rejects when the provider stream was interrupted', async t => {
+        // ai >= 7.0.149 resolves an interrupted generation with partial text
+        // and finishReason 'interrupted' instead of throwing.
+        const mockResult = {
+          text: 'The files are:',
+          toolCalls: [],
+          usage: { promptTokens: 10, completionTokens: 4, totalTokens: 14 },
+          steps: [{ text: '', toolCalls: [] }],
+          finishReason: 'interrupted',
+        };
+
+        const generateTextMock = t.mock.module('ai', {
+          namedExports: {
+            generateText: mock.fn(async () => mockResult),
+            streamText: mock.fn(),
+          },
+        });
+
+        const { AgentRunner: MockedRunner } = await import(
+          `../../../src/agent/agent-runner.js?t_interrupted=${Date.now()}`
+        );
+
+        const mockRunner = new MockedRunner(modelFactory, toolRegistry);
+
+        await assert.rejects(
+          () => mockRunner.run(createBotConfig(), createMessages()),
+          err => {
+            assert.equal(err.name, 'AgentRunnerError');
+            assert.match(err.message, /Agent run for bot "test-bot" was interrupted/);
+            assert.equal(err.operation, 'run');
+            assert.equal(err.botId, 'test-bot');
+            return true;
+          }
+        );
+
+        generateTextMock.restore();
+      });
+
       test('returns empty toolCalls array when no tools called', async t => {
         const mockResult = {
           text: 'Hello! How can I help?',
@@ -794,6 +832,98 @@ describe('AgentRunner', () => {
         assert.equal(result.text, 'Hello World!');
         assert.deepEqual(result.toolCalls, []);
         assert.equal(result.usage.totalTokens, 15);
+
+        streamTextMock.restore();
+      });
+
+      test('rejects when the provider stream was interrupted', async t => {
+        async function* mockTextStream() {
+          yield 'Partial ';
+          yield 'answer';
+        }
+
+        const mockStreamResult = {
+          textStream: mockTextStream(),
+          then(resolve) {
+            resolve({
+              toolCalls: [],
+              usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+              finishReason: 'interrupted',
+            });
+          },
+        };
+
+        const streamTextMock = t.mock.module('ai', {
+          namedExports: {
+            generateText: mock.fn(),
+            streamText: mock.fn(() => mockStreamResult),
+          },
+        });
+
+        const { AgentRunner: MockedRunner } = await import(
+          `../../../src/agent/agent-runner.js?s_interrupted=${Date.now()}`
+        );
+
+        const receivedChunks = [];
+        const mockRunner = new MockedRunner(modelFactory, toolRegistry);
+
+        await assert.rejects(
+          () =>
+            mockRunner.stream(createBotConfig(), createMessages(), chunk =>
+              receivedChunks.push(chunk)
+            ),
+          err => {
+            assert.equal(err.name, 'AgentRunnerError');
+            assert.match(err.message, /Agent stream for bot "test-bot" was interrupted/);
+            assert.equal(err.operation, 'stream');
+            assert.equal(err.botId, 'test-bot');
+            return true;
+          }
+        );
+
+        // Partial output still reaches the caller; only the result is refused.
+        assert.deepEqual(receivedChunks, ['Partial ', 'answer']);
+
+        streamTextMock.restore();
+      });
+
+      test('reports an interrupted abort of our own timeout as a timeout', async t => {
+        const mockStreamResult = {
+          textStream: (async function* () {
+            yield 'partial';
+          })(),
+          // The SDK sees our abort and resolves the cut-off stream as
+          // 'interrupted' rather than rejecting with an AbortError.
+          then(resolve) {
+            setTimeout(
+              () => resolve({ toolCalls: [], usage: {}, finishReason: 'interrupted' }),
+              100
+            );
+          },
+        };
+
+        const streamTextMock = t.mock.module('ai', {
+          namedExports: {
+            generateText: mock.fn(),
+            streamText: mock.fn(() => mockStreamResult),
+          },
+        });
+
+        const { AgentRunner: MockedRunner } = await import(
+          `../../../src/agent/agent-runner.js?s_timeout_interrupted=${Date.now()}`
+        );
+
+        const mockRunner = new MockedRunner(modelFactory, toolRegistry);
+
+        await assert.rejects(
+          () => mockRunner.stream(createBotConfig({ timeout: 20 }), createMessages(), () => {}),
+          err => {
+            assert.equal(err.name, 'AgentRunnerError');
+            assert.match(err.message, /Stream timed out after 20ms for bot "test-bot"/);
+            assert.equal(err.operation, 'stream');
+            return true;
+          }
+        );
 
         streamTextMock.restore();
       });
