@@ -24,6 +24,14 @@ const DEFAULT_MAX_STEPS = 30;
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 /**
+ * Finish reason the AI SDK reports when a provider stream ends without its
+ * completion signal (introduced in ai 7.0.149). The output is partial, so a
+ * result carrying this reason is not a completed turn.
+ * @type {string}
+ */
+const INTERRUPTED_FINISH_REASON = 'interrupted';
+
+/**
  * Custom error class for agent runner errors
  */
 export class AgentRunnerError extends Error {
@@ -136,6 +144,8 @@ export class AgentRunner {
         botConfig.id
       );
 
+      throwIfInterrupted(result, botConfig, 'run');
+
       return {
         text: result.text,
         toolCalls: result.toolCalls || [],
@@ -216,6 +226,13 @@ export class AgentRunner {
 
       // Await final result for usage stats
       const finalResult = await result;
+
+      throwIfInterrupted(
+        finalResult,
+        botConfig,
+        'stream',
+        controller.signal.aborted ? generateOptions.timeout : undefined
+      );
 
       return {
         text: fullText,
@@ -342,6 +359,41 @@ export class AgentRunner {
       return null;
     }
   }
+}
+
+/**
+ * Fail when the AI SDK reports an interrupted generation
+ *
+ * From ai 7.0.149 a provider stream that ends without its completion signal
+ * resolves with finishReason 'interrupted' and partial output instead of
+ * failing. Every consumer of AgentRunner treats a resolved result as a complete
+ * turn — MessageProcessor persists its text to the session and audits it as
+ * `message.sent` — so an incomplete generation has to fail here, at the SDK
+ * boundary, where the existing error path reports it as a failed message.
+ *
+ * @param {Object} result - AI SDK result, or the final result of a stream
+ * @param {Object} botConfig - Bot config for error context
+ * @param {string} operation - Operation that produced the result
+ * @param {number} [timeoutMs] - Set only when this bot's own stream timeout aborted the generation
+ * @throws {AgentRunnerError} When result.finishReason is 'interrupted'
+ * @private
+ */
+function throwIfInterrupted(result, botConfig, operation, timeoutMs) {
+  if (result.finishReason !== INTERRUPTED_FINISH_REASON) {
+    return;
+  }
+
+  // An aborted stream is a timeout, not a provider interruption: keep the
+  // timeout error callers already handle.
+  const message = timeoutMs
+    ? `Stream timed out after ${timeoutMs}ms for bot "${botConfig.id}"`
+    : `Agent ${operation} for bot "${botConfig.id}" was interrupted: the provider ` +
+      `stream ended before its completion signal, so the response is incomplete`;
+
+  throw new AgentRunnerError(message, {
+    operation,
+    botId: botConfig.id,
+  });
 }
 
 /**
