@@ -9,7 +9,7 @@ second copy. Refine it in place — do not create a parallel brain file.
 ```bash
 ./bin/setup   # install dependencies, create .env, start PostgreSQL, create the test database
 ./bin/dev     # run the app (orchestrator + REST API)
-./bin/check   # prove it: lint + test suite
+./bin/check   # prove it: lint, unit, integration, e2e, demo validate
 ```
 
 `./bin/setup` is idempotent — it never overwrites an existing `.env`, and it
@@ -72,7 +72,7 @@ A bot lives in its own directory under `bots/` — see
 |---------|---------|
 | `bin/setup` | Install deps (`npm ci`), start Postgres 18, create the `ai_army_test` database |
 | `bin/dev` | Run the stack in development mode (`node bin/cli.js dev`, hot reload) |
-| `bin/check` | **The gate** — lint + full test suite against the test database |
+| `bin/check` | **The gate** — lint, unit, integration, e2e and demo validate against the test database; exits 75 when a precondition is unmet |
 | `bin/stop` | Stop the docker-compose services |
 | `npm start` | Run the app in production mode (`node src/index.js`) |
 | `npm run dev` | Run the app under `node --watch` |
@@ -87,7 +87,10 @@ A bot lives in its own directory under `bots/` — see
 | `npm run migrate` | Apply pending SQL migrations (`node bin/cli.js migrate`) |
 | `node bin/cli.js <subcommand>` | The CLI proper: `init`, `validate`, `migrate`, `start`, `dev`, `status`, `reload`, `instance` (create/list/scale/stop/rm), `server` (add/list/test), `worker` (list/status/stop/start/update), `deploy`, `generate worker` |
 
-`bin/check` runs exactly this: `DATABASE_URL=… TEST_MODE=true npm run lint && DATABASE_URL=… TEST_MODE=true npm test`.
+`bin/check` guards its preconditions (both dependency trees, then the test database)
+and then runs one step per ci.yml job: `npm run lint`, `npm run test:unit`,
+`npm run test:integration`, `npm run test:e2e` and `(cd demo && npm run validate)`. A
+missing resource exits 75 — the environment, not the change.
 
 ## Project Structure
 

@@ -1,7 +1,7 @@
 /**
  * ConfigWatcher - Watches configuration files for changes and triggers hot reload
  *
- * Uses chokidar to watch config.json, bots/**\/*.json, and bots/**\/*.md files.
+ * Uses chokidar to watch config.json and the bots directory recursively.
  * When a change is detected, validates the new configuration before applying it.
  * Invalid configs are rejected with clear error messages (nginx-style reload).
  *
@@ -68,7 +68,7 @@ export class ConfigWatcher {
    * Watches for 'change' and 'add' events. When a file changes,
    * triggers validateAndReload() to safely apply the new config.
    *
-   * @param {string[]} paths - File paths or glob patterns to watch
+   * @param {string[]} paths - Literal file or directory paths (directories are recursive; no globs)
    * @returns {Promise<void>}
    * @throws {ConfigWatcherError} If already watching or paths are invalid
    */

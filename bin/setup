@@ -8,6 +8,9 @@ if command -v mise >/dev/null 2>&1; then
 fi
 
 npm ci
+# CI installs the demo's deps before validating its config (ci.yml: validate-demo);
+# bin/check's validate gate needs them.
+npm ci --prefix demo
 
 # .env holds the local secrets and is gitignored. Create it from the tracked
 # template on a fresh checkout; never overwrite an existing one.

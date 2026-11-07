@@ -161,7 +161,7 @@ function assertNoCredential(result) {
 }
 
 describe('bin/check refusal paths', () => {
-  test('exits 75 when node_modules is missing', async () => {
+  test('exits 75 when the root dependency tree is missing', async () => {
     const dir = await createTempDir('bin-check-no-modules-');
     const script = await installCheckScript(dir);
     const port = await findClosedPort();
@@ -171,7 +171,7 @@ describe('bin/check refusal paths', () => {
     });
 
     assert.equal(result.code, 75, 'a missing dependency tree must exit 75, never 1');
-    assert.match(result.stderr, /node_modules is missing/);
+    assert.match(result.stderr, /root deps missing/);
     assert.doesNotMatch(
       result.stderr,
       /Missing script/,
@@ -186,6 +186,9 @@ describe('bin/check refusal paths', () => {
     // one, so the fixture needs a dependency tree — the repository's is linked
     // in, read-only.
     await fs.symlink(REPO_NODE_MODULES, path.join(dir, 'node_modules'), 'dir');
+    // Both dependency guards must pass before the database one is reached: the
+    // demo's tree backs ci.yml's validate-demo step.
+    await fs.mkdir(path.join(dir, 'demo', 'node_modules'), { recursive: true });
     // A package.json without scripts keeps npm inside the fixture: if the gate
     // ever got as far as `npm run lint`, it would fail with "Missing script"
     // instead of falling back to the repository's own scripts.
@@ -209,8 +212,8 @@ describe('bin/check refusal paths', () => {
     assert.match(result.stderr, /run bin\/setup/, 'the refusal must name the remedy');
     assert.doesNotMatch(
       result.stderr,
-      /node_modules is missing/,
-      'the database precondition, not the dependency one, must refuse'
+      /deps missing/,
+      'the database precondition, not a dependency one, must refuse'
     );
     assert.doesNotMatch(
       result.stderr,

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# one-command check (lint + test) — established by dz-runner setup mode. One command; adjust as the repo grows.
+# one-command check — the local mirror of every job in .github/workflows/ci.yml
+# (lint → unit → integration → e2e → demo validate). Keep in sync with CI;
+# CI itself stays untouched. Established by dz-runner setup mode.
 #
 # Exit codes — see .claude/skills/verify-change/SKILL.md:
 #   0                  the change passes
@@ -14,9 +16,16 @@ cd "$(dirname "$0")/.."
 # TEST_DATABASE_URL for other credentials — the database name stays the same.
 TEST_DATABASE_URL="${TEST_DATABASE_URL:-postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test}"
 
-# Precondition 1 — dependencies are installed.
+# Precondition 1 — the dependency trees every gate needs: root node_modules for
+# `npm run` (lint/tests), demo/node_modules for ci.yml's validate-demo (`npx
+# ai-army` resolves there). Missing resource → exit 75: environment, not the
+# change (verify-change skill).
 if [ ! -d node_modules ]; then
-  echo "bin/check: node_modules is missing — run bin/setup first." >&2
+  echo "bin/check: root deps missing — run npm ci, or bin/setup (it installs root and demo deps); refusing to grade." >&2
+  exit 75
+fi
+if [ ! -d demo/node_modules ]; then
+  echo "bin/check: demo deps missing — run bin/setup first (it installs root and demo deps); refusing to grade." >&2
   exit 75
 fi
 
@@ -40,9 +49,12 @@ try {
     throw new Error(`connected to database "${rows[0].db}", the gate needs "ai_army_test"`);
   }
   const rights = await client.query(
-    "SELECT rolcreatedb FROM pg_roles WHERE rolname = current_user"
+    "SELECT rolsuper, rolcreatedb FROM pg_roles WHERE rolname = current_user"
   );
-  if (!rights.rows[0]?.rolcreatedb) {
+  const role = rights.rows[0];
+  // A superuser may create databases whatever rolcreatedb says, so checking the
+  // attribute alone would refuse valid credentials.
+  if (!role?.rolsuper && !role?.rolcreatedb) {
     throw new Error(
       `database user "${rows[0].usr}" cannot create the per-worker test databases`
     );
@@ -60,5 +72,14 @@ try {
   exit 75
 fi
 
+# ci.yml: lint
 DATABASE_URL="$TEST_DATABASE_URL" TEST_MODE=true npm run lint
-DATABASE_URL="$TEST_DATABASE_URL" TEST_MODE=true npm test
+# ci.yml: unit-tests
+DATABASE_URL="$TEST_DATABASE_URL" TEST_MODE=true npm run test:unit
+# ci.yml: integration-tests (local stack creds from bin/setup; CI service uses test:test)
+DATABASE_URL="$TEST_DATABASE_URL" TEST_MODE=true npm run test:integration
+# ci.yml: e2e-tests
+DATABASE_URL="$TEST_DATABASE_URL" TEST_MODE=true npm run test:e2e
+# ci.yml: validate-demo. demo/config.json interpolates ${ANTHROPIC_API_KEY}, so the
+# config cannot be loaded without it; CI passes a placeholder that is never called.
+(cd demo && ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-ci-placeholder-not-a-real-key}" npm run validate)

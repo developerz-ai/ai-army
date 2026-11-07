@@ -10,31 +10,35 @@ applies: [typescript, javascript, node]
 
 ## The one gate
 
-`bin/check` is the local gate: one command that lints and runs the whole test suite.
+`bin/check` is the local gate: one command that mirrors every job in
+`.github/workflows/ci.yml` — `lint`, `unit-tests`, `integration-tests`, `e2e-tests`
+and `validate-demo` — so a change that passes it locally matches what CI grades.
 
-CI does **not** run it. `.github/workflows/ci.yml` runs five separate check jobs —
-`lint`, `unit-tests`, `integration-tests`, `e2e-tests` and `validate-demo` (plus an
-`all-checks` job that only echoes once those five pass) — and never invokes
+CI does **not** run it. `.github/workflows/ci.yml` runs those five jobs separately (plus
+an `all-checks` job that only echoes once those five pass) and never invokes
 `bin/check`. The repo’s pre-commit hook (`.githooks/pre-commit`) does run it, but only
 once you activate it per clone: `git config core.hooksPath .githooks`.
 
 | Step | Command | What it is |
 |------|---------|------------|
-| install | `bin/setup` | npm ci; copies `.env.example` to `.env` when `.env` is missing (an existing `.env` is never overwritten); docker compose up -d --wait postgres; creates the `ai_army_test` database when it is missing |
+| install | `bin/setup` | `npm ci` for the root and `npm ci --prefix demo` (CI’s `validate-demo` job needs the demo deps); copies `.env.example` to `.env` when `.env` is missing (an existing `.env` is never overwritten); `docker compose up -d --wait postgres`; creates the `ai_army_test` database when it is missing |
 | run | `bin/dev` | node bin/cli.js dev — on developerz.ai runs, start it with code_bash_background when you need a running stack |
-| prove | `bin/check` | guards its preconditions, then runs `npm run lint` and `npm test` with `DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test` and `TEST_MODE=true` — exit 0 pass, 75 a precondition is unmet, any other non-zero the change is red |
+| prove | `bin/check` | guards its preconditions, then runs `npm run lint`, `npm run test:unit`, `npm run test:integration`, `npm run test:e2e` and `(cd demo && npm run validate)` with `DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test` and `TEST_MODE=true` — exit 0 pass, 75 a precondition is unmet, any other non-zero the change is red |
 | stop | `bin/stop` | docker compose stop — on developerz.ai runs, the platform runs this when your session ends — do not stop the stack yourself |
 
 ## What `bin/check` actually does
 
-1. **Preconditions first.** No `node_modules`, or a test database that does not answer
-   at `postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test` (or a database
-   user that cannot create the per-worker test databases), ends the run with exit
-   **75**. The gate refused to grade: the environment is missing a resource — run
-   `bin/setup` and run the gate again.
-2. **Then the change.** `npm run lint`, then `npm test` (unit → integration → e2e)
-   with `DATABASE_URL` pointed at `ai_army_test` and `TEST_MODE=true`. A genuine
-   failure exits non-zero, and the change is red.
+1. **Preconditions first.** A missing dependency tree — the root `node_modules`
+   (`npm run` needs it) or `demo/node_modules` (`npx ai-army` in the demo resolves
+   there) — or a test database that does not answer at
+   `postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test` (or a database user
+   that can neither create nor superuser-create the per-worker test databases), ends
+   the run with exit **75**. The gate refused to grade: the environment is missing a
+   resource — run `bin/setup` and run the gate again.
+2. **Then the change.** One step per ci.yml job: `npm run lint`, `npm run test:unit`,
+   `npm run test:integration`, `npm run test:e2e` (unit → integration → e2e) and
+   `(cd demo && npm run validate)`, with `DATABASE_URL` pointed at `ai_army_test` and
+   `TEST_MODE=true`. A genuine failure exits non-zero, and the change is red.
 
 ## Rules
 

@@ -47,27 +47,27 @@
     "node": ">=22.0.0"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.37",
+    "@ai-sdk/anthropic": "^4.0.87",
     "@ai-sdk/openai": "^3.0.25",
-    "@modelcontextprotocol/sdk": "^1.0.4",
-    "@openrouter/ai-sdk-provider": "^2.2.3",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@openrouter/ai-sdk-provider": "^3.1.0",
     "@slack/bolt": "^3.22.0",
-    "ai": "^6.0.81",
-    "chokidar": "^3.5.3",
-    "commander": "^14.0.3",
+    "ai": "^7.0.148",
+    "chokidar": "^6.0.0",
+    "commander": "^15.0.0",
     "deepmerge": "^4.3.1",
-    "discord.js": "^14.16.3",
+    "discord.js": "^14.27.0",
     "dotenv": "^16.4.7",
     "dotenv-expand": "^12.0.1",
     "js-yaml": "^4.1.1",
-    "pg": "^8.13.1",
+    "pg": "^8.23.1",
     "ssh2": "^1.16.0",
-    "zod": "^3.22.4"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "eslint": "^9.17.0",
-    "eslint-config-prettier": "^9.1.0",
-    "eslint-plugin-prettier": "^5.2.1",
-    "prettier": "^3.4.2"
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.7",
+    "prettier": "^3.9.10"
   }
 }

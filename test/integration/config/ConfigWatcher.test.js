@@ -195,8 +195,8 @@ describe('ConfigWatcher Integration - Real File System', () => {
         pollInterval: 50,
       });
 
-      const botsGlob = path.join(tmpDir, 'bots', '**', '*.json');
-      await watcher.watch([botsGlob]);
+      // Chokidar 4+ watches directories recursively instead of expanding globs.
+      await watcher.watch([path.join(tmpDir, 'bots')]);
 
       // Add a new bot config file
       const newBotDir = path.join(tmpDir, 'bots', 'new-bot');
@@ -229,8 +229,7 @@ describe('ConfigWatcher Integration - Real File System', () => {
         pollInterval: 50,
       });
 
-      const mdGlob = path.join(tmpDir, 'bots', '**', '*.md');
-      await watcher.watch([mdGlob]);
+      await watcher.watch([path.join(tmpDir, 'bots')]);
 
       // Modify the soul.md file
       const soulPath = path.join(tmpDir, 'bots', 'test-bot', 'soul.md');
@@ -243,7 +242,7 @@ describe('ConfigWatcher Integration - Real File System', () => {
       await watcher.stop();
     });
 
-    test('watches multiple path patterns simultaneously', async () => {
+    test('watches a config file and bots directory simultaneously', async () => {
       const tmpDir = await createTempWatchDir({
         bots: {
           'multi-bot': { id: 'multi-bot', provider: 'anthropic' },
@@ -258,11 +257,7 @@ describe('ConfigWatcher Integration - Real File System', () => {
         pollInterval: 50,
       });
 
-      const paths = [
-        path.join(tmpDir, 'config.json'),
-        path.join(tmpDir, 'bots', '**', '*.json'),
-        path.join(tmpDir, 'bots', '**', '*.md'),
-      ];
+      const paths = [path.join(tmpDir, 'config.json'), path.join(tmpDir, 'bots')];
 
       await watcher.watch(paths);
 
@@ -274,7 +269,18 @@ describe('ConfigWatcher Integration - Real File System', () => {
 
       await waitFor(() => orchestrator.calls.length >= 1, 8000);
 
-      assert.ok(orchestrator.calls.length >= 1, 'Should detect changes across multiple patterns');
+      assert.ok(orchestrator.calls.length >= 1, 'Should detect changes to the config file');
+
+      const callsBeforeBotChange = orchestrator.calls.length;
+      const soulPath = path.join(tmpDir, 'bots', 'multi-bot', 'soul.md');
+      await fs.writeFile(soulPath, '# Updated multi-bot', 'utf8');
+
+      await waitFor(() => orchestrator.calls.length > callsBeforeBotChange, 8000);
+
+      assert.ok(
+        orchestrator.calls.length > callsBeforeBotChange,
+        'Should also detect nested bot file changes'
+      );
 
       await watcher.stop();
     });
