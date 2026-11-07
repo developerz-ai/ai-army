@@ -541,7 +541,7 @@ cp .env.example .env.prod
 vim .env.prod
 
 # Use different env files
-NODE_ENV=production node src/index.js  # Uses .env.prod
+NODE_ENV=production node bin/cli.js start
 ```
 
 ### Per-Bot API Keys

@@ -181,7 +181,22 @@ describe('templates/basic/docker-compose.yml', () => {
 
     it('should mount pgdata volume for persistence', () => {
       raw = fs.readFileSync(composePath, 'utf8');
-      assert.ok(raw.includes('pgdata:/var/lib/postgresql/data'), 'should mount pgdata volume');
+      assert.ok(
+        raw.includes('pgdata:/var/lib/postgresql'),
+        'should mount pgdata volume at /var/lib/postgresql (postgres 18 layout)'
+      );
+    });
+
+    it('should not mount pgdata at the legacy postgres data path', () => {
+      raw = fs.readFileSync(composePath, 'utf8');
+      const mountTargets = [...raw.matchAll(/^\s*-\s+\S+:(\/\S+)\s*$/gm)].map(match => match[1]);
+      assert.ok(mountTargets.length > 0, 'compose should declare at least one volume mount');
+      for (const target of mountTargets) {
+        assert.ok(
+          target !== '/var/lib/postgresql/data',
+          `postgres 18 refuses to start while a volume is mounted at the legacy path: "${target}"`
+        );
+      }
     });
 
     it('should mount migrations directory for init scripts', () => {

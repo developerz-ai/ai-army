@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import { runDev, DevCommandError } from './DevCommand.js';
 import { OrchestratorError } from '../core/orchestrator.js';
 import { ConfigWatcherError } from '../config/ConfigWatcher.js';
+import { ConfigError } from '../config/ConfigLoader.js';
 
 // ============================================================================
 // Test Helpers
@@ -302,6 +303,71 @@ describe('DevCommand - runDev()', () => {
     assert.ok(output.includes('Database connection failed'));
     assert.ok(output.includes('Component: database'));
     assert.equal(result.watcher, null);
+  });
+
+  test('resolves with success false when startup fails', async () => {
+    const startError = new OrchestratorError('Database connection failed', {
+      operation: 'start',
+      component: 'database',
+    });
+    const orch = createMockOrchestrator({ startError });
+    const { factory } = createMockConfigWatcherFactory();
+
+    const result = await runDev({
+      orchestrator: orch,
+      configWatcherFactory: factory,
+      output: out,
+      processRef: proc,
+    });
+
+    assert.equal(result.success, false);
+  });
+
+  test('hints at a missing environment variable carried by the error cause chain', async () => {
+    const configError = new ConfigError("Required environment variable 'DATABASE_URL' is not set", {
+      envVar: 'DATABASE_URL',
+    });
+    const startError = new OrchestratorError('Configuration validation failed', {
+      operation: 'start',
+      component: 'config',
+      cause: configError,
+    });
+    const orch = createMockOrchestrator({ startError });
+    const { factory } = createMockConfigWatcherFactory();
+
+    const result = await runDev({
+      orchestrator: orch,
+      configWatcherFactory: factory,
+      output: out,
+      processRef: proc,
+    });
+
+    const output = out.output();
+    assert.ok(output.includes("Missing environment variable 'DATABASE_URL'"));
+    assert.equal(result.success, false);
+  });
+
+  test('hints at a missing environment variable named in the error message', async () => {
+    const startError = new OrchestratorError(
+      "Required environment variable 'OPENROUTER_API_KEY' is not set",
+      {
+        operation: 'start',
+        component: 'config',
+      }
+    );
+    const orch = createMockOrchestrator({ startError });
+    const { factory } = createMockConfigWatcherFactory();
+
+    const result = await runDev({
+      orchestrator: orch,
+      configWatcherFactory: factory,
+      output: out,
+      processRef: proc,
+    });
+
+    const output = out.output();
+    assert.ok(output.includes("Missing environment variable 'OPENROUTER_API_KEY'"));
+    assert.equal(result.success, false);
   });
 
   test('works without watcher when ConfigWatcher creation fails', async () => {

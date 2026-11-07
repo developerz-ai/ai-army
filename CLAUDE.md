@@ -6,6 +6,26 @@ Bots run in sandboxes, talk to channels (Slack, Discord, REST), and keep state i
 **This file is the repository's single brain.** `AGENTS.md` is a pointer to it, never a
 second copy. Refine it in place — do not create a parallel brain file.
 
+```bash
+./bin/setup   # install dependencies, create .env, start PostgreSQL, create the test database
+./bin/dev     # run the app (orchestrator + REST API)
+./bin/check   # prove it: lint, unit, integration, e2e, demo validate
+```
+
+`./bin/setup` is idempotent — it never overwrites an existing `.env`, and it
+starts PostgreSQL 18 with its data volume (`pgdata`) mounted at
+`/var/lib/postgresql`, the path PostgreSQL 18 expects. The legacy
+`/var/lib/postgresql/data` path makes the container refuse to start.
+
+Secrets live in `.env` (gitignored); `config.json` references them as
+`${ENV_VAR}`. `.env.example` ships development placeholders — replace them
+with real keys before using a provider.
+
+## Create New Bot
+
+A bot lives in its own directory under `bots/` — see
+[Registering a bot](#registering-a-bot) for the full procedure.
+
 ## Rules
 
 1. **`bin/check` is the gate.** A change is not done until `bin/check` is green. It runs
@@ -52,7 +72,7 @@ second copy. Refine it in place — do not create a parallel brain file.
 |---------|---------|
 | `bin/setup` | Install deps (`npm ci`), start Postgres 18, create the `ai_army_test` database |
 | `bin/dev` | Run the stack in development mode (`node bin/cli.js dev`, hot reload) |
-| `bin/check` | **The gate** — lint + full test suite against the test database |
+| `bin/check` | **The gate** — lint, unit, integration, e2e and demo validate against the test database; exits 75 when a precondition is unmet |
 | `bin/stop` | Stop the docker-compose services |
 | `npm start` | Run the app in production mode (`node src/index.js`) |
 | `npm run dev` | Run the app under `node --watch` |
@@ -67,7 +87,10 @@ second copy. Refine it in place — do not create a parallel brain file.
 | `npm run migrate` | Apply pending SQL migrations (`node bin/cli.js migrate`) |
 | `node bin/cli.js <subcommand>` | The CLI proper: `init`, `validate`, `migrate`, `start`, `dev`, `status`, `reload`, `instance` (create/list/scale/stop/rm), `server` (add/list/test), `worker` (list/status/stop/start/update), `deploy`, `generate worker` |
 
-`bin/check` runs exactly this: `DATABASE_URL=… TEST_MODE=true npm run lint && DATABASE_URL=… TEST_MODE=true npm test`.
+`bin/check` guards its preconditions (both dependency trees, then the test database)
+and then runs one step per ci.yml job: `npm run lint`, `npm run test:unit`,
+`npm run test:integration`, `npm run test:e2e` and `(cd demo && npm run validate)`. A
+missing resource exits 75 — the environment, not the change.
 
 ## Project Structure
 

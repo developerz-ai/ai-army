@@ -2,12 +2,24 @@
 # one-command check — the local mirror of every job in .github/workflows/ci.yml
 # (lint → unit → integration → e2e → demo validate). Keep in sync with CI;
 # CI itself stays untouched. Established by dz-runner setup mode.
+#
+# Exit codes — see .claude/skills/verify-change/SKILL.md:
+#   0                  the change passes
+#   75                 a resource this gate needs is unreachable: the gate refused
+#                      to grade — blame the environment, never the change
+#   any other non-zero the gate ran and the change is red — blame the change
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# Dep trees every gate needs: root node_modules for npm run (lint/tests),
-# demo/node_modules for ci.yml's validate-demo (npx ai-army resolves there).
-# Missing resource → exit 75: environment, not the change (verify-change skill).
+# The test suite derives its per-worker databases from DATABASE_URL
+# (test/helpers/setup.js), so the gate always talks to ai_army_test. Override
+# TEST_DATABASE_URL for other credentials — the database name stays the same.
+TEST_DATABASE_URL="${TEST_DATABASE_URL:-postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test}"
+
+# Precondition 1 — the dependency trees every gate needs: root node_modules for
+# `npm run` (lint/tests), demo/node_modules for ci.yml's validate-demo (`npx
+# ai-army` resolves there). Missing resource → exit 75: environment, not the
+# change (verify-change skill).
 if [ ! -d node_modules ]; then
   echo "bin/check: root deps missing — run npm ci, or bin/setup (it installs root and demo deps); refusing to grade." >&2
   exit 75
@@ -17,13 +29,57 @@ if [ ! -d demo/node_modules ]; then
   exit 75
 fi
 
+# Precondition 2 — the test database answers, and its user may create the
+# per-worker databases the suite clones from it. Without them the suite fails
+# for an environment reason, which must not be reported as a red change.
+if ! CHECK_DATABASE_URL="$TEST_DATABASE_URL" node --input-type=module -e '
+import pg from "pg";
+
+const client = new pg.Client({
+  connectionString: process.env.CHECK_DATABASE_URL,
+  connectionTimeoutMillis: 5000,
+});
+
+try {
+  await client.connect();
+  const { rows } = await client.query(
+    "SELECT current_database() AS db, current_user AS usr"
+  );
+  if (rows[0].db !== "ai_army_test") {
+    throw new Error(`connected to database "${rows[0].db}", the gate needs "ai_army_test"`);
+  }
+  const rights = await client.query(
+    "SELECT rolsuper, rolcreatedb FROM pg_roles WHERE rolname = current_user"
+  );
+  const role = rights.rows[0];
+  // A superuser may create databases whatever rolcreatedb says, so checking the
+  // attribute alone would refuse valid credentials.
+  if (!role?.rolsuper && !role?.rolcreatedb) {
+    throw new Error(
+      `database user "${rows[0].usr}" cannot create the per-worker test databases`
+    );
+  }
+} catch (err) {
+  process.stderr.write(`bin/check: ${err.message}\n`);
+  process.exit(1);
+} finally {
+  await client.end().catch(() => {});
+}
+'; then
+  # Name the resource and the remedy, never the URL: the URL holds the password,
+  # and gate output ends up in captured logs (.claude/skills/verify-change/SKILL.md).
+  echo "bin/check: the test database is not usable — run bin/setup." >&2
+  exit 75
+fi
+
 # ci.yml: lint
-npm run lint
+DATABASE_URL="$TEST_DATABASE_URL" TEST_MODE=true npm run lint
 # ci.yml: unit-tests
-npm run test:unit
+DATABASE_URL="$TEST_DATABASE_URL" TEST_MODE=true npm run test:unit
 # ci.yml: integration-tests (local stack creds from bin/setup; CI service uses test:test)
-DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test npm run test:integration
+DATABASE_URL="$TEST_DATABASE_URL" TEST_MODE=true npm run test:integration
 # ci.yml: e2e-tests
-DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test TEST_MODE=true npm run test:e2e
-# ci.yml: validate-demo
-(cd demo && npm run validate)
+DATABASE_URL="$TEST_DATABASE_URL" TEST_MODE=true npm run test:e2e
+# ci.yml: validate-demo. demo/config.json interpolates ${ANTHROPIC_API_KEY}, so the
+# config cannot be loaded without it; CI passes a placeholder that is never called.
+(cd demo && ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-ci-placeholder-not-a-real-key}" npm run validate)

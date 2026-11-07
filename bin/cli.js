@@ -21,6 +21,7 @@
  */
 
 import { Command } from 'commander';
+import dotenv from 'dotenv';
 import path from 'path';
 import { readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -37,6 +38,23 @@ import { runServer } from '../src/cli/ServerCommand.js';
 import { runWorker } from '../src/cli/WorkerCommand.js';
 import { runDeploy } from '../src/cli/DeployCommand.js';
 import { runGenerate } from '../src/cli/GenerateCommand.js';
+
+/**
+ * Load environment variables from a .env file
+ *
+ * Called lazily by the commands that read configuration or the database, never
+ * at module import time: this module is imported by the test suite, and a side
+ * effect at import time would leak into unrelated tests.
+ *
+ * Variables already present in the environment always win (dotenv does not
+ * override them) and nothing is written to stdout, so `ai-army --version`
+ * still prints only the version.
+ *
+ * @returns {void}
+ */
+function loadEnv() {
+  dotenv.config({ override: false, quiet: true });
+}
 
 /**
  * Collect repeatable --override values into an array
@@ -64,6 +82,8 @@ function collectOverrides(value, previous) {
  * @private
  */
 async function withStorage(fn) {
+  loadEnv();
+
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
     process.stderr.write('DATABASE_URL environment variable is required\n');
@@ -118,6 +138,8 @@ export function createProgram() {
     .description('Validate configuration files')
     .option('-c, --config <path>', 'Config file path', './config.json')
     .action(async options => {
+      loadEnv();
+
       const result = await runValidate({
         configPath: options.config,
         output: process.stdout,
@@ -132,6 +154,8 @@ export function createProgram() {
     .command('migrate')
     .description('Run database migrations')
     .action(async () => {
+      loadEnv();
+
       const { PostgresStorage } = await import('../src/adapters/storage/postgres.js');
       const databaseUrl = process.env.DATABASE_URL;
       if (!databaseUrl) {
@@ -163,10 +187,16 @@ export function createProgram() {
     .description('Start AI Army in production mode')
     .option('-c, --config <path>', 'Config file path', './config.json')
     .action(async options => {
-      await runStart({
+      loadEnv();
+
+      const result = await runStart({
         configPath: options.config,
         output: process.stdout,
       });
+      // runStart reports a failed startup with success: false - never exit 0 then
+      if (result.success === false) {
+        process.exitCode = 1;
+      }
     });
 
   // === dev command ===
@@ -175,10 +205,16 @@ export function createProgram() {
     .description('Start AI Army in development mode (with hot reload)')
     .option('-c, --config <path>', 'Config file path', './config.json')
     .action(async options => {
-      await runDev({
+      loadEnv();
+
+      const result = await runDev({
         configPath: options.config,
         output: process.stdout,
       });
+      // runDev reports a failed startup with success: false - never exit 0 then
+      if (result.success === false) {
+        process.exitCode = 1;
+      }
     });
 
   // === status command ===
@@ -187,6 +223,8 @@ export function createProgram() {
     .description('Show system status')
     .option('-c, --config <path>', 'Config file path', './config.json')
     .action(async options => {
+      loadEnv();
+
       const { PostgresStorage } = await import('../src/adapters/storage/postgres.js');
       const databaseUrl = process.env.DATABASE_URL;
       if (!databaseUrl) {
@@ -221,6 +259,8 @@ export function createProgram() {
     )
     .option('-c, --config <path>', 'Config file path', './config.json')
     .action(async options => {
+      loadEnv();
+
       const result = await runReload({
         configPath: options.config,
       });

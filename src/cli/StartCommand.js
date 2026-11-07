@@ -128,7 +128,8 @@ export function _checkProductionWarnings({ write, env = process.env } = {}) {
  * @param {Function} [options.onShutdown] - Callback after graceful shutdown
  * @param {Object} [options.processRef=process] - Process reference for signal handling
  * @param {Object} [options.env=process.env] - Environment variables (for DI/testing)
- * @returns {Promise<{ orchestrator: Object }>} Started orchestrator
+ * @returns {Promise<{ orchestrator: Object, success?: boolean }>} Started
+ *   orchestrator. On a failed startup the result carries `success: false`.
  */
 export async function runStart({
   configPath = './config.json',
@@ -234,7 +235,7 @@ export async function runStart({
     processRef.on('SIGINT', onSigInt);
     processRef.on('SIGTERM', onSigTerm);
 
-    return { orchestrator: orch };
+    return { orchestrator: orch, success: true };
   } catch (err) {
     if (err instanceof OrchestratorError) {
       write(`\n❌ Startup failed: ${err.message}\n`);
@@ -247,7 +248,7 @@ export async function runStart({
       } catch {
         // Ignore cleanup errors during startup failure
       }
-      return { orchestrator: orch };
+      return { orchestrator: orch, success: false };
     }
     throw new StartCommandError(`Startup failed: ${err.message}`, {
       cause: err,

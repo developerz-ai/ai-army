@@ -357,7 +357,7 @@ SELECT * FROM tool_calls ORDER BY executed_at DESC LIMIT 10;
 
 ```bash
 # Generate CPU profile
-node --cpu-prof src/index.js
+node --cpu-prof bin/cli.js dev
 
 # Analyze with Chrome DevTools
 # Open chrome://inspect
@@ -369,10 +369,10 @@ node --cpu-prof src/index.js
 
 ```bash
 # Heap snapshot
-node --heap-prof src/index.js
+node --heap-prof bin/cli.js dev
 
 # Analyze memory leaks
-node --inspect src/index.js
+node --inspect bin/cli.js dev
 # Open chrome://inspect
 # Take heap snapshots and compare
 ```

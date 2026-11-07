@@ -22,7 +22,10 @@ services:
       POSTGRES_USER: demo
       POSTGRES_PASSWORD: demo
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      # PostgreSQL 18 keeps its data under /var/lib/postgresql/<major>/ and
+      # refuses to start while a volume is mounted at the legacy data path,
+      # so mount the volume where the image expects it.
+      - postgres-data:/var/lib/postgresql
     ports:
       - "${DEMO_PG_PORT:-5432}:5432"
     healthcheck:

@@ -10,7 +10,7 @@
 #
 # Prerequisites:
 #   - Docker with Compose V2
-#   - Copy .env.example to .env and configure values
+#   - .env (created for you by bin/setup from .env.example)
 
 services:
   postgres:
@@ -23,7 +23,11 @@ services:
     ports:
       - "${PG_PORT:-5432}:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # PostgreSQL 18 keeps its data under /var/lib/postgresql/<major>/ and
+      # refuses to start while anything is mounted at the legacy
+      # /var/lib/postgresql/data path — mount the volume where the image
+      # expects it.
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ai_army -d ai_army"]
       interval: 10s
