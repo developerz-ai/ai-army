@@ -11,6 +11,11 @@ updates:
       time: "15:00"
     cooldown:
       default-days: 14
+    # Node majors move LTS-to-LTS on purpose, with CI's node-version in the same PR —
+    # never to an odd, non-LTS line (25 was proposed and declined in #69).
+    ignore:
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
     groups:
       docker-minor-and-patch:
         patterns: ["*"]
@@ -26,6 +31,11 @@ updates:
       time: "15:00"
     cooldown:
       default-days: 14
+    # Node majors move LTS-to-LTS on purpose, with CI's node-version in the same PR —
+    # never to an odd, non-LTS line (25 was proposed and declined in #69).
+    ignore:
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
     groups:
       docker-compose-minor-and-patch:
         patterns: ["*"]
