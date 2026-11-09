@@ -34,6 +34,8 @@ import {
   // Config
   ConfigLoader,
   ConfigValidator,
+  MainConfigSchema,
+  BotConfigSchema,
   // API
   APIServer,
   AdminRouter,
@@ -187,6 +189,16 @@ describe('Config exports', () => {
   test('ConfigValidator exports correctly', () => {
     assert.ok(ConfigValidator);
     assert.strictEqual(typeof ConfigValidator, 'function');
+  });
+
+  test('MainConfigSchema exports correctly', () => {
+    assert.ok(MainConfigSchema);
+    assert.strictEqual(typeof MainConfigSchema.safeParse, 'function');
+  });
+
+  test('BotConfigSchema exports correctly', () => {
+    assert.ok(BotConfigSchema);
+    assert.strictEqual(typeof BotConfigSchema.safeParse, 'function');
   });
 });
 
