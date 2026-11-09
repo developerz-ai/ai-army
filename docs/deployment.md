@@ -124,6 +124,7 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
     volumes:
       - ./config.json:/app/config.json
       - ./bots:/app/bots
