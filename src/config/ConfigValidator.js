@@ -204,11 +204,20 @@ const DiscordChannelSchema = z.object({
 
 /**
  * Schema for REST API channel configuration
+ *
+ * Contract shared with RESTAdapter (src/adapters/channels/rest.js):
+ * - `port` is required (the adapter refuses to construct without it)
+ * - `host` is optional (adapter default '0.0.0.0')
+ * - `basePath` is optional and honoured by the adapter, which normalizes it to a
+ *   leading slash and no trailing slash
+ * - `authToken` is optional; when set the adapter requires it as X-API-Key / Bearer
+ * - `restrictions` is schema-only; the adapter ignores it
  */
 const RestChannelSchema = z.object({
   type: z.literal('rest'),
-  port: z.number().int().positive().optional(),
+  port: z.number().int().positive(),
   host: z.string().optional(),
+  basePath: z.string().optional(),
   authToken: z.string().optional(),
   restrictions: ChannelRestrictionsSchema.optional(),
 });

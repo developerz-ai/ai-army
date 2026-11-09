@@ -178,6 +178,30 @@ describe('ConfigValidator', () => {
       assert.equal(result.data.channels.api.port, 3000);
     });
 
+    test('rejects REST channel without port', () => {
+      const validator = new ConfigValidator();
+
+      const result = validator.validateMainConfig({
+        channels: { api: { type: 'rest', host: 'localhost' } },
+      });
+
+      assert.equal(result.valid, false);
+    });
+
+    test('validates REST channel with basePath and authToken', () => {
+      const validator = new ConfigValidator();
+
+      const result = validator.validateMainConfig({
+        channels: {
+          api: { type: 'rest', port: 3000, basePath: '/api/v1', authToken: 'secret' },
+        },
+      });
+
+      assert.ok(result.valid, `Should be valid: ${JSON.stringify(result.errors)}`);
+      assert.equal(result.data.channels.api.basePath, '/api/v1');
+      assert.equal(result.data.channels.api.authToken, 'secret');
+    });
+
     test('rejects Slack channel without botToken', () => {
       const validator = new ConfigValidator();
 
