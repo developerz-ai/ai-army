@@ -370,6 +370,72 @@ describe('DevCommand - runDev()', () => {
     assert.equal(result.success, false);
   });
 
+  test('hints at a missing environment variable on the rethrow path', async () => {
+    // A non-OrchestratorError start failure is rethrown as DevCommandError
+    // (DevCommand.js:248-251). That branch prints the hint too, so a
+    // regression there must fail here, not only in the OrchestratorError cases.
+    const startError = new Error("Required environment variable 'DATABASE_URL' is not set");
+    const orch = createMockOrchestrator({ startError });
+    const { factory } = createMockConfigWatcherFactory();
+
+    await assert.rejects(
+      runDev({
+        orchestrator: orch,
+        configWatcherFactory: factory,
+        output: out,
+        processRef: proc,
+      }),
+      DevCommandError
+    );
+
+    const output = out.output();
+    assert.ok(output.includes("Missing environment variable 'DATABASE_URL'"));
+    assert.ok(output.includes('export DATABASE_URL=<value>'));
+  });
+
+  test('hints at an environment variable carried by the cause chain on the rethrow path', async () => {
+    // findMissingEnvVar walks the cause chain; the rethrow path must use it,
+    // not the wrapper message, which never names the variable.
+    const configError = new ConfigError(
+      "Required environment variable 'ANTHROPIC_API_KEY' is not set",
+      {
+        envVar: 'ANTHROPIC_API_KEY',
+      }
+    );
+    const startError = new Error('Bootstrap failed', { cause: configError });
+    const orch = createMockOrchestrator({ startError });
+    const { factory } = createMockConfigWatcherFactory();
+
+    await assert.rejects(
+      runDev({
+        orchestrator: orch,
+        configWatcherFactory: factory,
+        output: out,
+        processRef: proc,
+      }),
+      /Startup failed: Bootstrap failed/
+    );
+
+    assert.ok(out.output().includes("Missing environment variable 'ANTHROPIC_API_KEY'"));
+  });
+
+  test('prints no env hint on the rethrow path when the failure is unrelated', async () => {
+    const orch = createMockOrchestrator({ startError: new Error('socket hang up') });
+    const { factory } = createMockConfigWatcherFactory();
+
+    await assert.rejects(
+      runDev({
+        orchestrator: orch,
+        configWatcherFactory: factory,
+        output: out,
+        processRef: proc,
+      }),
+      DevCommandError
+    );
+
+    assert.ok(!out.output().includes('Missing environment variable'));
+  });
+
   test('works without watcher when ConfigWatcher creation fails', async () => {
     const orch = createMockOrchestrator();
 

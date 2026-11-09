@@ -161,6 +161,36 @@ function assertNoCredential(result) {
 }
 
 describe('bin/check refusal paths', () => {
+  test('exits 75 and leaks no credential when the database URL is malformed', async () => {
+    // A malformed URL makes pg.Client's constructor throw — `new URL()` inside
+    // pg-connection-string — before the gate's try/catch can catch anything.
+    // That is the one path where the gate does not control the diagnostic, so
+    // it is the one that can print the URL. A port above 65535 is what a typo
+    // in TEST_DATABASE_URL realistically produces, and it carries the password.
+    const dir = await createTempDir('bin-check-bad-url-');
+    await fs.symlink(REPO_NODE_MODULES, path.join(dir, 'node_modules'), 'dir');
+    await fs.mkdir(path.join(dir, 'demo', 'node_modules'), { recursive: true });
+    await fs.writeFile(
+      path.join(dir, 'package.json'),
+      JSON.stringify({ name: 'bin-check-fixture', version: '0.0.0', private: true })
+    );
+    const script = await installCheckScript(dir);
+
+    const result = await runScript(script, {
+      TEST_DATABASE_URL: `postgresql://ai_army:${FIXTURE_PASSWORD}@127.0.0.1:9999999/ai_army_test`,
+    });
+
+    assert.equal(result.code, 75, 'an unusable test database must exit 75, never 1');
+    assert.match(result.stderr, /test database(?: .*)? is not usable/);
+    assert.match(result.stderr, /run bin\/setup/, 'the refusal must name the remedy');
+    assert.doesNotMatch(
+      result.stderr,
+      /Missing script/,
+      'the gate must stop at the precondition instead of running npm'
+    );
+    assertNoCredential(result);
+  });
+
   test('exits 75 when the root dependency tree is missing', async () => {
     const dir = await createTempDir('bin-check-no-modules-');
     const script = await installCheckScript(dir);

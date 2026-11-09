@@ -7,8 +7,9 @@ Guide for developing and contributing to AI Assistants Army.
 ### Prerequisites
 
 - Node.js 22+
-- Docker
-- PostgreSQL 16+
+- Docker with Compose V2 (the local PostgreSQL runs in the compose stack)
+- PostgreSQL 18 — supplied by `docker-compose.yml` (`postgres:18-alpine`); you do not need a
+  system install
 - Git
 
 ### Local Setup
@@ -18,28 +19,30 @@ Guide for developing and contributing to AI Assistants Army.
 git clone git@github.com:developerz-ai/ai-army.git
 cd ai-army
 
-# Install dependencies
-npm install
+# Install dependencies, create .env, start PostgreSQL 18, create the test database
+# (idempotent — it never overwrites an existing .env)
+./bin/setup
 
-# Setup environment
-cp .env.example .env
-vim .env  # Add your API keys
-
-# Start PostgreSQL (via Docker)
-docker run -d \
-  --name ai-army-postgres \
-  -e POSTGRES_DB=ai_army \
-  -e POSTGRES_USER=ai_army \
-  -e POSTGRES_PASSWORD=password \
-  -p 5432:5432 \
-  postgres:16
+# Add your API keys
+vim .env
 
 # Run migrations
 npm run migrate
 
 # Start in development mode
-npm run dev
+./bin/dev
 ```
+
+`./bin/setup` runs `docker compose -f docker-compose.yml up -d --wait postgres` rather than a
+standalone `docker run`. The image is **PostgreSQL 18**, which keeps its data under
+`/var/lib/postgresql/<major>/`; the compose file mounts the `pgdata` volume at
+`/var/lib/postgresql` because PostgreSQL 18 refuses to start while anything is mounted at the
+legacy `/var/lib/postgresql/data` path. Do not hand-roll a `postgres:16` container with a
+`/var/lib/postgresql/data` mount — it targets a version and a volume layout the setup scripts
+no longer use.
+
+Already installed PostgreSQL 18 yourself? Set `DATABASE_URL` to it instead; `./bin/setup` is
+only the zero-config path.
 
 ## Project Structure
 

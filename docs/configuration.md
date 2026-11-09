@@ -531,18 +531,36 @@ npx ai-army validate
 
 ### Multiple Environments
 
-```bash
-# Development
-cp .env.example .env.dev
-vim .env.dev
+The CLI loads **`.env` only**. `bin/cli.js` reads the file through `loadEnv()`, which calls
+`dotenv.config({ override: false })` against `.env` — a `NODE_ENV` value does not switch
+which file is read, and `.env.dev` / `.env.prod` are never loaded on their own.
 
-# Production
+`override: false` is the lever: variables already in the environment win, so point Node at
+the file you want and it takes precedence over `.env`.
+
+```bash
+# Development — plain .env
+./bin/dev
+
+# Staging / production — the extra file wins over .env for every key it sets
 cp .env.example .env.prod
 vim .env.prod
-
-# Use different env files
-NODE_ENV=production node bin/cli.js start
+node --env-file-if-exists=.env.prod bin/cli.js start
 ```
+
+`--env-file-if-exists` rather than `--env-file` so a missing file does not abort the start.
+Keep `.env` as the shared baseline and put only the overrides in `.env.prod` (the database
+URL, the provider keys, `NODE_ENV`).
+
+`NODE_ENV` still matters, but not for file selection: it switches the logger to JSON Lines
+output (`src/utils/logger.js`) and turns on `start`'s production checks
+(`src/cli/StartCommand.js`).
+
+**`PORT` and `PG_PORT` are Docker Compose variables, not CLI ones.** `docker-compose.yml`
+substitutes them (`${PG_PORT:-5432}:5432`, `${PORT:-3000}:3000`) and passes `PORT` into the
+app container. A CLI run reads neither: the REST API port comes from `api.port` in
+`config.json` (`src/core/orchestrator.js`), so change it there — not in `.env` — if you need
+the CLI to listen elsewhere.
 
 ### Per-Bot API Keys
 
