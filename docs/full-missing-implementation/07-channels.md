@@ -17,22 +17,22 @@
 ## What's Missing
 
 ### 1. Unified Channel Manager
-```javascript
-// src/core/channel-manager.js - EXISTS but incomplete
-class ChannelManager {
-  // Missing features:
-  async broadcastToAll(message)
-  async getChannelStatus(channelName)
-  async reconnectChannel(channelName)
-  async updateChannelConfig(channelName, config)
-  getChannelStats()
-}
-```
 
-**Current state:**
-- Orchestrator manages channels directly
-- No centralized channel abstraction
-- No unified status/metrics
+**Implemented** in `src/core/channel-manager.js`:
+
+| Method | Location |
+|--------|----------|
+| `broadcastToAll(message, options = {})` | `src/core/channel-manager.js:317` |
+| `getChannelStatus(name)` | `src/core/channel-manager.js:358` |
+| `reconnectChannel(name)` | `src/core/channel-manager.js:383` |
+| `updateChannelConfig(name, configUpdates)` | `src/core/channel-manager.js:430` |
+| `getChannelStats()` | `src/core/channel-manager.js:479` |
+
+**Remaining gap: built-in adapter registration.**
+- `ChannelManager`'s constructor (`src/core/channel-manager.js:75-84`) registers no adapters, despite the header comment at lines 9-11 claiming built-ins are auto-registered.
+- The built-in `slack`, `discord` and `rest` adapters are registered by the CLI commands instead: `src/cli/StartCommand.js:215-217` and `src/cli/DevCommand.js:126-128` call `Orchestrator.registerChannelAdapter` (`src/core/orchestrator.js:608-621`), which forwards to the `ChannelManager` (`src/core/orchestrator.js:1270-1274`).
+- Any other entry point that builds an `Orchestrator` or `ChannelManager` must register the built-ins itself, or it has no adapters.
+- The design doc ([docs/idea/09-channels.md](../idea/09-channels.md)) does not require auto-registration, so this is a code/comment inconsistency, not a spec violation. Either make the header comment accurate or move registration into the manager.
 
 ### 2. Channel Health Monitoring
 
