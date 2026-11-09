@@ -130,7 +130,9 @@ my-ai-army/
     "rest-api": {
       "type": "rest",
       "port": 3000,
-      "apiKey": "${REST_API_KEY}"
+      "host": "0.0.0.0",
+      "basePath": "/api/v1",
+      "authToken": "${REST_API_KEY}"
     }
   },
 
@@ -147,6 +149,12 @@ my-ai-army/
   }
 }
 ```
+
+**REST channel fields** (`type: "rest"`): `port` is required; `host` (default `0.0.0.0`),
+`basePath` (URL prefix for the endpoints, e.g. `/api/v1`) and `authToken` are optional. When
+`authToken` is set, clients must send it as `X-API-Key: <token>` or `Authorization: Bearer <token>`.
+The former `apiKey` field was renamed `authToken`; the adapter rejects `apiKey` rather than
+running unauthenticated.
 
 ## Bot Configuration (`bots/{name}/config.json`)
 

@@ -11,7 +11,13 @@
  * - POST {basePath}/messages          - Receive inbound messages
  * - GET  {basePath}/messages/:sessionId - Poll for responses
  *
- * Config: { port, host, basePath, apiKey }
+ * Config (matches RestChannelSchema in src/config/ConfigValidator.js):
+ *   { port (required), host (optional, default '0.0.0.0'),
+ *     basePath (optional, honoured — normalized to a leading slash, no trailing slash),
+ *     authToken (optional, enables X-API-Key / Bearer authentication) }
+ * The schema-only `type` and `restrictions` keys are tolerated and ignored.
+ * The legacy `apiKey` field was renamed `authToken`; passing `apiKey` throws so that
+ * authentication is never silently disabled by the old name.
  *
  * @module adapters/channels/rest
  */
@@ -54,7 +60,7 @@ export class RESTAdapterError extends Error {
  *   port: 3100,
  *   host: '0.0.0.0',
  *   basePath: '/api/v1',
- *   apiKey: 'my-secret-key',
+ *   authToken: 'my-secret-key',
  * });
  * await adapter.initialize();
  * adapter.onMessage(async msg => console.log(msg));
@@ -67,7 +73,8 @@ export class RESTAdapter {
    * @param {number} config.port - Port to listen on (use 0 for ephemeral port)
    * @param {string} [config.host='0.0.0.0'] - Host to bind to
    * @param {string} [config.basePath=''] - Base path prefix for endpoints
-   * @param {string} [config.apiKey] - Optional API key for authentication
+   * @param {string} [config.authToken] - Optional token for authentication (X-API-Key or Bearer)
+   * @throws {RESTAdapterError} If config is invalid or the legacy `apiKey` field is supplied
    */
   constructor(config) {
     if (!config || typeof config !== 'object') {
@@ -76,6 +83,8 @@ export class RESTAdapter {
         reason: 'Missing or invalid config object',
       });
     }
+
+    this._assertNoLegacyApiKey(config, 'constructor');
 
     if (config.port == null || !Number.isFinite(config.port)) {
       throw new RESTAdapterError('port is required and must be a finite number', {
@@ -88,7 +97,7 @@ export class RESTAdapter {
       port: config.port,
       host: config.host ?? '0.0.0.0',
       basePath: this._normalizeBasePath(config.basePath),
-      apiKey: config.apiKey || null,
+      authToken: config.authToken || null,
     };
 
     /** @type {import('http').Server|null} */
@@ -132,6 +141,7 @@ export class RESTAdapter {
 
     // Merge runtime config overrides when provided by ChannelManager
     if (config && typeof config === 'object') {
+      this._assertNoLegacyApiKey(config, 'initialize');
       if (config.port != null) {
         if (!Number.isFinite(config.port)) {
           throw new RESTAdapterError('port must be a finite number', {
@@ -147,8 +157,8 @@ export class RESTAdapter {
       if (config.basePath !== undefined) {
         this.config.basePath = this._normalizeBasePath(config.basePath);
       }
-      if (config.apiKey !== undefined) {
-        this.config.apiKey = config.apiKey || null;
+      if (config.authToken !== undefined) {
+        this.config.authToken = config.authToken || null;
       }
     }
 
@@ -168,6 +178,26 @@ export class RESTAdapter {
       throw new RESTAdapterError('Failed to initialize REST adapter', {
         cause: err,
         operation: 'initialize',
+      });
+    }
+  }
+
+  /**
+   * Reject the legacy `apiKey` config field.
+   *
+   * `apiKey` was renamed `authToken`. Ignoring the old name would silently run the
+   * endpoint unauthenticated, so it is an error instead.
+   *
+   * @param {Object} config - Config object to check
+   * @param {string} operation - Operation name for the error
+   * @throws {RESTAdapterError} If `apiKey` is present
+   * @private
+   */
+  _assertNoLegacyApiKey(config, operation) {
+    if (config.apiKey !== undefined) {
+      throw new RESTAdapterError('apiKey is no longer supported; use authToken', {
+        operation,
+        reason: 'Legacy apiKey would be ignored and leave the endpoint unauthenticated',
       });
     }
   }
@@ -347,15 +377,15 @@ export class RESTAdapter {
       return;
     }
 
-    // API key authentication
-    if (this.config.apiKey) {
+    // Token authentication
+    if (this.config.authToken) {
       const rawApiKey = req.headers['x-api-key'];
       const rawAuth = req.headers.authorization;
       const apiKeyHeader = Array.isArray(rawApiKey) ? rawApiKey[0] : rawApiKey;
       const authHeader = Array.isArray(rawAuth) ? rawAuth[0] : rawAuth;
       const providedKey = apiKeyHeader || this._extractBearerToken(authHeader);
 
-      if (providedKey !== this.config.apiKey) {
+      if (providedKey !== this.config.authToken) {
         this._sendJson(res, 401, { error: 'Unauthorized', message: 'Invalid or missing API key' });
         return;
       }

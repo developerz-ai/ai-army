@@ -383,7 +383,7 @@ describe('RESTAdapter integration', () => {
     });
 
     test('rejects POST without API key', async () => {
-      ({ adapter, port } = await createRunningAdapter({ apiKey: API_KEY }));
+      ({ adapter, port } = await createRunningAdapter({ authToken: API_KEY }));
 
       const res = await sendRequest({
         port,
@@ -397,7 +397,7 @@ describe('RESTAdapter integration', () => {
     });
 
     test('rejects GET without API key', async () => {
-      ({ adapter, port } = await createRunningAdapter({ apiKey: API_KEY }));
+      ({ adapter, port } = await createRunningAdapter({ authToken: API_KEY }));
 
       const res = await sendRequest({ port, path: '/messages/sess-1' });
 
@@ -405,7 +405,7 @@ describe('RESTAdapter integration', () => {
     });
 
     test('accepts X-API-Key header for full request-response flow', async () => {
-      ({ adapter, port } = await createRunningAdapter({ apiKey: API_KEY }));
+      ({ adapter, port } = await createRunningAdapter({ authToken: API_KEY }));
 
       const handler = mock.fn();
       adapter.onMessage(handler);
@@ -436,7 +436,7 @@ describe('RESTAdapter integration', () => {
     });
 
     test('accepts Bearer token for full request-response flow', async () => {
-      ({ adapter, port } = await createRunningAdapter({ apiKey: API_KEY }));
+      ({ adapter, port } = await createRunningAdapter({ authToken: API_KEY }));
 
       const handler = mock.fn();
       adapter.onMessage(handler);
@@ -455,7 +455,7 @@ describe('RESTAdapter integration', () => {
     });
 
     test('allows CORS preflight without API key', async () => {
-      ({ adapter, port } = await createRunningAdapter({ apiKey: API_KEY }));
+      ({ adapter, port } = await createRunningAdapter({ authToken: API_KEY }));
 
       const res = await sendRequest({
         port,
@@ -470,7 +470,7 @@ describe('RESTAdapter integration', () => {
     });
 
     test('rejects requests with wrong API key', async () => {
-      ({ adapter, port } = await createRunningAdapter({ apiKey: API_KEY }));
+      ({ adapter, port } = await createRunningAdapter({ authToken: API_KEY }));
 
       const res = await sendRequest({
         port,
@@ -544,10 +544,10 @@ describe('RESTAdapter integration', () => {
       await adapter.stop();
     });
 
-    test('combined basePath + apiKey authentication', async () => {
+    test('combined basePath + authToken authentication', async () => {
       ({ adapter, port } = await createRunningAdapter({
         basePath: '/api/v2',
-        apiKey: 'combo-key',
+        authToken: 'combo-key',
       }));
 
       const handler = mock.fn();
