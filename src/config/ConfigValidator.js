@@ -237,6 +237,91 @@ const BotChannelConfigSchema = z
   })
   .passthrough();
 
+/**
+ * The two shapes a bot's `channels[]` entry may take, as reported to the user
+ */
+const CHANNEL_ENTRY_SHAPES =
+  'expected a channel name (non-empty string) or a channel config object with "name" and "type"';
+
+/**
+ * Describe a rejected `channels[]` entry for an error message
+ *
+ * @param {*} entry - The rejected entry
+ * @returns {string} - Short description of the entry
+ */
+function describeChannelEntry(entry) {
+  if (entry && typeof entry === 'object') {
+    return typeof entry.name === 'string' ? JSON.stringify(entry.name) : 'object';
+  }
+  return JSON.stringify(entry) ?? 'entry';
+}
+
+/**
+ * Summarise why the branches of a union rejected the input
+ *
+ * Zod reports a failed union as ONE `invalid_union` issue and keeps the
+ * per-branch reasons in `issue.errors`. The branch level type mismatch
+ * ("expected string, received object") adds nothing, so it is dropped — what
+ * is left names the field that is actually wrong.
+ *
+ * @param {Array<Array<Object>>} branchErrors - Per-branch issues of a failed union
+ * @returns {string} - The reasons, joined; empty when there is nothing to add
+ */
+function summariseUnionBranchErrors(branchErrors) {
+  const reasons = [];
+  for (const branch of branchErrors || []) {
+    for (const branchIssue of branch) {
+      if (branchIssue.code === 'invalid_type' && !branchIssue.path?.length) {
+        continue;
+      }
+      const field = branchIssue.path?.length ? `${branchIssue.path.join('.')}: ` : '';
+      reasons.push(`${field}${branchIssue.message}`);
+    }
+  }
+  return reasons.join('; ');
+}
+
+/**
+ * Build the message reported for a rejected `channels[]` entry
+ *
+ * @param {*} entry - The rejected entry
+ * @param {string} [reasons] - Per-branch reasons of a failed union
+ * @returns {string} - The formatted message
+ */
+function channelEntryErrorMessage(entry, reasons = '') {
+  const detail = reasons ? ` (${reasons})` : '';
+  return `Invalid channel entry ${describeChannelEntry(entry)}: ${CHANNEL_ENTRY_SHAPES}${detail}`;
+}
+
+/**
+ * Schema for a single entry in a bot's `channels[]` array
+ *
+ * Two shapes are accepted:
+ * - A channel NAME (string), e.g. `'slack-main'`. The message router matches
+ *   these against the incoming message's channel name.
+ * - A channel CONFIG object (`BotChannelConfigSchema`), e.g.
+ *   `{ name: 'slack-main', type: 'slack' }`, which additionally carries the
+ *   channel type and optional restrictions.
+ *
+ * Entries are kept verbatim so the router sees exactly what the config said.
+ *
+ * A rejected entry is reported with a message naming the entry and both
+ * accepted shapes: Zod reports a failed union as ONE `invalid_union` issue
+ * ("Invalid input") and hides the per-branch reasons in `issue.errors`, so
+ * the union carries its own message instead.
+ */
+const BotChannelEntrySchema = z.union(
+  [
+    z.string().min(1, {
+      error: issue => channelEntryErrorMessage(issue.input),
+    }),
+    BotChannelConfigSchema,
+  ],
+  {
+    error: issue => channelEntryErrorMessage(issue.input, summariseUnionBranchErrors(issue.errors)),
+  }
+);
+
 // =============================================================================
 // MCP Server Configuration Schema
 // =============================================================================
@@ -652,8 +737,9 @@ export const BotConfigSchema = z
     temperature: z.number().min(0).max(2).optional(),
     maxTokens: z.number().int().positive().optional(),
 
-    // Multi-channel support: array of channel configs per bot
-    channels: z.array(BotChannelConfigSchema).optional(),
+    // Multi-channel support: array of channel bindings per bot. Each entry is
+    // either a channel name (string) or a channel config object.
+    channels: z.array(BotChannelEntrySchema).optional(),
     sessionPer: z.enum(['user', 'channel', 'thread']).optional().default('user'),
 
     // Workspace
@@ -1192,7 +1278,9 @@ export class ConfigValidator {
       if (Array.isArray(botConfig.channels)) {
         const seenNames = new Set();
         for (const channelEntry of botConfig.channels) {
-          const channelName = channelEntry.name;
+          // A channel entry is either a channel name (string) or a config object
+          const isName = typeof channelEntry === 'string';
+          const channelName = isName ? channelEntry : channelEntry?.name;
           if (channelName && seenNames.has(channelName)) {
             errors.push({
               path: 'channels',
@@ -1242,6 +1330,7 @@ export {
   ChannelConfigSchema,
   ChannelRestrictionsSchema,
   BotChannelConfigSchema,
+  BotChannelEntrySchema,
   McpServerConfigSchema,
   SandboxConfigSchema,
   RestrictionsConfigSchema,

@@ -7,6 +7,7 @@
 
 import { test, describe, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
+import { ConfigValidator } from '../../../src/config/ConfigValidator.js';
 import { MessageRouter, MessageRouterError, matchesAny } from '../../../src/core/message-router.js';
 
 /**
@@ -747,6 +748,34 @@ describe('MessageRouter', () => {
       router.findBotForMessage(createMessage());
 
       assert.equal(botManager.listBots.mock.calls.length, 1);
+    });
+
+    test('routes to the bot whose validated channels[] holds the channel name', () => {
+      const validator = new ConfigValidator();
+      const validated = validator.validateBotConfig({
+        id: 'multi-bot',
+        soul: './soul.md',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        channels: ['slack-main', 'discord-dev'],
+      });
+
+      const multiBot = createBot({ id: 'multi-bot' });
+      multiBot.config = validated;
+      botManager._bots.set(multiBot.id, multiBot);
+
+      addBot(botManager, { id: 'slack-other', config: { channel: 'slack-other' } });
+
+      const matched = router.findBotForMessage(createMessage({ channelName: 'slack-main' }));
+      assert.ok(matched);
+      assert.equal(matched.id, 'multi-bot');
+
+      const other = router.findBotForMessage(createMessage({ channelName: 'slack-other' }));
+      assert.ok(other);
+      assert.equal(other.id, 'slack-other');
+
+      const unmatched = router.findBotForMessage(createMessage({ channelName: 'unknown' }));
+      assert.equal(unmatched, null);
     });
   });
 });
