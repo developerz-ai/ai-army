@@ -76,8 +76,8 @@ describe('Demo config.json', () => {
 
   test('defines sandbox defaults', () => {
     assert.ok(config.defaults.sandbox, 'Should have sandbox defaults');
-    assert.equal(config.defaults.sandbox.type, 'docker');
-    assert.ok(config.defaults.sandbox.image, 'Should have default image');
+    assert.equal(config.defaults.sandbox.type, 'incus');
+    assert.ok(config.defaults.sandbox.incusImage, 'Should have default image');
   });
 
   test('has empty channels and mcpServers', () => {
@@ -219,6 +219,55 @@ describe('File assistant config', () => {
   test('has name and description', () => {
     assert.ok(config.name, 'Should have name');
     assert.ok(config.description, 'Should have description');
+  });
+});
+
+describe('File assistant workspace path agreement', () => {
+  // The soul prompt is read by the model, whose tools run INSIDE the container.
+  // IncusBackend mounts the host workspace.root at a fixed container path, so the
+  // soul must name that container path — never the host-relative workspace.root.
+  let config;
+  let soul;
+  let backend;
+
+  before(async () => {
+    config = await loadJson(join(DEMO_DIR, 'bots', 'file-assistant', 'config.json'));
+    soul = await readFile(join(DEMO_DIR, 'bots', 'file-assistant', 'soul.md'), 'utf-8');
+    backend = await readFile(join(__dirname, '..', 'src', 'execution', 'incus-backend.js'), 'utf-8');
+  });
+
+  function soulWorkspacePath() {
+    const match = soul.match(/workspace at (\/[\w./-]*[\w])/);
+    assert.ok(match, 'soul.md should state its absolute workspace path ("workspace at /...")');
+    return match[1];
+  }
+
+  function containerMountPath() {
+    const match = backend.match(/workspace:\s*\{[^}]*?type:\s*'disk'[^}]*?path:\s*'(\/[^']+)'/);
+    assert.ok(match, "incus-backend.js should define a 'workspace' disk device with an absolute path");
+    return match[1];
+  }
+
+  test('soul workspace path equals the container mount path of workspace.root', () => {
+    assert.equal(soulWorkspacePath(), containerMountPath());
+  });
+
+  test('mount path is derived from workspace.root as the disk device source', () => {
+    assert.match(
+      backend,
+      /workspace:\s*\{[^}]*?source:\s*hostPath/,
+      'disk device source should be the resolved workspace.root'
+    );
+    assert.match(backend, /const workspaceRoot = workspace\?\.root/);
+  });
+
+  test('workspace.root stays the host-relative ./data/file-assistant', () => {
+    assert.equal(config.workspace.root, './data/file-assistant');
+  });
+
+  test('soul does not name the host-relative workspace.root', () => {
+    assert.ok(!soul.includes(config.workspace.root), 'soul.md must not mention workspace.root');
+    assert.ok(!soul.includes('data/file-assistant'), 'soul.md must not mention the host path');
   });
 });
 
