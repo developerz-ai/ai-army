@@ -16,7 +16,11 @@ import {
   StartCommandError,
   _checkProductionWarnings,
 } from '../../../src/cli/StartCommand.js';
-import { OrchestratorError } from '../../../src/core/orchestrator.js';
+import { Orchestrator, OrchestratorError } from '../../../src/core/orchestrator.js';
+import { MessageRouter } from '../../../src/core/message-router.js';
+import SlackAdapter from '../../../src/adapters/channels/slack.js';
+import DiscordAdapter from '../../../src/adapters/channels/discord.js';
+import RESTAdapter from '../../../src/adapters/channels/rest.js';
 
 // ============================================================================
 // Test Helpers
@@ -539,6 +543,162 @@ describe('StartCommand - runStart()', () => {
 
       assert.equal(result.orchestrator, orch, 'Should use injected orchestrator');
       assert.equal(orch.start.mock.calls.length, 1);
+    });
+  });
+
+  describe('channel wiring on a self-built Orchestrator', () => {
+    const missingConfig = '/tmp/ai-army-nonexistent-config.json';
+
+    test('passes a messageRouterFactory that builds a MessageRouter', async () => {
+      const { orchestrator } = await runStart({
+        configPath: missingConfig,
+        output: out,
+        processRef: proc,
+      });
+
+      assert.equal(typeof orchestrator.messageRouterFactory, 'function');
+      const botManager = { listBots: () => [] };
+      const router = orchestrator.messageRouterFactory(botManager);
+      assert.ok(router instanceof MessageRouter);
+      assert.equal(router.botManager, botManager);
+    });
+
+    test('registers the slack, discord and rest channel adapters', async () => {
+      const { orchestrator } = await runStart({
+        configPath: missingConfig,
+        output: out,
+        processRef: proc,
+      });
+
+      assert.equal(orchestrator.channelAdapters.get('slack'), SlackAdapter);
+      assert.equal(orchestrator.channelAdapters.get('discord'), DiscordAdapter);
+      assert.equal(orchestrator.channelAdapters.get('rest'), RESTAdapter);
+      assert.equal(orchestrator.channelAdapters.size, 3);
+    });
+
+    test('leaves an injected orchestrator untouched', async () => {
+      const orch = createMockOrchestrator();
+
+      const { orchestrator } = await runStart({
+        orchestrator: orch,
+        output: out,
+        processRef: proc,
+      });
+
+      assert.equal(orchestrator, orch);
+      assert.equal(orch.messageRouterFactory, undefined);
+      assert.equal(orch.channelAdapters, undefined);
+    });
+
+    test('the command-built factory yields a live router: a channel message reaches route()', async () => {
+      // Take the factory exactly as the command builds it ...
+      const { orchestrator: built } = await runStart({
+        configPath: missingConfig,
+        output: out,
+        processRef: proc,
+      });
+
+      // ... and run it in an Orchestrator whose other collaborators are mocks.
+      const bots = [];
+      const botManager = {
+        loadBot: mock.fn(async (botId, config) => {
+          const bot = { id: botId, config: { ...config, enabled: true }, status: 'loaded' };
+          bots.push(bot);
+          return bot;
+        }),
+        startBot: mock.fn(async () => {}),
+        stopBot: mock.fn(async () => {}),
+        stopAll: mock.fn(async () => ({ stopped: [], failed: [] })),
+        listBots: mock.fn(() => [...bots]),
+        getBot: mock.fn(id => bots.find(b => b.id === id)),
+        getBotCount: mock.fn(() => bots.length),
+      };
+      const mainConfig = {
+        defaults: {
+          model: { provider: 'anthropic', model: 'claude-sonnet-4-5' },
+          sandbox: { type: 'incus', incusImage: 'node:22-slim' },
+        },
+        providers: { anthropic: { type: 'anthropic', apiKey: 'test-key' } },
+        mcpServers: {},
+        channels: { 'slack-main': { type: 'slack' } },
+        bots: {
+          'test-bot': {
+            soul: './soul.md',
+            provider: 'anthropic',
+            model: 'claude-sonnet-4-5',
+            channel: 'slack-main',
+          },
+        },
+      };
+      const sent = [];
+      class StubSlack {
+        async initialize() {}
+        async close() {}
+        onMessage(handler) {
+          this.messageHandler = handler;
+        }
+        async sendMessage(channelId, text) {
+          sent.push({ channelId, text });
+        }
+      }
+      const messageProcessor = {
+        processMessage: mock.fn(async () => ({ text: 'AI response' })),
+      };
+
+      const orch = new Orchestrator({
+        logger: null,
+        botsPath: '/tmp/nonexistent-bots-path',
+        configLoader: {
+          load: mock.fn(async () => mainConfig),
+          deepMerge: mock.fn((defaults, overrides) => ({ ...defaults, ...overrides })),
+          loadBotConfig: mock.fn(async (_path, defaults) => ({ ...defaults })),
+        },
+        configValidator: {
+          validateMainConfig: mock.fn(config => ({ valid: true, errors: [], data: config })),
+          validateBotConfig: mock.fn(config => config),
+          generateReport: mock.fn(() => ''),
+        },
+        storage: {
+          connect: mock.fn(async () => {}),
+          disconnect: mock.fn(async () => {}),
+          query: mock.fn(async () => ({ rows: [] })),
+          isConnected: mock.fn(() => true),
+          getPoolStats: mock.fn(() => ({ totalCount: 1, idleCount: 1, waitingCount: 0 })),
+        },
+        botManager,
+        migrationRunner: {
+          runMigrations: mock.fn(async () => []),
+          getMigrationStatus: mock.fn(async () => []),
+          ensureMigrationsTable: mock.fn(async () => {}),
+        },
+        messageProcessor,
+        messageRouterFactory: built.messageRouterFactory,
+      });
+      // Stub the Slack adapter only: the real one needs live credentials
+      orch.registerChannelAdapter('slack', StubSlack);
+
+      assert.equal(orch.messageRouter, null);
+      await orch.start();
+      try {
+        assert.ok(orch.messageRouter instanceof MessageRouter, 'messageRouter is non-null');
+        const routeSpy = mock.method(orch.messageRouter, 'route');
+
+        const { adapter } = orch.channelManager.getChannel('slack-main');
+        await adapter.messageHandler({
+          type: 'slack',
+          userId: 'U123',
+          channelId: 'C456',
+          text: 'Hello bot!',
+          isDM: false,
+        });
+
+        assert.equal(routeSpy.mock.calls.length, 1);
+        assert.equal(routeSpy.mock.calls[0].arguments[0].channelName, 'slack-main');
+        assert.equal(messageProcessor.processMessage.mock.calls.length, 1);
+        assert.deepEqual(sent, [{ channelId: 'C456', text: 'AI response' }]);
+      } finally {
+        await orch.stop();
+      }
     });
   });
 
