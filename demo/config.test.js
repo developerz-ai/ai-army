@@ -14,10 +14,14 @@ import {
   ConfigValidator,
   MainConfigSchema,
   BotConfigSchema,
-} from '../src/config/ConfigValidator.js';
+} from 'ai-army';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEMO_DIR = join(__dirname);
+
+// The framework is consumed as an installed package: its root comes from the
+// resolved 'ai-army' package.json, never from a path relative to this demo.
+const FRAMEWORK_ROOT = dirname(fileURLToPath(import.meta.resolve('ai-army/package.json')));
 
 /**
  * Parse JSON file at given path
@@ -233,7 +237,10 @@ describe('File assistant workspace path agreement', () => {
   before(async () => {
     config = await loadJson(join(DEMO_DIR, 'bots', 'file-assistant', 'config.json'));
     soul = await readFile(join(DEMO_DIR, 'bots', 'file-assistant', 'soul.md'), 'utf-8');
-    backend = await readFile(join(__dirname, '..', 'src', 'execution', 'incus-backend.js'), 'utf-8');
+    backend = await readFile(
+      join(FRAMEWORK_ROOT, 'src', 'execution', 'incus-backend.js'),
+      'utf-8'
+    );
   });
 
   function soulWorkspacePath() {

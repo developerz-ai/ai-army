@@ -27,6 +27,8 @@
  * @exports {SoulLoader} - Loads bot soul/personality files
  * @exports {ConfigLoader} - Loads configuration files
  * @exports {ConfigValidator} - Validates configuration schemas
+ * @exports {MainConfigSchema} - Zod schema for the main config.json
+ * @exports {BotConfigSchema} - Zod schema for a bot config.json
  * @exports {APIServer} - HTTP API server
  * @exports {AdminRouter} - Admin API routes
  * @exports {HealthMonitor} - Health check monitoring
@@ -77,7 +79,7 @@ export { SoulLoader } from './utils/SoulLoader.js';
 
 // Config
 export { ConfigLoader } from './config/ConfigLoader.js';
-export { ConfigValidator } from './config/ConfigValidator.js';
+export { ConfigValidator, MainConfigSchema, BotConfigSchema } from './config/ConfigValidator.js';
 
 // API
 export { APIServer } from './api/api-server.js';
