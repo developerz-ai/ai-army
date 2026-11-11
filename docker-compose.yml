@@ -10,7 +10,14 @@
 #
 # Prerequisites:
 #   - Docker with Compose V2
-#   - .env (created for you by bin/setup from .env.example)
+#   - .env — bin/setup copies .env.example to .env when it is missing; configure the values
+#
+# PostgreSQL 18 data volume:
+#   postgres:18 images keep PGDATA at /var/lib/postgresql/18/docker and refuse
+#   to start with a volume at the pre-18 "data" subdirectory, so pgdata is
+#   mounted at /var/lib/postgresql (the parent).
+#
+# Bots are sandboxed through Incus, not Docker: the app needs no Docker socket.
 
 services:
   postgres:
@@ -62,6 +69,7 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
@@ -76,7 +84,6 @@ services:
     volumes:
       - ./bots:/app/bots:ro
       - ./data:/app/data
-      - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
       test: ["CMD", "node", "-e", "const http = require('http'); const req = http.request({port: process.env.PORT || 3000, path: '/health', timeout: 2000}, res => { process.exit(res.statusCode === 200 ? 0 : 1); }); req.on('error', () => process.exit(1)); req.end();"]
       interval: 30s

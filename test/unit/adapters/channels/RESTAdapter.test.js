@@ -17,6 +17,7 @@ import { test, describe, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { RESTAdapter, RESTAdapterError } from '../../../../src/adapters/channels/rest.js';
+import { ChannelConfigSchema } from '../../../../src/config/ConfigValidator.js';
 
 // ============================================================================
 // Test Helpers
@@ -268,7 +269,7 @@ describe('RESTAdapter', () => {
       assert.equal(adapter.config.port, 3100);
       assert.equal(adapter.config.host, '0.0.0.0');
       assert.equal(adapter.config.basePath, '');
-      assert.equal(adapter.config.apiKey, null);
+      assert.equal(adapter.config.authToken, null);
       assert.equal(adapter.initialized, false);
       assert.equal(adapter.started, false);
       assert.equal(adapter.messageHandler, null);
@@ -282,11 +283,11 @@ describe('RESTAdapter', () => {
         port: 3100,
         host: '127.0.0.1',
         basePath: '/api/v1',
-        apiKey: 'secret-key',
+        authToken: 'secret-key',
       });
       assert.equal(adapter.config.host, '127.0.0.1');
       assert.equal(adapter.config.basePath, '/api/v1');
-      assert.equal(adapter.config.apiKey, 'secret-key');
+      assert.equal(adapter.config.authToken, 'secret-key');
     });
 
     test('should strip trailing slashes from basePath', () => {
@@ -1020,7 +1021,7 @@ describe('RESTAdapter', () => {
 
     beforeEach(async () => {
       port = await getAvailablePort();
-      adapter = new RESTAdapter({ port, apiKey: 'test-api-key' });
+      adapter = new RESTAdapter({ port, authToken: 'test-api-key' });
       await adapter.initialize();
       await adapter.start();
     });
@@ -1380,13 +1381,13 @@ describe('RESTAdapter', () => {
         port: 3100,
         host: '127.0.0.1',
         basePath: '/api/v1',
-        apiKey: 'my-secret',
+        authToken: 'my-secret',
       });
       assert.ok(adapter);
       assert.equal(adapter.config.port, 3100);
       assert.equal(adapter.config.host, '127.0.0.1');
       assert.equal(adapter.config.basePath, '/api/v1');
-      assert.equal(adapter.config.apiKey, 'my-secret');
+      assert.equal(adapter.config.authToken, 'my-secret');
     });
 
     test('should handle _extractBearerToken with various inputs', () => {
@@ -1476,6 +1477,103 @@ describe('RESTAdapter', () => {
       assert.ok(res.headers['content-type'].includes('application/json'));
 
       await adapter.stop();
+    });
+  });
+
+  // ==========================================================================
+  // Legacy apiKey guard
+  // ==========================================================================
+
+  describe('legacy apiKey', () => {
+    test('constructor throws RESTAdapterError instead of silently disabling auth', () => {
+      assert.throws(
+        () => new RESTAdapter({ port: 3100, apiKey: 'old-name' }),
+        err => {
+          assert.ok(err instanceof RESTAdapterError);
+          assert.equal(err.operation, 'constructor');
+          assert.match(err.message, /authToken/);
+          return true;
+        }
+      );
+    });
+
+    test('initialize() override throws RESTAdapterError', async () => {
+      const adapter = new RESTAdapter({ port: 3100 });
+      await assert.rejects(
+        () => adapter.initialize({ apiKey: 'old-name' }),
+        err => {
+          assert.ok(err instanceof RESTAdapterError);
+          assert.equal(err.operation, 'initialize');
+          return true;
+        }
+      );
+    });
+
+    test('initialize() override applies authToken', async () => {
+      const adapter = new RESTAdapter({ port: 3100 });
+      await adapter.initialize({ authToken: 'runtime-token' });
+      assert.equal(adapter.config.authToken, 'runtime-token');
+    });
+  });
+
+  // ==========================================================================
+  // RestChannelSchema contract (schema parse -> adapter construction)
+  // ==========================================================================
+
+  describe('RestChannelSchema contract', () => {
+    let adapter;
+
+    afterEach(async () => {
+      if (adapter && adapter.started) {
+        await adapter.stop();
+      }
+      adapter = null;
+    });
+
+    test('schema-parsed config constructs an adapter and enforces authToken', async () => {
+      const port = await getAvailablePort();
+      const parsed = ChannelConfigSchema.safeParse({
+        type: 'rest',
+        port,
+        host: '127.0.0.1',
+        basePath: '/api/v1',
+        authToken: 'tok',
+        restrictions: { allowDMs: true },
+      });
+      assert.ok(parsed.success, `Failed: ${JSON.stringify(parsed.error?.issues)}`);
+
+      adapter = new RESTAdapter(parsed.data);
+      assert.equal(adapter.config.authToken, 'tok');
+      assert.equal(adapter.config.basePath, '/api/v1');
+      assert.equal(adapter.config.port, port);
+
+      // ChannelManager passes the full channel config to initialize() as well
+      await adapter.initialize(parsed.data);
+      await adapter.start();
+
+      const denied = await sendRequest({ port, path: '/api/v1/messages/sess-1' });
+      assert.equal(denied.statusCode, 401);
+
+      const allowed = await sendRequest({
+        port,
+        path: '/api/v1/messages/sess-1',
+        headers: { Authorization: 'Bearer tok' },
+      });
+      assert.equal(allowed.statusCode, 200);
+    });
+
+    test('schema rejects a rest channel without port', () => {
+      const parsed = ChannelConfigSchema.safeParse({ type: 'rest', authToken: 'tok' });
+      assert.equal(parsed.success, false);
+    });
+
+    test('adapter refuses a raw rest config carrying the legacy apiKey', () => {
+      // Zod strips unknown keys, so apiKey never reaches the adapter via the schema;
+      // a raw config carrying it is refused by the adapter itself.
+      assert.throws(
+        () => new RESTAdapter({ type: 'rest', port: 3100, apiKey: 'old' }),
+        RESTAdapterError
+      );
     });
   });
 });

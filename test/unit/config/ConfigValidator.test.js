@@ -178,6 +178,30 @@ describe('ConfigValidator', () => {
       assert.equal(result.data.channels.api.port, 3000);
     });
 
+    test('rejects REST channel without port', () => {
+      const validator = new ConfigValidator();
+
+      const result = validator.validateMainConfig({
+        channels: { api: { type: 'rest', host: 'localhost' } },
+      });
+
+      assert.equal(result.valid, false);
+    });
+
+    test('validates REST channel with basePath and authToken', () => {
+      const validator = new ConfigValidator();
+
+      const result = validator.validateMainConfig({
+        channels: {
+          api: { type: 'rest', port: 3000, basePath: '/api/v1', authToken: 'secret' },
+        },
+      });
+
+      assert.ok(result.valid, `Should be valid: ${JSON.stringify(result.errors)}`);
+      assert.equal(result.data.channels.api.basePath, '/api/v1');
+      assert.equal(result.data.channels.api.authToken, 'secret');
+    });
+
     test('rejects Slack channel without botToken', () => {
       const validator = new ConfigValidator();
 
@@ -1663,6 +1687,117 @@ describe('Zod Schemas', () => {
       assert.ok(result.success);
       assert.deepEqual(result.data.channels, []);
     });
+
+    test('accepts bot config with string channel names', () => {
+      const result = BotConfigSchema.safeParse({
+        id: 'string-channels-bot',
+        soul: './soul.md',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        channels: ['slack-main', 'discord-dev'],
+      });
+      assert.ok(result.success, `Failed: ${JSON.stringify(result.error?.issues)}`);
+      assert.deepEqual(result.data.channels, ['slack-main', 'discord-dev']);
+    });
+
+    test('preserves mixed string and object channel entries verbatim', () => {
+      const result = BotConfigSchema.safeParse({
+        id: 'mixed-channels-bot',
+        soul: './soul.md',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        channels: ['slack-main', { name: 'discord-dev', type: 'discord' }],
+      });
+      assert.ok(result.success, `Failed: ${JSON.stringify(result.error?.issues)}`);
+      assert.equal(result.data.channels.length, 2);
+      assert.equal(result.data.channels[0], 'slack-main');
+      assert.equal(result.data.channels[1].name, 'discord-dev');
+      assert.equal(result.data.channels[1].type, 'discord');
+    });
+
+    test('rejects an empty string channel name', () => {
+      const result = BotConfigSchema.safeParse({
+        id: 'empty-channel-name-bot',
+        soul: './soul.md',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        channels: ['slack-main', ''],
+      });
+      assert.ok(!result.success, 'Empty channel name should be rejected');
+    });
+
+    test('still requires type on object channel entries', () => {
+      const result = BotConfigSchema.safeParse({
+        id: 'typeless-object-bot',
+        soul: './soul.md',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        channels: [{ name: 'slack-main' }],
+      });
+      assert.ok(!result.success, 'Object channel entries still require a type');
+    });
+
+    test('reports an actionable error for an empty string channel name', () => {
+      const result = BotConfigSchema.safeParse({
+        id: 'empty-channel-name-bot',
+        soul: './soul.md',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        channels: [''],
+      });
+      assert.ok(!result.success, 'Empty channel name should be rejected');
+      const issue = result.error.issues[0];
+      assert.equal(issue.path.join('.'), 'channels.0');
+      assert.doesNotMatch(issue.message, /^Invalid input$/, 'Must not be the bare union message');
+      assert.match(issue.message, /Invalid channel entry ""/, 'Must name the offending entry');
+      assert.match(issue.message, /channel name/i, 'Must name the channel-name shape');
+      assert.match(issue.message, /"name"/, 'Must name the object shape');
+      assert.match(issue.message, /"type"/, 'Must name the object shape');
+    });
+
+    test('reports an actionable error for an object channel entry without a type', () => {
+      const result = BotConfigSchema.safeParse({
+        id: 'typeless-object-bot',
+        soul: './soul.md',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        channels: [{ name: 'x' }],
+      });
+      assert.ok(!result.success, 'Object channel entries still require a type');
+      const issue = result.error.issues[0];
+      assert.equal(issue.path.join('.'), 'channels.0');
+      assert.doesNotMatch(issue.message, /^Invalid input$/, 'Must not be the bare union message');
+      assert.match(issue.message, /Invalid channel entry "x"/, 'Must name the offending entry');
+      assert.match(issue.message, /channel name/i, 'Must name the channel-name shape');
+      assert.match(issue.message, /"name"/, 'Must name the object shape');
+      assert.match(issue.message, /"type"/, 'Must name the object shape');
+      assert.match(issue.message, /type: .*slack/, 'Must keep the per-branch reason');
+    });
+
+    test('surfaces the channel entry error through validateBotConfig()', () => {
+      const validator = new ConfigValidator();
+      assert.throws(
+        () =>
+          validator.validateBotConfig({
+            id: 'empty-channel-name-bot',
+            soul: './soul.md',
+            provider: 'anthropic',
+            model: 'claude-sonnet-4-5',
+            channels: ['slack-main', ''],
+          }),
+        err => {
+          assert.ok(err instanceof ConfigValidationError);
+          const channelError = err.errors.find(e => e.path === 'channels.1');
+          assert.ok(channelError, `Expected a channels.1 error: ${JSON.stringify(err.errors)}`);
+          assert.doesNotMatch(channelError.message, /^Invalid input$/);
+          assert.match(channelError.message, /Invalid channel entry ""/);
+          assert.match(channelError.message, /channel name/i);
+          assert.match(channelError.message, /"name"/);
+          assert.match(channelError.message, /"type"/);
+          return true;
+        }
+      );
+    });
   });
 
   // ===========================================================================
@@ -1780,6 +1915,64 @@ describe('Zod Schemas', () => {
       };
       const result = validator.validateAll(mainConfig, botConfigs);
       assert.ok(result.valid);
+    });
+
+    test('detects duplicate string channel names in bot channels array', () => {
+      const validator = new ConfigValidator();
+      const mainConfig = {
+        providers: { anthropic: { type: 'anthropic', apiKey: 'test' } },
+      };
+      const botConfigs = {
+        'multi-bot': {
+          id: 'multi-bot',
+          soul: './soul.md',
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-5',
+          channels: ['slack-eng', 'slack-eng'],
+        },
+      };
+      const result = validator.validateAll(mainConfig, botConfigs);
+      assert.ok(!result.valid);
+      const duplicates = result.errors.filter(e => e.code === 'duplicate_channel_name');
+      assert.equal(duplicates.length, 1);
+      assert.match(duplicates[0].message, /slack-eng/);
+    });
+
+    test('detects a duplicate name across a string and an object entry', () => {
+      const validator = new ConfigValidator();
+      const mainConfig = {
+        providers: { anthropic: { type: 'anthropic', apiKey: 'test' } },
+      };
+      const botConfigs = {
+        'multi-bot': {
+          id: 'multi-bot',
+          soul: './soul.md',
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-5',
+          channels: ['slack-eng', { name: 'slack-eng', type: 'slack' }],
+        },
+      };
+      const result = validator.validateAll(mainConfig, botConfigs);
+      assert.ok(!result.valid);
+      assert.ok(result.errors.some(e => e.code === 'duplicate_channel_name'));
+    });
+
+    test('passes with unique string channel names in bot channels array', () => {
+      const validator = new ConfigValidator();
+      const mainConfig = {
+        providers: { anthropic: { type: 'anthropic', apiKey: 'test' } },
+      };
+      const botConfigs = {
+        'multi-bot': {
+          id: 'multi-bot',
+          soul: './soul.md',
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-5',
+          channels: ['slack-eng', 'discord-pub'],
+        },
+      };
+      const result = validator.validateAll(mainConfig, botConfigs);
+      assert.ok(result.valid, `Should be valid: ${JSON.stringify(result.errors)}`);
     });
   });
 

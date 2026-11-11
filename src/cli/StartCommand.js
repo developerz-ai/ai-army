@@ -14,6 +14,10 @@ import { ContainerPool } from '../execution/container-pool.js';
 import { IncusBackend } from '../execution/incus-backend.js';
 import { SoulLoader } from '../utils/SoulLoader.js';
 import { SessionManager } from '../core/session-manager.js';
+import { MessageRouter } from '../core/message-router.js';
+import SlackAdapter from '../adapters/channels/slack.js';
+import DiscordAdapter from '../adapters/channels/discord.js';
+import RESTAdapter from '../adapters/channels/rest.js';
 import { MessageProcessor } from '../core/message-processor.js';
 import { AgentRunner } from '../agent/agent-runner.js';
 import { ModelFactory } from '../models/model-factory.js';
@@ -119,6 +123,12 @@ export function _checkProductionWarnings({ write, env = process.env } = {}) {
  * Creates an Orchestrator with the given config path, starts it,
  * and sets up signal handlers for graceful shutdown.
  *
+ * An Orchestrator created here is wired for channel traffic: it gets a
+ * `messageRouterFactory` (so incoming channel messages are routed to bots) and
+ * the slack, discord and rest channel adapters registered. Channel credentials
+ * come from the `${ENV_VAR}` references in the channel config. An injected
+ * orchestrator is used as-is and left untouched.
+ *
  * @param {Object} options - Command options
  * @param {string} [options.configPath='./config.json'] - Path to main config file
  * @param {string} [options.botsPath='./bots'] - Path to bots directory
@@ -160,6 +170,7 @@ export async function runStart({
       migrationsPath,
       logger: msg => write(`${msg}\n`),
       // Provide factories for auto-creating components
+      messageRouterFactory: botManager => new MessageRouter(botManager),
       storageFactory: config => {
         if (!config.database?.url) return null;
         return new PostgresStorage(config.database.url);
@@ -199,6 +210,13 @@ export async function runStart({
         return new MessageProcessor(sessionManager, agentRunner, storage);
       },
     });
+
+  // Register channel adapters on an orchestrator built here (never on an injected one)
+  if (!orchestrator) {
+    orch.registerChannelAdapter('slack', SlackAdapter);
+    orch.registerChannelAdapter('discord', DiscordAdapter);
+    orch.registerChannelAdapter('rest', RESTAdapter);
+  }
 
   try {
     await orch.start();

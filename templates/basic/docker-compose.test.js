@@ -197,6 +197,13 @@ describe('templates/basic/docker-compose.yml', () => {
           `postgres 18 refuses to start while a volume is mounted at the legacy path: "${target}"`
         );
       }
+      // postgres:18 refuses to start with a volume at the pre-18 data path, so the
+      // declaration itself must not carry it either (the comment above may).
+      const declarations = raw
+        .split('\n')
+        .filter(line => !line.trim().startsWith('#'))
+        .join('\n');
+      assert.doesNotMatch(declarations, /\/var\/lib\/postgresql\/data/);
     });
 
     it('should mount migrations directory for init scripts', () => {

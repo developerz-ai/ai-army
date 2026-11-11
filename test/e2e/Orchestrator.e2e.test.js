@@ -26,12 +26,16 @@
  * Uses per-worker databases for parallel test execution.
  */
 
+/* global fetch */
+
 import { describe, test, before, after, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs/promises';
+import { createServer } from 'node:net';
 import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
+import { runStart } from '../../src/cli/StartCommand.js';
 import { Orchestrator } from '../../src/core/orchestrator.js';
 import { MessageProcessor } from '../../src/core/message-processor.js';
 import { MessageRouter } from '../../src/core/message-router.js';
@@ -114,6 +118,23 @@ function createValidConfig(overrides = {}) {
     mcpServers: {},
     ...overrides,
   };
+}
+
+/**
+ * Reserve an ephemeral port long enough to produce config accepted by the REST
+ * channel schema. The REST adapter claims it immediately afterwards.
+ *
+ * @returns {Promise<number>} Available local TCP port
+ */
+async function getAvailablePort() {
+  const server = createServer();
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const { port } = server.address();
+  await new Promise((resolve, reject) => server.close(err => (err ? reject(err) : resolve())));
+  return port;
 }
 
 /**
@@ -312,6 +333,123 @@ describe('Orchestrator E2E - Full Message Flow', { skip: !DB_AVAILABLE }, () => 
   // ===========================================================================
   // Full Slack -> AI -> Response Flow
   // ===========================================================================
+
+  describe('REST HTTP -> AI -> Response flow', () => {
+    test('routes command-wired REST traffic and drains the polled reply', async () => {
+      const port = await getAvailablePort();
+      const config = createValidConfig({
+        database: { url: TEST_DATABASE_URL },
+        channels: {
+          'rest-e2e': { type: 'rest', host: '127.0.0.1', port, basePath: '/rest' },
+        },
+      });
+      const projectDir = await createTempProject(config, {
+        'rest-bot': {
+          config: {
+            id: 'rest-bot',
+            provider: 'anthropic',
+            model: 'claude-sonnet-4-5',
+            channel: 'rest-e2e',
+          },
+        },
+      });
+      const agentResponse = 'REST pipeline response';
+      const agentRunner = createMockAgentRunner({
+        text: agentResponse,
+        toolCalls: [],
+        usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
+        steps: [],
+        finishReason: 'end',
+      });
+      const botManager = createMockBotManager({ dbStorage: storage });
+      const sessionManager = new SessionManager(storage);
+      const processRef = {
+        on() {},
+        removeListener() {},
+      };
+      const output = { write() {} };
+      let commandOrchestrator;
+
+      try {
+        ({ orchestrator: commandOrchestrator } = await runStart({
+          configPath: path.join(projectDir, 'config.json'),
+          botsPath: path.join(projectDir, 'bots'),
+          migrationsPath,
+          output,
+          processRef,
+        }));
+
+        assert.ok(commandOrchestrator.messageRouter, 'runStart should create a MessageRouter');
+        assert.ok(
+          commandOrchestrator.channelAdapters.has('rest'),
+          'runStart should register the REST adapter'
+        );
+
+        await commandOrchestrator.stop();
+        if (!storage.isConnected()) await storage.connect();
+
+        const orchestrator = new Orchestrator({
+          configPath: path.join(projectDir, 'config.json'),
+          botsPath: path.join(projectDir, 'bots'),
+          migrationsPath,
+          logger: null,
+          storage,
+          botManager,
+          sessionManagerFactory: () => sessionManager,
+          messageRouterFactory: commandOrchestrator.messageRouterFactory,
+          messageProcessorFactory: sm => new MessageProcessor(sm, agentRunner, storage),
+        });
+        orchestrator.registerChannelAdapter(
+          'rest',
+          commandOrchestrator.channelAdapters.get('rest')
+        );
+        await orchestrator.start();
+
+        const adapter = orchestrator.channels.get('rest-e2e');
+        assert.ok(adapter, 'REST adapter should be initialized');
+        assert.equal(adapter.initialized, true);
+        await adapter.start();
+
+        const baseUrl = `http://127.0.0.1:${port}/rest`;
+        const sessionId = 'rest-session-1';
+        const postResponse = await fetch(`${baseUrl}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId, userId: 'rest-user', text: 'Hello via REST' }),
+        });
+        assert.equal(postResponse.status, 200);
+        assert.deepEqual(await postResponse.json(), {
+          ok: true,
+          sessionId,
+          message: 'Message received',
+        });
+
+        assert.equal(agentRunner.run.mock.calls.length, 1);
+        const [passedConfig, passedMessages] = agentRunner.run.mock.calls[0].arguments;
+        assert.equal(passedConfig.id, 'rest-bot');
+        const userMessage = passedMessages.find(message => message.role === 'user');
+        assert.ok(userMessage);
+        assert.equal(userMessage.content, 'Hello via REST');
+
+        const firstPoll = await fetch(`${baseUrl}/messages/${sessionId}`);
+        assert.equal(firstPoll.status, 200);
+        assert.deepEqual(
+          (await firstPoll.json()).messages.map(message => message.text),
+          [agentResponse]
+        );
+
+        const secondPoll = await fetch(`${baseUrl}/messages/${sessionId}`);
+        assert.deepEqual((await secondPoll.json()).messages, []);
+
+        await orchestrator.stop();
+        if (!storage.isConnected()) await storage.connect();
+      } finally {
+        if (commandOrchestrator?.getState() === 'running') {
+          await commandOrchestrator.stop();
+        }
+      }
+    });
+  });
 
   describe('Slack -> AI -> Response flow', () => {
     test('complete message lifecycle: startup -> slack message -> AI response -> shutdown', async () => {

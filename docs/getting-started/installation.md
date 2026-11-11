@@ -17,7 +17,7 @@ Before installing AI Army, ensure you have the following:
   - Download from [docker.com](https://www.docker.com/get-started)
   - Ensure Docker daemon is running: `docker ps`
 
-- **PostgreSQL** ≥ 14 (for bot state and sessions)
+- **PostgreSQL** 18 (for bot state and sessions)
   - Can be run via Docker (recommended for development)
   - Or install locally from [postgresql.org](https://www.postgresql.org/download/)
 
@@ -75,20 +75,20 @@ For other languages or custom requirements, you can configure different images i
 
 ### Option 1: Docker PostgreSQL (Recommended for Development)
 
-Use the provided `docker-compose.yml`:
+Use the provided `docker-compose.yml` (it runs `postgres:18-alpine`; `bin/setup` does this for you):
 
 ```bash
-# Start PostgreSQL in Docker
-docker-compose up -d postgres
+# Start PostgreSQL in Docker (Compose V2)
+docker compose up -d --wait postgres
 
 # Verify it's running
-docker-compose ps
+docker compose ps
 ```
 
 The database will be available at `localhost:5432` with these default credentials:
 - **Database:** `ai_army`
 - **User:** `ai_army`
-- **Password:** `ai_army_password`
+- **Password:** `ai_army_dev`
 
 ### Option 2: Local PostgreSQL Installation
 
@@ -127,7 +127,7 @@ ANTHROPIC_API_KEY=sk-ant-your-key-here
 OPENAI_API_KEY=sk-your-openai-key
 
 # Database Connection
-DATABASE_URL=postgresql://ai_army:ai_army_password@localhost:5432/ai_army
+DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army
 
 # API Server (optional)
 API_PORT=3000
@@ -194,7 +194,7 @@ nvm use 22
 
 If migrations fail:
 
-1. Verify PostgreSQL is running: `docker-compose ps` or `pg_isready`
+1. Verify PostgreSQL is running: `docker compose ps` or `pg_isready`
 2. Check your `DATABASE_URL` in `.env`
 3. Ensure the database exists: `psql -U ai_army -d ai_army -c '\dt'`
 
@@ -242,7 +242,7 @@ npm uninstall -g ai-army
 npm uninstall ai-army
 
 # Stop and remove Docker containers
-docker-compose down -v
+docker compose down -v
 
 # Remove Docker images (optional)
 docker rmi node:22-slim

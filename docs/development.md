@@ -26,6 +26,10 @@ cd ai-army
 # Add your API keys
 vim .env
 
+# Start PostgreSQL 18 (postgres:18-alpine, password ai_army_dev) via docker-compose.yml
+# — or run bin/setup, which also creates the ai_army_test database
+docker compose up -d --wait postgres
+
 # Run migrations
 npm run migrate
 
@@ -342,7 +346,7 @@ docker inspect ai-army-{bot-id}
 
 ```bash
 # Connect to database
-psql postgresql://ai_army:password@localhost:5432/ai_army
+psql postgresql://ai_army:ai_army_dev@localhost:5432/ai_army
 
 # View sessions
 SELECT * FROM sessions;

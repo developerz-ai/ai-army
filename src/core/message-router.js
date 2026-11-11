@@ -225,7 +225,9 @@ export class MessageRouter {
    * Supports two config shapes:
    * - Single channel: `bot.config.channel = 'slack-main'`
    * - Multi-channel: `bot.config.channels = ['slack-main', 'discord-dev']`
-   *   or `bot.config.channels = [{ name: 'slack-main' }, { name: 'discord-dev' }]`
+   *   (channel names) or
+   *   `bot.config.channels = [{ name: 'slack-main', type: 'slack' }]`
+   *   (channel configs — `type` is required by the config schema)
    *
    * Returns the first running bot whose channel (or channels array) matches
    * the message's channelName.

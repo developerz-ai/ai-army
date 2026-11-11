@@ -40,7 +40,7 @@ import { runDeploy } from '../src/cli/DeployCommand.js';
 import { runGenerate } from '../src/cli/GenerateCommand.js';
 
 /**
- * Load environment variables from a .env file
+ * Load environment variables from `<cwd>/.env`
  *
  * Called lazily by the commands that read configuration or the database, never
  * at module import time: this module is imported by the test suite, and a side
@@ -48,12 +48,13 @@ import { runGenerate } from '../src/cli/GenerateCommand.js';
  *
  * Variables already present in the environment always win (dotenv does not
  * override them) and nothing is written to stdout, so `ai-army --version`
- * still prints only the version.
+ * still prints only the version. A missing `.env` file is silently ignored.
  *
+ * @param {string} [cwd=process.cwd()] - Directory containing the `.env` file
  * @returns {void}
  */
-function loadEnv() {
-  dotenv.config({ override: false, quiet: true });
+export function loadEnv(cwd = process.cwd()) {
+  dotenv.config({ path: path.resolve(cwd, '.env'), override: false, quiet: true });
 }
 
 /**
@@ -618,6 +619,7 @@ const isMainModule =
   (process.argv[1].endsWith('/bin/cli.js') || process.argv[1].endsWith('\\bin\\cli.js'));
 
 if (isMainModule) {
+  loadEnv();
   const program = createProgram();
   program.parseAsync(process.argv).catch(err => {
     console.error(`❌ CLI error: ${err.message}`);
