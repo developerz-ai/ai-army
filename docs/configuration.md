@@ -54,8 +54,8 @@ my-ai-army/
       "maxTokens": 4096
     },
     "sandbox": {
-      "type": "docker",
-      "image": "node:22-slim",
+      "type": "incus",
+      "incusImage": "images:ubuntu/24.04/cloud",
       "maxMemory": "1g",
       "maxCpu": 1,
       "network": {
@@ -201,8 +201,8 @@ running unauthenticated.
   },
 
   "sandbox": {
-    "type": "docker",
-    "image": "node:22-slim",
+    "type": "incus",
+    "incusImage": "images:ubuntu/24.04/cloud",
     "packages": ["git", "python3", "ripgrep"],
     "network": {
       "mode": "bridge",

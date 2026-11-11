@@ -7,6 +7,7 @@ This tutorial walks you through creating your first AI bot from scratch. By the 
 - [AI Army installed](installation.md)
 - Database migrations completed (`node bin/cli.js migrate`)
 - API keys configured in `.env`
+- [Incus](incus-bots.md) available for bot sandboxes — the tutorial's config uses `"type": "incus"`; use `"type": "just-bash"` if Incus is not installed
 
 ## Project Structure
 
@@ -52,8 +53,7 @@ Edit `config.json` to add your AI provider:
       "model": "claude-sonnet-4-5"
     },
     "sandbox": {
-      "type": "docker",
-      "image": "node:22-slim"
+      "type": "incus"
     }
   },
   "providers": {
@@ -142,7 +142,7 @@ You are a helpful coding assistant specialized in JavaScript and Node.js.
 
 ## Limitations
 
-- You work in a sandboxed Docker container
+- You work in a sandboxed Incus container
 - File access is limited to your workspace
 - Network access depends on container configuration
 ```
@@ -365,9 +365,9 @@ Register in your bot config:
 **Problem:** Bot fails to start with "Container creation failed"
 
 **Solution:**
-- Verify Docker is running: `docker ps`
-- Check if image exists: `docker images | grep node`
-- Pull image manually: `docker pull node:22-slim`
+- Verify Incus is running: `incus info`
+- Check if the image exists: `incus image list images:`
+- Fetch the image manually: `incus image copy images:ubuntu/24.04/cloud images:ubuntu/24.04/cloud`
 
 ### Tool Execution Fails
 

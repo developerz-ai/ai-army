@@ -177,7 +177,8 @@ Bots are discovered by their directory (`bots/<id>/config.json`) — no root-con
 
 - **[Architecture Guide](docs/architecture.md)** - Master/worker design, data flow, scaling patterns
 - **[Configuration Guide](docs/configuration.md)** - Bot configs, channels, workers, secrets
-- **[Deployment Guide](docs/deployment.md)** - Docker, VPS, cloud deployment strategies
+- **[Incus Bots](docs/getting-started/incus-bots.md)** - Bot sandboxing: images, profiles, resource limits
+- **[Deployment Guide](docs/deployment.md)** - Docker Compose stack, VPS, and cloud deployment
 - **[Development Guide](docs/development.md)** - Contributing, testing, debugging
 
 **Full documentation site:** [https://developerz-ai.github.io/ai-army](https://developerz-ai.github.io/ai-army)

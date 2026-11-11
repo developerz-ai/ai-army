@@ -4,9 +4,13 @@
  *
  * Every ```json block in README.md must parse as JSON and pass the ConfigValidator:
  * bot-shaped objects (id + soul) go through validateBotConfig, everything else
- * through validateMainConfig. config.example.json must pass validateMainConfig and
- * reference only environment variables that carry a `${VAR:-default}` fallback, so
+ * through validateMainConfig. config.example.json must pass validateMainConfig,
+ * carry only `${VAR:-default}` references, and still pass validateMainConfig
+ * after ConfigLoader interpolates it with no environment variables set — so
  * `node bin/cli.js validate` exits 0 with no environment variables set.
+ *
+ * Every documented sandbox configuration must name a sandbox type the bot schema
+ * accepts (`incus` or `just-bash`): `docker` is not a supported sandbox type.
  *
  * README.md, docs/README.md and docs/getting-started/installation.md must all
  * document the source install — git clone + `node bin/cli.js` — and none of them
@@ -20,7 +24,8 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { ConfigValidator } from '../../../src/config/ConfigValidator.js';
+import { BotConfigSchema, ConfigValidator } from '../../../src/config/ConfigValidator.js';
+import { ConfigLoader } from '../../../src/config/ConfigLoader.js';
 
 const README_PATH = fileURLToPath(new URL('../../../README.md', import.meta.url));
 const DOCS_README_PATH = fileURLToPath(new URL('../../../docs/README.md', import.meta.url));
@@ -28,6 +33,30 @@ const INSTALLATION_DOC_PATH = fileURLToPath(
   new URL('../../../docs/getting-started/installation.md', import.meta.url)
 );
 const EXAMPLE_CONFIG_PATH = fileURLToPath(new URL('../../../config.example.json', import.meta.url));
+
+/**
+ * The docs that carry configuration examples. Their sandbox blocks must name a
+ * sandbox type ConfigValidator accepts.
+ */
+const CONFIG_DOCS = [
+  { label: 'README.md', path: README_PATH },
+  {
+    label: 'docs/configuration.md',
+    path: fileURLToPath(new URL('../../../docs/configuration.md', import.meta.url)),
+  },
+  {
+    label: 'docs/getting-started/configuration.md',
+    path: fileURLToPath(new URL('../../../docs/getting-started/configuration.md', import.meta.url)),
+  },
+  {
+    label: 'docs/getting-started/first-bot.md',
+    path: fileURLToPath(new URL('../../../docs/getting-started/first-bot.md', import.meta.url)),
+  },
+  {
+    label: 'docs/getting-started/incus-bots.md',
+    path: fileURLToPath(new URL('../../../docs/getting-started/incus-bots.md', import.meta.url)),
+  },
+];
 
 /**
  * The docs that must document the source install: clone the repository, run the
@@ -41,7 +70,9 @@ const SOURCE_INSTALL_DOCS = [
 ];
 
 const JSON_BLOCK_PATTERN = /```json\s*\n([\s\S]*?)```/g;
-const ENV_REF_PATTERN = /\$\{([^}:]+)(?::([-+])([^}]*))?\}/g;
+// Same shape as ConfigLoader's reference pattern: group 2 is the operator
+// (`:-` or `:+`), group 3 the value behind it. Only `:-` provides a default.
+const ENV_REF_PATTERN = /\$\{([^}:]+)(?:(:[-+])([^}]*))?\}/g;
 
 /**
  * Extract every fenced ```json block from a markdown source.
@@ -50,6 +81,22 @@ const ENV_REF_PATTERN = /\$\{([^}:]+)(?::([-+])([^}]*))?\}/g;
  */
 function extractJsonBlocks(markdown) {
   return [...markdown.matchAll(JSON_BLOCK_PATTERN)].map(match => match[1]);
+}
+
+/**
+ * Collect the sandbox objects of a parsed JSON document: a bot config's
+ * top-level `sandbox` and a main config's `defaults.sandbox`.
+ * @param {*} obj
+ * @returns {object[]}
+ */
+function collectSandboxes(obj) {
+  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) return [];
+  const found = [];
+  if (obj.sandbox && typeof obj.sandbox === 'object') found.push(obj.sandbox);
+  if (obj.defaults?.sandbox && typeof obj.defaults.sandbox === 'object') {
+    found.push(obj.defaults.sandbox);
+  }
+  return found;
 }
 
 /**
@@ -166,13 +213,37 @@ describe('config.example.json', () => {
 
   test('every ${VAR} reference carries a :- fallback', () => {
     const withoutDefault = [...raw.matchAll(ENV_REF_PATTERN)]
-      .filter(match => !match[2])
+      .filter(match => match[2] !== ':-')
       .map(match => match[1]);
     assert.deepStrictEqual(
       withoutDefault,
       [],
-      `references without a :- default throw ConfigError with no environment set: ${withoutDefault.join(', ')}`
+      `references without a :- default resolve to an empty value with no environment set: ${withoutDefault.join(', ')}`
     );
+  });
+
+  test('interpolates with no environment set and still validates', () => {
+    const referenced = [...new Set([...raw.matchAll(ENV_REF_PATTERN)].map(match => match[1]))];
+    const saved = new Map(referenced.map(name => [name, process.env[name]]));
+    for (const name of referenced) delete process.env[name];
+
+    try {
+      const interpolated = new ConfigLoader().interpolateEnvVars(JSON.parse(raw));
+      assert.ok(
+        !JSON.stringify(interpolated).includes('${'),
+        'config.example.json must resolve every ${VAR} reference with no environment set'
+      );
+      const result = validator.validateMainConfig(interpolated);
+      assert.ok(
+        result.valid,
+        `config.example.json with no environment set failed validateMainConfig:\n  ${formatErrors(result.errors)}`
+      );
+    } finally {
+      for (const [name, value] of saved) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
   });
 
   test('registers no bots (bots live in bots/<id>/config.json)', () => {
@@ -183,4 +254,35 @@ describe('config.example.json', () => {
       'config.example.json must stay generic; bots are registered by their bots/<id> directory'
     );
   });
+});
+
+describe('documented sandbox configurations', () => {
+  for (const doc of CONFIG_DOCS) {
+    test(`${doc.label} documents sandbox types ConfigValidator accepts`, () => {
+      const source = readFileSync(doc.path, 'utf8');
+      const rejected = [];
+
+      for (const block of extractJsonBlocks(source)) {
+        let obj;
+        try {
+          obj = JSON.parse(block);
+        } catch {
+          continue; // a fragment, not a complete JSON document
+        }
+
+        for (const sandbox of collectSandboxes(obj)) {
+          if (typeof sandbox.type !== 'string') continue;
+          if (!BotConfigSchema.shape.sandbox.safeParse({ type: sandbox.type }).success) {
+            rejected.push(sandbox.type);
+          }
+        }
+      }
+
+      assert.deepStrictEqual(
+        rejected,
+        [],
+        `${doc.label} documents sandbox type(s) ConfigValidator rejects: ${rejected.join(', ')}`
+      );
+    });
+  }
 });

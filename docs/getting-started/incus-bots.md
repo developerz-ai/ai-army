@@ -233,22 +233,11 @@ No need to rebuild or reconfigure - the entire filesystem state persists.
 
 ## Migration from Docker
 
-Convert an existing Docker bot to Incus:
+`docker` is not an accepted sandbox type — `ConfigValidator` allows `incus` and
+`just-bash` only. A bot that still carries a Docker sandbox (`"type": "docker"`) moves
+to Incus like this:
 
-**Old Docker config:**
-
-```json
-{
-  "sandbox": {
-    "type": "docker",
-    "image": "node:22-slim",
-    "memory": "1g",
-    "cpus": 2
-  }
-}
-```
-
-**New Incus config:**
+**Incus config:**
 
 ```json
 {
@@ -280,7 +269,6 @@ The configuration change will trigger a container replacement on next deployment
 
 ### Incus not available
 
-- If Incus isn't installed, use `type: "docker"` instead
 - Install Incus: `apt install incus`
 - Or use `type: "just-bash"` for local development
 
