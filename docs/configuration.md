@@ -414,7 +414,7 @@ When an operator token has a `bots` array, requests to other bots return `403 Fo
 
 ```bash
 # Database
-DATABASE_URL=postgresql://ai_army:password@localhost:5432/ai_army
+DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army
 
 # AI Providers
 ANTHROPIC_API_KEY=sk-ant-...

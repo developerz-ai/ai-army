@@ -8,7 +8,7 @@ Guide for developing and contributing to AI Assistants Army.
 
 - Node.js 22+
 - Docker
-- PostgreSQL 16+
+- PostgreSQL 18
 - Git
 
 ### Local Setup
@@ -25,14 +25,9 @@ npm install
 cp .env.example .env
 vim .env  # Add your API keys
 
-# Start PostgreSQL (via Docker)
-docker run -d \
-  --name ai-army-postgres \
-  -e POSTGRES_DB=ai_army \
-  -e POSTGRES_USER=ai_army \
-  -e POSTGRES_PASSWORD=password \
-  -p 5432:5432 \
-  postgres:16
+# Start PostgreSQL 18 (postgres:18-alpine, password ai_army_dev) via docker-compose.yml
+# — or run bin/setup, which also creates the ai_army_test database
+docker compose up -d --wait postgres
 
 # Run migrations
 npm run migrate
@@ -339,7 +334,7 @@ docker inspect ai-army-{bot-id}
 
 ```bash
 # Connect to database
-psql postgresql://ai_army:password@localhost:5432/ai_army
+psql postgresql://ai_army:ai_army_dev@localhost:5432/ai_army
 
 # View sessions
 SELECT * FROM sessions;
