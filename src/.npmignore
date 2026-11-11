@@ -1,0 +1,3 @@
+# Co-located unit tests are not runtime code: keep them out of the published tarball.
+# (A .npmignore inside a whitelisted directory overrides .gitignore for that subtree.)
+*.test.js
