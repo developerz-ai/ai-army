@@ -71,12 +71,15 @@ function isCovered(packedPath) {
 }
 
 before(() => {
-  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const result = spawnSync(npm, ['pack', '--dry-run', '--json'], {
+  // Node >= 18.20/20.12/22 refuses to spawn .cmd/.bat files without a shell
+  // (CVE-2024-27980), so npm.cmd must go through cmd.exe on Windows.
+  const isWindows = process.platform === 'win32';
+  const result = spawnSync(isWindows ? 'npm.cmd' : 'npm', ['pack', '--dry-run', '--json'], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
     timeout: 120000,
     maxBuffer: 10 * 1024 * 1024,
+    shell: isWindows,
   });
   assert.strictEqual(
     result.status,
