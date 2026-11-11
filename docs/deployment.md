@@ -14,7 +14,7 @@ Scale     → Auto-scaling workers
 ## Prerequisites
 
 - ✅ Docker installed
-- ✅ PostgreSQL 16+ accessible
+- ✅ PostgreSQL 18 accessible
 - ✅ Node.js 22+ installed
 - ✅ Git repository ready
 - ✅ API keys for AI providers
@@ -43,7 +43,7 @@ vim .env
 
 Add your keys:
 ```bash
-DATABASE_URL=postgresql://ai_army:password@localhost:5432/ai_army
+DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army
 ANTHROPIC_API_KEY=sk-ant-...
 SLACK_BOT_TOKEN=xoxb-...
 SLACK_APP_TOKEN=xapp-...
@@ -100,13 +100,15 @@ version: '3.8'
 
 services:
   postgres:
-    image: postgres:16
+    image: postgres:18-alpine
     environment:
       POSTGRES_DB: ai_army
       POSTGRES_USER: ai_army
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      # PostgreSQL 18 images keep data under /var/lib/postgresql/18/docker,
+      # so mount the parent directory.
+      - postgres-data:/var/lib/postgresql
     ports:
       - "5432:5432"
     healthcheck:
@@ -129,7 +131,6 @@ services:
       - ./config.json:/app/config.json
       - ./bots:/app/bots
       - ./data:/app/data
-      - /var/run/docker.sock:/var/run/docker.sock  # For container management
     ports:
       - "3000:3000"  # REST API (if enabled)
     depends_on:
@@ -146,9 +147,8 @@ volumes:
 ```dockerfile
 FROM node:22-slim
 
-# Install dependencies for Docker and PostgreSQL client
+# Install the PostgreSQL client (bot sandboxes run on Incus, not Docker)
 RUN apt-get update && apt-get install -y \
-    docker.io \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
@@ -439,7 +439,6 @@ DATABASE_URL=postgresql://user:pass@db-postgresql-nyc1-12345.ondigitalocean.com:
 - [ ] Use secret manager (not .env in prod)
 - [ ] Enable firewall (only necessary ports)
 - [ ] Use SSH keys (not passwords)
-- [ ] Enable Docker socket permissions
 - [ ] Set up fail2ban
 - [ ] Enable audit logging
 

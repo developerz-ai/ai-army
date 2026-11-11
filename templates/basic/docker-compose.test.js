@@ -181,7 +181,9 @@ describe('templates/basic/docker-compose.yml', () => {
 
     it('should mount pgdata volume for persistence', () => {
       raw = fs.readFileSync(composePath, 'utf8');
-      assert.ok(raw.includes('pgdata:/var/lib/postgresql/data'), 'should mount pgdata volume');
+      assert.ok(raw.includes('pgdata:/var/lib/postgresql'), 'should mount pgdata volume');
+      // postgres:18 refuses to start with a volume at the pre-18 data path
+      assert.doesNotMatch(raw, /\/var\/lib\/postgresql\/data/);
     });
 
     it('should mount migrations directory for init scripts', () => {
