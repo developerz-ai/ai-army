@@ -30,6 +30,17 @@ build/
 *.swo
 *~
 
+# JetBrains IDE local files (carried over from the retired .idea/.gitignore)
+/.idea/shelf/
+/.idea/workspace.xml
+# Ignored default folder with query files
+/.idea/queries/
+# Datasource local storage ignored files
+/.idea/dataSources/
+/.idea/dataSources.local.xml
+# Editor-based HTTP Client requests
+/.idea/httpRequests/
+
 # OS
 .DS_Store
 Thumbs.db
