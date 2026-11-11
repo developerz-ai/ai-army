@@ -12,41 +12,35 @@ Before installing AI Army, ensure you have the following:
   - Check version: `node --version`
   - Download from [nodejs.org](https://nodejs.org/)
 
-- **Docker** ≥ 20.10 (for bot sandboxing)
-  - Check version: `docker --version`
-  - Download from [docker.com](https://www.docker.com/get-started)
-  - Ensure Docker daemon is running: `docker ps`
-
 - **PostgreSQL** 18 (for bot state and sessions)
-  - Can be run via Docker (recommended for development)
+  - The bundled `docker-compose.yml` runs `postgres:18-alpine` (recommended for development)
   - Or install locally from [postgresql.org](https://www.postgresql.org/download/)
+
+- **Docker Compose** (for the PostgreSQL service only — bots are not Docker-sandboxed)
+  - Check version: `docker compose version`
+  - Download from [docker.com](https://www.docker.com/get-started)
+
+- **Incus** (bot sandboxing — bots run in Incus containers, not Docker)
+  - Check version: `incus --version`
+  - See [Incus bots](incus-bots.md) for images, profiles, and resource limits
+
+### API Keys
+
+Set only the keys your setup needs, in `.env` or your environment:
+
+- `OPENROUTER_API_KEY` — default provider for `openrouter/...` models
+- `ANTHROPIC_API_KEY` — Anthropic models
+- `OPENAI_API_KEY` — OpenAI models
+- `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_SIGNING_SECRET` — when a Slack channel is configured
+- `DISCORD_BOT_TOKEN` — when a Discord channel is configured
 
 ### Optional
 
-- **Git** (for cloning the repository)
-- **npm** or **yarn** (comes with Node.js)
+- **Git** (to clone this repository)
 
-## Installation Methods
+## Installation
 
-### Method 1: NPM Package (Recommended)
-
-Once published, you'll be able to install AI Army as a global package:
-
-```bash
-npm install -g ai-army
-```
-
-Or as a project dependency:
-
-```bash
-npm install ai-army
-```
-
-> **Note:** AI Army is currently in development. For now, use Method 2 (from source).
-
-### Method 2: From Source
-
-Clone the repository and install dependencies:
+AI Army is installed **from source** — there is no npm package.
 
 ```bash
 # Clone the repository
@@ -56,20 +50,28 @@ cd ai-army
 # Install dependencies
 npm install
 
-# Make CLI available globally (optional)
-npm link
+# Create your configuration
+cp config.example.json config.json
 ```
 
-## Docker Setup
+`config.example.json` passes `node bin/cli.js validate` out of the box: every `${VAR}` reference carries a `${VAR:-default}` fallback, so validation succeeds even with no environment variables set. Edit the copy to match your setup, or leave it and set the environment variables it references.
 
-AI Army uses Docker to run bots in isolated containers. You need to pull the base image:
+## Sandbox Setup
 
-```bash
-# Pull the default Node.js image
-docker pull node:22-slim
+Bots run in isolated **Incus** containers, not Docker — Docker Compose is only used for the PostgreSQL service. The default Incus image is `images:ubuntu/24.04/cloud`; per-bot images, memory and CPU limits are configured in each bot's `config.json`:
+
+```json
+{
+  "sandbox": {
+    "type": "incus",
+    "incusImage": "images:ubuntu/24.04/cloud",
+    "memory": "2g",
+    "cpus": 2
+  }
+}
 ```
 
-For other languages or custom requirements, you can configure different images in your bot configuration.
+See [Incus bots](incus-bots.md) for setup and the full sandbox reference.
 
 ## Database Setup
 
@@ -109,25 +111,35 @@ DATABASE_URL=postgresql://ai_army:your_password@localhost:5432/ai_army
 
 ### Run Migrations
 
-Initialize the database schema:
+The CLI takes the database connection from the environment — it loads a repo-root `.env` automatically, and exported variables win. Option 2 writes `DATABASE_URL` to `.env` above; Option 1 sets nothing, so export it (matching the Compose credentials) before migrating:
 
 ```bash
-npx ai-army migrate
+export DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army
+
+# Initialize the database schema
+node bin/cli.js migrate
 ```
 
 This will create all necessary tables for bot state, sessions, audit logs, and message queues.
 
 ## Environment Configuration
 
-Create a `.env` file in your project root:
+The CLI loads environment variables from a `.env` file in the repo root (exported variables take precedence). Create one and add the keys your setup needs:
 
 ```bash
 # AI Provider API Keys
+OPENROUTER_API_KEY=sk-or-your-key-here
 ANTHROPIC_API_KEY=sk-ant-your-key-here
 OPENAI_API_KEY=sk-your-openai-key
 
-# Database Connection
+# Database Connection (config.example.json defaults to this URL)
 DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army
+
+# Channels (only when configured)
+SLACK_BOT_TOKEN=xoxb-your-token-here
+SLACK_APP_TOKEN=xapp-your-token-here
+SLACK_SIGNING_SECRET=your-signing-secret
+DISCORD_BOT_TOKEN=your-discord-token
 
 # API Server (optional)
 API_PORT=3000
@@ -145,20 +157,21 @@ Check that everything is working:
 
 ```bash
 # Verify the CLI is available
-npx ai-army --version
+node bin/cli.js --version
 
-# Validate your configuration
-npx ai-army validate
+# Validate your configuration (works with no environment set — the example
+# config carries a ${VAR:-default} fallback for every reference)
+node bin/cli.js validate
 
-# Check system status
-npx ai-army status
+# Check system status (needs DATABASE_URL, e.g. from .env)
+node bin/cli.js status
 ```
 
-You should see output confirming:
-- ✅ Configuration is valid
-- ✅ Database connection works
-- ✅ Docker is accessible
-- ✅ Required images are available
+You should see:
+- `validate` print `🔍 Validating configuration...` followed by `✅ All configurations valid`
+- `status` print its report with `✅ Connected to PostgreSQL …` under `Database:` (with `DATABASE_URL` set — otherwise it exits non-zero with `❌ DATABASE_URL environment variable is required`)
+
+`validate` and `status` check the configuration and the database only — Incus is exercised when a bot starts in its sandbox, not here. Confirm it separately with `incus --version` and the [Incus bots](incus-bots.md) guide.
 
 ## Next Steps
 
@@ -211,7 +224,7 @@ If port 3000 (API) or 5432 (PostgreSQL) is already in use:
 
 - **CPU:** 2 cores
 - **RAM:** 2 GB available
-- **Disk:** 1 GB free space (plus space for Docker images)
+- **Disk:** 1 GB free space (plus space for container images)
 
 ### Recommended
 
@@ -228,25 +241,22 @@ AI Army has been tested on:
 - ✅ **macOS** (12.0+)
 - ✅ **Windows** (WSL2 recommended)
 
-> **Note:** On Windows, we strongly recommend using WSL2 for the best Docker integration.
+> **Note:** On Windows, we strongly recommend using WSL2 for the best Docker Compose (PostgreSQL) and Incus experience.
 
 ## Uninstalling
 
-To remove AI Army:
+AI Army lives entirely in the directory you cloned, so removal is simple:
 
 ```bash
-# Remove global installation
-npm uninstall -g ai-army
-
-# Or remove project installation
-npm uninstall ai-army
-
-# Stop and remove Docker containers
+# Stop and remove the PostgreSQL container (from the repo root)
 docker compose down -v
 
-# Remove Docker images (optional)
-docker rmi node:22-slim
+# Remove the checkout
+cd ..
+rm -rf ai-army
 ```
+
+Any leftover bot sandboxes are Incus containers — find and remove them with `incus list` / `incus delete <name>`.
 
 ## Getting Help
 

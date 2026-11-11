@@ -346,6 +346,7 @@ describe('ProjectInitializer', () => {
       assert.equal(pkg.name, path.basename(basePath));
       assert.equal(pkg.type, 'module');
       assert.ok(pkg.dependencies['ai-army']);
+      assert.equal(pkg.dependencies['ai-army'], 'github:developerz-ai/ai-army');
       assert.ok(pkg.scripts.start);
       assert.ok(pkg.scripts.validate);
     });
@@ -368,9 +369,14 @@ describe('ProjectInitializer', () => {
       await ProjectInitializer.writeTemplateFiles(basePath);
 
       const content = await readFile(path.join(basePath, 'docker-compose.yml'));
-      assert.ok(content.includes('postgres:16'));
+      assert.ok(content.includes('postgres:18-alpine'));
       assert.ok(content.includes('POSTGRES_DB: ai_army'));
       assert.ok(content.includes('5432:5432'));
+      // postgres:18 keeps PGDATA at /var/lib/postgresql/18/docker, so the data
+      // volume must be mounted at the parent /var/lib/postgresql — mounting at
+      // the pre-18 /var/lib/postgresql/data makes the container refuse to start.
+      assert.ok(content.includes('pgdata:/var/lib/postgresql'));
+      assert.doesNotMatch(content, /\/var\/lib\/postgresql\/data/);
     });
 
     test('writes .gitignore with standard entries', async () => {

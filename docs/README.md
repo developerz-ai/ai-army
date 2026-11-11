@@ -2,14 +2,38 @@
 
 > A framework for building multi-bot AI systems, like **Ruby on Rails for AI bots**.
 
-Deploy specialized AI bots across distributed workers, each running in isolated Docker containers with persistent memory and custom tools.
+Deploy specialized AI bots across distributed workers, each running in isolated Incus containers with persistent memory and custom tools.
 
 ## Quick Start
 
+AI Army is installed **from source** — there is no npm package.
+
 ```bash
+# Get the source
+git clone https://github.com/developerz-ai/ai-army.git
+cd ai-army
+
+# Install dependencies
 npm install
-npx ai-army validate
-docker-compose up -d
+
+# Create your config
+cp config.example.json config.json
+
+# Start PostgreSQL 18
+docker compose up -d --wait postgres
+
+# Hand the CLI its database connection — migrate reads DATABASE_URL from the
+# environment (a repo-root .env would also work, but this flow creates none)
+export DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army
+
+# Create the database schema
+node bin/cli.js migrate
+
+# Validate configuration
+node bin/cli.js validate
+
+# Start the stack in development mode
+node bin/cli.js dev
 ```
 
 ## Documentation
@@ -59,7 +83,7 @@ Features designed but not yet implemented:
 | Feature | Description |
 |---------|-------------|
 | **Multi-Bot Architecture** | Run multiple specialized AI bots with unique personalities and tools |
-| **Docker Isolation** | Each bot runs in sandboxed containers with resource limits |
+| **Incus Sandboxing** | Each bot runs in an Incus container with resource limits |
 | **Multi-Channel Support** | Deploy bots to Slack, Discord, REST API, and custom channels |
 | **MCP Tool Integration** | Built-in support for Model Context Protocol tools |
 | **Persistent Memory** | Conversation history with automatic summarization |
@@ -105,7 +129,7 @@ Features designed but not yet implemented:
 |-------|------------|
 | Runtime | Node.js >= 22 |
 | Model Abstraction | Vercel AI SDK |
-| Execution | Docker containers |
+| Execution | Incus containers |
 | Database | PostgreSQL |
 | Channels | Slack Bolt, Discord.js |
 | MCP | @modelcontextprotocol/sdk |
@@ -114,5 +138,4 @@ Features designed but not yet implemented:
 ## Links
 
 - [GitHub Repository](https://github.com/developerz-ai/ai-army)
-- [npm Package](https://www.npmjs.com/package/ai-army)
 - [Issue Tracker](https://github.com/developerz-ai/ai-army/issues)

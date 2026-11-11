@@ -708,7 +708,7 @@ NODE_ENV=production
 Validate your configuration:
 
 ```bash
-npx ai-army validate
+node bin/cli.js validate
 ```
 
 This checks:
@@ -725,7 +725,7 @@ This checks:
 AI Army supports hot reloading configuration without restart:
 
 ```bash
-npx ai-army reload
+node bin/cli.js reload
 ```
 
 Or via API:
@@ -771,10 +771,10 @@ curl -X POST http://localhost:3000/api/admin/reload \
 
 ### Configuration Validation Fails
 
-Run with verbose output:
+Run the validator and read the report — it lists every error with the file it came from:
 
 ```bash
-npx ai-army validate --verbose
+node bin/cli.js validate
 ```
 
 ### Environment Variable Not Found
@@ -792,7 +792,7 @@ Or add to `.env` file.
 1. Check bot ID matches directory name
 2. Verify soul.md file exists
 3. Ensure JSON syntax is valid
-4. Run `npx ai-army validate`
+4. Run `node bin/cli.js validate`
 
 ## Examples
 

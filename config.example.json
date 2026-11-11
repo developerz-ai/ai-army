@@ -1,0 +1,30 @@
+{
+  "defaults": {
+    "model": {
+      "provider": "openrouter",
+      "model": "openrouter/anthropic/claude-sonnet-4.5"
+    },
+    "sandbox": {
+      "type": "incus"
+    }
+  },
+  "providers": {
+    "openrouter": {
+      "type": "openrouter",
+      "apiKey": "${OPENROUTER_API_KEY:-}"
+    },
+    "anthropic": {
+      "type": "anthropic",
+      "apiKey": "${ANTHROPIC_API_KEY:-}"
+    },
+    "openai": {
+      "type": "openai",
+      "apiKey": "${OPENAI_API_KEY:-}"
+    }
+  },
+  "database": {
+    "url": "${DATABASE_URL:-postgresql://ai_army:ai_army_dev@localhost:5432/ai_army}"
+  },
+  "channels": {},
+  "mcpServers": {}
+}

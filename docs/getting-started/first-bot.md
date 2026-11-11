@@ -5,7 +5,7 @@ This tutorial walks you through creating your first AI bot from scratch. By the 
 ## Prerequisites
 
 - [AI Army installed](installation.md)
-- Database migrations completed (`npx ai-army migrate`)
+- Database migrations completed (`node bin/cli.js migrate`)
 - API keys configured in `.env`
 
 ## Project Structure
@@ -13,7 +13,7 @@ This tutorial walks you through creating your first AI bot from scratch. By the 
 First, understand the basic structure:
 
 ```
-my-project/
+ai-army/
 ├── config.json           # Main configuration
 ├── bots/                 # Bot definitions
 │   └── my-bot/
@@ -23,28 +23,22 @@ my-project/
 └── data/                 # Bot workspaces (auto-created)
 ```
 
-## Step 1: Initialize Project
+## Step 1: Set Up Your Project
 
-If you haven't already, create a new project directory:
-
-```bash
-mkdir my-ai-army
-cd my-ai-army
-npm init -y
-npm install ai-army
-```
-
-Initialize the AI Army structure:
+If you haven't already, clone and install AI Army (full details in [installation.md](installation.md)):
 
 ```bash
-npx ai-army init
+git clone https://github.com/developerz-ai/ai-army.git
+cd ai-army
+npm install
+cp config.example.json config.json   # skip if you already have a config.json
 ```
 
-This creates:
-- `config.json` with default settings
+The repository checkout is your project — no separate scaffold is needed. It provides:
+- `config.json` with default settings (copied from `config.example.json`)
 - `bots/` directory
-- `.env.example` file
 - `.gitignore` with sensitive files
+- `.env.example` — copy it to `.env` (`cp .env.example .env`) for your API keys — see the [Configuration Guide](configuration.md)
 
 ## Step 2: Configure Providers
 
@@ -168,7 +162,7 @@ The `soul.md` file defines your bot's personality and behavior:
 Validate your bot configuration:
 
 ```bash
-npx ai-army validate
+node bin/cli.js validate
 ```
 
 You should see:
@@ -190,7 +184,7 @@ If you see errors, check:
 Start the system:
 
 ```bash
-npx ai-army start
+node bin/cli.js start
 ```
 
 You should see:
@@ -225,7 +219,7 @@ curl -X POST http://localhost:3000/api/bots/helper/message \
 Alternatively, use the CLI interface:
 
 ```bash
-npx ai-army dev
+node bin/cli.js dev
 ```
 
 This starts an interactive session where you can chat directly with your bot.
@@ -267,7 +261,7 @@ The bot will:
 Check your bot's status:
 
 ```bash
-npx ai-army status
+node bin/cli.js status
 ```
 
 Or via API:
@@ -382,7 +376,7 @@ Register in your bot config:
 **Solution:**
 - Verify tool is listed in `tools` array
 - Check tool permissions in sandbox
-- Review bot logs: `npx ai-army logs helper`
+- Review bot logs: run the stack in dev mode (`node bin/cli.js dev`) and watch the console output
 
 ### Session Not Persisting
 
@@ -390,8 +384,8 @@ Register in your bot config:
 
 **Solution:**
 - Ensure you're using the same `sessionId` across requests
-- Check database connection: `npx ai-army status`
-- Verify sessions table exists: `npx ai-army migrate`
+- Check database connection: `node bin/cli.js status`
+- Verify sessions table exists: `node bin/cli.js migrate`
 
 ## Example Bots
 
