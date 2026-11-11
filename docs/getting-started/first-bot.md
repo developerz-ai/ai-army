@@ -366,8 +366,10 @@ Register in your bot config:
 
 **Solution:**
 - Verify Incus is running: `incus info`
-- Check if the image exists: `incus image list images:`
-- Fetch the image manually: `incus image copy images:ubuntu/24.04/cloud images:ubuntu/24.04/cloud`
+- Check whether the image is already on the local daemon: `incus image list`
+- Pre-pull the image into the local daemon — the `images:` remote is read-only, so it can only be the copy source:
+  `incus image copy images:ubuntu/24.04/cloud local: --alias ubuntu/24.04/cloud`
+- Point the bot at the pre-pulled image with `"incusImage": "ubuntu/24.04/cloud"` in `bots/<id>/config.json` — a running dev session (`node bin/cli.js dev`) picks the change up and replaces the container
 
 ### Tool Execution Fails
 

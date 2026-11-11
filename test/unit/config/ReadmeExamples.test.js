@@ -12,6 +12,9 @@
  * Every documented sandbox configuration must name a sandbox type the bot schema
  * accepts (`incus` or `just-bash`): `docker` is not a supported sandbox type.
  *
+ * No markdown document may tell readers to copy an Incus image onto the read-only
+ * `images:` remote — the image has to be pre-pulled into the local daemon (`local:`).
+ *
  * README.md, docs/README.md and docs/getting-started/installation.md must all
  * document the source install — git clone + `node bin/cli.js` — and none of them
  * may mention `npx ai-army`, the npm package or an npm version badge: AI Army is
@@ -22,7 +25,8 @@
 
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BotConfigSchema, ConfigValidator } from '../../../src/config/ConfigValidator.js';
 import { ConfigLoader } from '../../../src/config/ConfigLoader.js';
@@ -33,6 +37,7 @@ const INSTALLATION_DOC_PATH = fileURLToPath(
   new URL('../../../docs/getting-started/installation.md', import.meta.url)
 );
 const EXAMPLE_CONFIG_PATH = fileURLToPath(new URL('../../../config.example.json', import.meta.url));
+const DOCS_DIR_PATH = fileURLToPath(new URL('../../../docs/', import.meta.url));
 
 /**
  * The docs that carry configuration examples. Their sandbox blocks must name a
@@ -67,6 +72,19 @@ const SOURCE_INSTALL_DOCS = [
   { label: 'README.md', path: README_PATH },
   { label: 'docs/README.md', path: DOCS_README_PATH },
   { label: 'docs/getting-started/installation.md', path: INSTALLATION_DOC_PATH },
+];
+
+/**
+ * Every markdown document under docs/ plus the repository README. The Incus
+ * image commands in the guides are followed by hand, so no document may copy an
+ * image onto the read-only `images:` remote — it has to be pre-pulled into the
+ * local daemon (`local:`) instead.
+ */
+const MARKDOWN_DOCS = [
+  { label: 'README.md', path: README_PATH },
+  ...readdirSync(DOCS_DIR_PATH, { recursive: true })
+    .filter(name => name.endsWith('.md'))
+    .map(name => ({ label: `docs/${name}`, path: join(DOCS_DIR_PATH, name) })),
 ];
 
 const JSON_BLOCK_PATTERN = /```json\s*\n([\s\S]*?)```/g;
@@ -282,6 +300,23 @@ describe('documented sandbox configurations', () => {
         rejected,
         [],
         `${doc.label} documents sandbox type(s) ConfigValidator rejects: ${rejected.join(', ')}`
+      );
+    });
+  }
+});
+
+describe('documented Incus image commands', () => {
+  for (const doc of MARKDOWN_DOCS) {
+    test(`${doc.label} never copies an image onto the read-only images: remote`, () => {
+      const source = readFileSync(doc.path, 'utf8');
+      const offending = [...source.matchAll(/incus image copy\s+(\S+)\s+(\S+)/g)]
+        .filter(match => match[2].startsWith('images:'))
+        .map(match => match[0]);
+
+      assert.deepStrictEqual(
+        offending,
+        [],
+        `${doc.label} copies an image onto the read-only images: remote: ${offending.join('; ')}`
       );
     });
   }
