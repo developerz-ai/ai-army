@@ -9,11 +9,13 @@
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs/promises';
+import { readFileSync } from 'fs';
 import path from 'path';
 import os from 'os';
+import net from 'net';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { createProgram, runInit } from './cli.js';
+import { createProgram, runInit, loadEnv } from './cli.js';
 
 const execFileAsync = promisify(execFile);
 const CLI_PATH = new URL('./cli.js', import.meta.url).pathname;
@@ -79,7 +81,9 @@ describe('createProgram()', () => {
   test('has the correct version', () => {
     const program = createProgram();
 
-    assert.equal(program.version(), '0.1.0');
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+
+    assert.equal(program.version(), pkg.version);
   });
 
   test('registers init command', () => {
@@ -149,7 +153,7 @@ describe('createProgram()', () => {
     assert.ok(cmd.description().includes('reload'));
   });
 
-  test('registers all 7 commands', () => {
+  test('registers all top-level commands', () => {
     const program = createProgram();
     const commandNames = program.commands.map(c => c.name());
 
@@ -160,7 +164,12 @@ describe('createProgram()', () => {
     assert.ok(commandNames.includes('dev'));
     assert.ok(commandNames.includes('status'));
     assert.ok(commandNames.includes('reload'));
-    assert.equal(commandNames.length, 7);
+    assert.ok(commandNames.includes('instance'));
+    assert.ok(commandNames.includes('server'));
+    assert.ok(commandNames.includes('worker'));
+    assert.ok(commandNames.includes('deploy'));
+    assert.ok(commandNames.includes('generate'));
+    assert.equal(commandNames.length, 12);
   });
 });
 
@@ -338,6 +347,42 @@ describe('runInit()', () => {
   });
 });
 
+describe('loadEnv()', () => {
+  const KEYS = ['CLI_TEST_FROM_DOTENV', 'CLI_TEST_EXPORTED'];
+  const saved = {};
+
+  afterEach(() => {
+    for (const key of KEYS) {
+      if (saved[key] === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = saved[key];
+      }
+    }
+  });
+
+  test('sets unset variables from .env and does not override exported ones', async () => {
+    for (const key of KEYS) saved[key] = process.env[key];
+    const tmpDir = await createTempDir();
+    await fs.writeFile(
+      path.join(tmpDir, '.env'),
+      'CLI_TEST_FROM_DOTENV=from-file\nCLI_TEST_EXPORTED=from-file\n'
+    );
+    delete process.env.CLI_TEST_FROM_DOTENV;
+    process.env.CLI_TEST_EXPORTED = 'from-shell';
+
+    loadEnv(tmpDir);
+
+    assert.equal(process.env.CLI_TEST_FROM_DOTENV, 'from-file');
+    assert.equal(process.env.CLI_TEST_EXPORTED, 'from-shell');
+  });
+
+  test('missing .env file is silently ignored', async () => {
+    const tmpDir = await createTempDir();
+    assert.doesNotThrow(() => loadEnv(tmpDir));
+  });
+});
+
 describe('CLI subprocess execution', () => {
   test('--help shows usage info', async () => {
     const { stdout } = await execFileAsync('node', [CLI_PATH, '--help']);
@@ -402,7 +447,14 @@ describe('CLI subprocess execution', () => {
   });
 
   test('validate command outputs stub message', async () => {
-    const { stdout } = await execFileAsync('node', [CLI_PATH, 'validate']);
+    // validate exits non-zero when required env vars (e.g. OPENROUTER_API_KEY) are unset,
+    // so read stdout from either outcome.
+    let stdout;
+    try {
+      ({ stdout } = await execFileAsync('node', [CLI_PATH, 'validate']));
+    } catch (err) {
+      ({ stdout } = err);
+    }
 
     assert.ok(stdout.includes('Validating configuration'));
   });
@@ -422,6 +474,52 @@ describe('CLI subprocess execution', () => {
       assert.ok(!err.stdout.includes('not yet implemented'), 'Should not be a stub');
       assert.ok(!err.stdout.includes('Checking status'), 'Should not print stub message');
     }
+  });
+
+  test('migrate uses DATABASE_URL from .env in the working directory', async () => {
+    const tmpDir = await createTempDir();
+    await fs.writeFile(path.join(tmpDir, '.env'), 'DATABASE_URL=postgres://u:p@127.0.0.1:1/db\n');
+    const env = { ...process.env };
+    delete env.DATABASE_URL;
+
+    let stderr = '';
+    try {
+      await execFileAsync('node', [CLI_PATH, 'migrate'], { cwd: tmpDir, env });
+    } catch (err) {
+      ({ stderr } = err);
+    }
+
+    assert.ok(!stderr.includes('DATABASE_URL environment variable is required'));
+    assert.ok(stderr.includes('Migration error'), 'should attempt to connect and fail');
+  });
+
+  test('exported DATABASE_URL wins over .env', async () => {
+    const tmpDir = await createTempDir();
+    await fs.writeFile(
+      path.join(tmpDir, '.env'),
+      'DATABASE_URL=postgres://u:p@127.0.0.1:1/fromfile\n'
+    );
+
+    // A listener on the exported URL's port proves which URL the CLI connected to;
+    // the .env URL points at a closed port (1) and could never register a connection.
+    let connections = 0;
+    const server = net.createServer(socket => {
+      connections += 1;
+      socket.destroy();
+    });
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address();
+    const env = { ...process.env, DATABASE_URL: `postgres://u:p@127.0.0.1:${port}/fromshell` };
+
+    try {
+      await execFileAsync('node', [CLI_PATH, 'migrate'], { cwd: tmpDir, env });
+    } catch {
+      // connection is refused by the fake listener; the exit code is irrelevant here
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
+
+    assert.ok(connections >= 1, 'should connect to the exported DATABASE_URL, not the .env one');
   });
 
   test('unknown command shows error', async () => {
