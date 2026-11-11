@@ -578,4 +578,4 @@ async function getCompletion(messages) {
 - 📖 See [Configuration Guide](./configuration.md) for detailed config options
 - 🚀 See [Deployment Guide](./deployment.md) for deployment strategies
 - 💻 See [Development Guide](./development.md) for contributing
-- 📚 See [API Reference](./api.md) for programmatic usage
+- 📚 See [API Reference](./api/rest-api.md) for programmatic usage

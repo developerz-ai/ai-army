@@ -114,5 +114,4 @@ Features designed but not yet implemented:
 ## Links
 
 - [GitHub Repository](https://github.com/developerz-ai/ai-army)
-- [npm Package](https://www.npmjs.com/package/ai-army)
 - [Issue Tracker](https://github.com/developerz-ai/ai-army/issues)

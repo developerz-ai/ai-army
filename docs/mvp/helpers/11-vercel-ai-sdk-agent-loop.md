@@ -60,7 +60,6 @@ const result = await generateText({
 
 **Sources**:
 - [Tool is Invoked Multiple Times Based on maxSteps - GitHub](https://github.com/vercel/ai/issues/5195)
-- [i don't understand something about tool calling loop - GitHub Discussion](https://github.com/vercel/ai/discussions/8514)
 
 ---
 

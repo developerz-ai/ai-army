@@ -5,7 +5,7 @@ All notable changes to AI Army will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.0] - 2026-02-14
+## 0.2.0 - 2026-02-14
 
 ### Added
 - **PATCH `/api/bots/:id/config`** - Hot-update bot configuration (model, provider, tools, Docker image) without restarting the system
@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bot DB persistence on load (required for session foreign key constraints)
 - Health check endpoint bypasses auth (required for Docker health checks)
 
-## [0.1.0] - 2024-02-08
+## 0.1.0 - 2024-02-08
 
 Initial release of AI Army - a framework for building multi-bot AI systems with distributed execution, channel adapters, and comprehensive bot management.
 
@@ -258,5 +258,3 @@ See [docs/full-missing-implementation/](./docs/full-missing-implementation/) for
 - Audit log querying
 - GitHub Pages documentation site
 - Interactive configuration playground
-
-[0.1.0]: https://github.com/developerz-ai/ai-army/releases/tag/v0.1.0

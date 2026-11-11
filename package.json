@@ -25,6 +25,7 @@
     "test:watch": "node --experimental-test-module-mocks --test --watch 'src/**/*.test.js' 'test/**/*.test.js'",
     "lint": "eslint src/ bin/ test/",
     "lint:fix": "eslint src/ bin/ test/ --fix",
+    "check:links": "node scripts/check-links.js",
     "validate": "node bin/cli.js validate",
     "migrate": "node bin/cli.js migrate"
   },

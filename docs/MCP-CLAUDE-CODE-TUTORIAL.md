@@ -189,5 +189,4 @@ Just ask Claude to use the MCP tools:
 
 - [MCP Documentation](https://modelcontextprotocol.io)
 - [Official MCP Servers](https://github.com/modelcontextprotocol/servers)
-- [Anthropic MCP Servers](https://github.com/anthropics/mcp-servers)
 - [Claude Code MCP Guide](https://docs.anthropic.com/claude/docs/mcp)

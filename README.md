@@ -1,6 +1,5 @@
 # AI Army
 
-[![npm version](https://img.shields.io/npm/v/ai-army.svg?style=flat-square)](https://www.npmjs.com/package/ai-army)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen?style=flat-square)](https://nodejs.org)
 [![CI Status](https://img.shields.io/github/actions/workflow/status/developerz-ai/ai-army/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/developerz-ai/ai-army/actions)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
@@ -165,7 +164,7 @@ npx ai-army reload my-bot
 - **`work-bot`** - Productivity assistant with calendar and task management
 - **`code-bot`** - Code review and debugging assistant
 
-See [examples/](examples/) for more templates.
+See [bots/](bots/) for example bot definitions.
 
 ---
 
@@ -228,7 +227,6 @@ See [LICENSE](LICENSE) for details.
 ## 🔗 Links
 
 - **Documentation**: [https://developerz-ai.github.io/ai-army](https://developerz-ai.github.io/ai-army)
-- **npm Package**: [https://www.npmjs.com/package/ai-army](https://www.npmjs.com/package/ai-army)
 - **GitHub**: [https://github.com/developerz-ai/ai-army](https://github.com/developerz-ai/ai-army)
 - **Issues**: [https://github.com/developerz-ai/ai-army/issues](https://github.com/developerz-ai/ai-army/issues)
 

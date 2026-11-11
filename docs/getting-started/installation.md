@@ -253,6 +253,5 @@ docker rmi node:22-slim
 If you encounter issues:
 
 - 📖 [Read the docs](../)
-- 💬 [GitHub Discussions](https://github.com/developerz-ai/ai-army/discussions)
 - 🐛 [Report a bug](https://github.com/developerz-ai/ai-army/issues)
 - 📧 Contact support

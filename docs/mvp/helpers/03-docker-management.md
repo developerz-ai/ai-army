@@ -33,7 +33,6 @@ console.log(`Docker version: ${info.ServerVersion}`);
 **Sources**:
 - [dockerode - npm](https://www.npmjs.com/package/dockerode)
 - [GitHub - apocas/dockerode](https://github.com/apocas/dockerode)
-- [dockerode vs node-docker-api - npm trends](https://npmtrends.com/dockerode-vs-harbor-master-vs-node-docker-api)
 
 **Alternatives**:
 - **node-docker-api** (87K weekly downloads) - Alternative API, less popular

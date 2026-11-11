@@ -413,7 +413,6 @@ Check out example bots in the repository:
 
 Share your bot configurations:
 
-- 💬 [GitHub Discussions](https://github.com/developerz-ai/ai-army/discussions)
-- 📦 [Example Bots Repository](https://github.com/developerz-ai/ai-army-examples)
+- 📦 Example bots live in the [bots/](https://github.com/developerz-ai/ai-army/tree/main/bots) directory of this repository.
 
 Happy bot building! 🤖
