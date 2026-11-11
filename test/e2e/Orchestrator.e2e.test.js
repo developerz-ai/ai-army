@@ -354,6 +354,13 @@ describe('Orchestrator E2E - Full Message Flow', { skip: !DB_AVAILABLE }, () => 
         },
       });
       const agentResponse = 'REST pipeline response';
+      const agentRunner = createMockAgentRunner({
+        text: agentResponse,
+        toolCalls: [],
+        usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
+        steps: [],
+        finishReason: 'end',
+      });
       const botManager = createMockBotManager({ dbStorage: storage });
       const sessionManager = new SessionManager(storage);
       const processRef = {
@@ -390,9 +397,7 @@ describe('Orchestrator E2E - Full Message Flow', { skip: !DB_AVAILABLE }, () => 
           botManager,
           sessionManagerFactory: () => sessionManager,
           messageRouterFactory: commandOrchestrator.messageRouterFactory,
-          messageProcessorFactory: () => ({
-            processMessage: async () => ({ text: agentResponse }),
-          }),
+          messageProcessorFactory: sm => new MessageProcessor(sm, agentRunner, storage),
         });
         orchestrator.registerChannelAdapter(
           'rest',
@@ -418,6 +423,13 @@ describe('Orchestrator E2E - Full Message Flow', { skip: !DB_AVAILABLE }, () => 
           sessionId,
           message: 'Message received',
         });
+
+        assert.equal(agentRunner.run.mock.calls.length, 1);
+        const [passedConfig, passedMessages] = agentRunner.run.mock.calls[0].arguments;
+        assert.equal(passedConfig.id, 'rest-bot');
+        const userMessage = passedMessages.find(message => message.role === 'user');
+        assert.ok(userMessage);
+        assert.equal(userMessage.content, 'Hello via REST');
 
         const firstPoll = await fetch(`${baseUrl}/messages/${sessionId}`);
         assert.equal(firstPoll.status, 200);
