@@ -23,7 +23,7 @@
 import { Command } from 'commander';
 import { config as loadDotenv } from 'dotenv';
 import path from 'path';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ProjectInitializer } from '../src/cli/ProjectInitializer.js';
@@ -588,11 +588,23 @@ export async function runInit(
 }
 
 // Run CLI when executed directly (not imported for testing)
-const isMainModule =
-  process.argv[1] &&
-  (process.argv[1].endsWith('/bin/cli.js') || process.argv[1].endsWith('\\bin\\cli.js'));
+/**
+ * Whether this file is the process entry point. Compares real paths so a symlinked
+ * launcher (npm's node_modules/.bin/ai-army, a global install) still counts as main.
+ * @returns {boolean} False when argv[1] is missing or either path cannot be resolved.
+ */
+function isMainModule() {
+  try {
+    return (
+      Boolean(process.argv[1]) &&
+      realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
+    );
+  } catch {
+    return false;
+  }
+}
 
-if (isMainModule) {
+if (isMainModule()) {
   loadEnv();
   const program = createProgram();
   program.parseAsync(process.argv).catch(err => {

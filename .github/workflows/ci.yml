@@ -163,6 +163,12 @@ jobs:
 
       - name: Validate demo config
         run: cd demo && npx ai-army validate
+        env:
+          # Placeholder, not a secret: validate resolves ${VAR} references and checks
+          # schema shape; it never calls the provider. Same pattern as the test:test
+          # database creds above. Without it, `${ANTHROPIC_API_KEY}` in demo/config.json
+          # throws and validate-demo red-herrings on the CLI main-module guard.
+          ANTHROPIC_API_KEY: dummy-key-for-config-validation
 
   all-checks:
     name: "\u2705 All Checks Passed"
