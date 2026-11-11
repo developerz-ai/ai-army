@@ -21,6 +21,7 @@
  */
 
 import { Command } from 'commander';
+import { config as loadDotenv } from 'dotenv';
 import path from 'path';
 import { readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -37,6 +38,20 @@ import { runServer } from '../src/cli/ServerCommand.js';
 import { runWorker } from '../src/cli/WorkerCommand.js';
 import { runDeploy } from '../src/cli/DeployCommand.js';
 import { runGenerate } from '../src/cli/GenerateCommand.js';
+
+/**
+ * Load environment variables from `<cwd>/.env`
+ *
+ * Existing process.env values are never overridden, so exported variables win
+ * over `.env`. A missing `.env` file is silently ignored. Called only when the
+ * CLI runs as the main module, so importing this file (tests) reads no `.env`.
+ *
+ * @param {string} [cwd=process.cwd()] - Directory containing the `.env` file
+ * @returns {void}
+ */
+export function loadEnv(cwd = process.cwd()) {
+  loadDotenv({ path: path.resolve(cwd, '.env'), quiet: true });
+}
 
 /**
  * Collect repeatable --override values into an array
@@ -578,6 +593,7 @@ const isMainModule =
   (process.argv[1].endsWith('/bin/cli.js') || process.argv[1].endsWith('\\bin\\cli.js'));
 
 if (isMainModule) {
+  loadEnv();
   const program = createProgram();
   program.parseAsync(process.argv).catch(err => {
     console.error(`❌ CLI error: ${err.message}`);

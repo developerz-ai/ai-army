@@ -131,7 +131,7 @@ The framework includes backward-compatible API route mapping:
 ## Known Limitations
 
 1. **E2E Tests:** Require PostgreSQL database to run (gracefully skip when unavailable)
-2. **Environment Variables:** Must be loaded manually (no auto-loading of `.env` files)
+2. **Environment Variables:** The `ai-army` CLI (`bin/cli.js`) loads `.env` from the working directory at startup without overriding variables already exported in the shell; `node src/index.js` does not load `.env`, so export variables manually there
 3. **Docker Tests:** Some integration tests require Docker daemon access
 
 ## Recommendations
