@@ -161,8 +161,28 @@ jobs:
       - name: Install demo dependencies
         run: cd demo && npm ci
 
+      # Run bin/cli.js directly: `npx ai-army` resolves to demo/node_modules/.bin/ai-army,
+      # a symlink whose argv[1] does not end in /bin/cli.js, so the CLI's main-module
+      # guard skips it and the step would exit 0 without validating anything.
+      # The same step then corrupts a copy of the config and asserts validate fails on it,
+      # proving this step can turn red.
       - name: Validate demo config
-        run: cd demo && npx ai-army validate
+        working-directory: demo
+        env:
+          ANTHROPIC_API_KEY: ci-dummy-key
+        run: |
+          set -o pipefail
+          node ../bin/cli.js validate | tee "$RUNNER_TEMP/validate.out"
+          grep -F 'Validated: config.json + 3 bot config(s)' "$RUNNER_TEMP/validate.out"
+          grep -F '✅ All configurations valid' "$RUNNER_TEMP/validate.out"
+          node -e "const c=JSON.parse(require('fs').readFileSync('config.json','utf8')); c.defaults.sandbox.type='bogus'; require('fs').writeFileSync(process.env.RUNNER_TEMP+'/broken-config.json', JSON.stringify(c))"
+          if node ../bin/cli.js validate --config "$RUNNER_TEMP/broken-config.json" > "$RUNNER_TEMP/broken.out"; then
+            echo 'validate exited 0 on a corrupted config' >&2
+            cat "$RUNNER_TEMP/broken.out"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/broken.out"
+          grep -F '❌ Configuration errors found' "$RUNNER_TEMP/broken.out"
 
   all-checks:
     name: "\u2705 All Checks Passed"
