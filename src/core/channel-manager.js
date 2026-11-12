@@ -6,14 +6,31 @@
  * initializes channel instances from config, and provides
  * graceful shutdown of all channels.
  *
- * Built-in adapter types are registered automatically:
+ * A new ChannelManager starts with an empty registry. The built-in adapters
+ * are exported as BUILT_IN_CHANNEL_ADAPTERS:
  * - 'slack' -> SlackAdapter
  * - 'discord' -> DiscordAdapter
  *
- * Custom adapter types can be registered via registerAdapter().
+ * Orchestrator registers them automatically during start() for any of those
+ * types not already registered, so an explicit registration (via
+ * registerAdapter() or Orchestrator.registerChannelAdapter()) always wins.
+ * Custom adapter types (and 'rest') must be registered explicitly.
  *
  * @module core/channel-manager
  */
+
+import { SlackAdapter } from '../adapters/channels/slack.js';
+import { DiscordAdapter } from '../adapters/channels/discord.js';
+
+/**
+ * Built-in channel adapter classes, keyed by channel type.
+ * Registered by Orchestrator for any type not explicitly registered.
+ * @type {Readonly<Record<string, Function>>}
+ */
+export const BUILT_IN_CHANNEL_ADAPTERS = Object.freeze({
+  slack: SlackAdapter,
+  discord: DiscordAdapter,
+});
 
 /**
  * Channel statuses for tracking lifecycle

@@ -924,6 +924,36 @@ describe('Orchestrator Integration - Filesystem', () => {
       assert.equal(orchestrator.channels.size, 0);
     });
 
+    test('initializes a configured discord channel without explicit adapter registration', async () => {
+      // channel-manager.js documents slack and discord as registered automatically:
+      // a configured discord channel must start with no registerChannelAdapter call.
+      const config = createValidConfig({
+        channels: {
+          'discord-main': { type: 'discord', botToken: 'discord-test-token' },
+        },
+      });
+
+      const projectDir = await createTempProject(config);
+
+      const orchestrator = new Orchestrator({
+        configPath: path.join(projectDir, 'config.json'),
+        botsPath: path.join(projectDir, 'bots'),
+        logger: null,
+        botManager: createMockBotManager(),
+      });
+
+      await orchestrator.start();
+
+      assert.equal(orchestrator.getState(), 'running');
+      assert.equal(orchestrator.channelManager.getChannelCount(), 1);
+      const channel = orchestrator.channelManager.getChannel('discord-main');
+      assert.ok(channel, 'discord-main channel should be registered');
+      assert.equal(channel.status, 'ready');
+      assert.ok(channel.adapter, 'discord-main channel should have an adapter instance');
+
+      await orchestrator.stop();
+    });
+
     test('throws when all channels fail due to missing adapters', async () => {
       const config = createValidConfig({
         channels: {

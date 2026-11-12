@@ -28,11 +28,11 @@
 | `updateChannelConfig(name, configUpdates)` | `src/core/channel-manager.js:430` |
 | `getChannelStats()` | `src/core/channel-manager.js:479` |
 
-**Remaining gap: built-in adapter registration.**
-- `ChannelManager`'s constructor (`src/core/channel-manager.js:75-84`) registers no adapters, despite the header comment at lines 9-11 claiming built-ins are auto-registered.
-- The built-in `slack`, `discord` and `rest` adapters are registered by the CLI commands instead: `src/cli/StartCommand.js:215-217` and `src/cli/DevCommand.js:126-128` call `Orchestrator.registerChannelAdapter` (`src/core/orchestrator.js:608-621`), which forwards to the `ChannelManager` (`src/core/orchestrator.js:1270-1274`).
-- Any other entry point that builds an `Orchestrator` or `ChannelManager` must register the built-ins itself, or it has no adapters.
-- The design doc ([docs/idea/09-channels.md](../idea/09-channels.md)) does not require auto-registration, so this is a code/comment inconsistency, not a spec violation. Either make the header comment accurate or move registration into the manager.
+**Built-in adapter registration.**
+- A new `ChannelManager` starts with an empty registry. The built-in adapters are exported as `BUILT_IN_CHANNEL_ADAPTERS` (`slack` → `SlackAdapter`, `discord` → `DiscordAdapter`) from `src/core/channel-manager.js:30-33`; the header comment (lines 9-17) documents this.
+- `Orchestrator.start()` registers them during channel initialization (`src/core/orchestrator.js:1276-1280`) for any type not already registered. Adapters passed to `Orchestrator.registerChannelAdapter` are registered first (`src/core/orchestrator.js:1271-1275`), so an explicit registration always wins.
+- Any entry point that builds an `Orchestrator` therefore gets `slack` and `discord` without registering them. `rest` and custom adapter types are not built-ins and must still be registered explicitly (the CLI does this in `src/cli/StartCommand.js` and `src/cli/DevCommand.js`).
+- A bare `ChannelManager` used without an `Orchestrator` still has no adapters until `registerAdapter()` is called.
 
 ### 2. Channel Health Monitoring
 
