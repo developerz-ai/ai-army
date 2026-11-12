@@ -199,9 +199,7 @@ ai-army/
 ![License](https://img.shields.io/npm/l/ai-army)
 ![Node Version](https://img.shields.io/badge/node-%3E%3D22-brightgreen)
 
-[📖 Docs](https://developerz-ai.github.io/ai-army) •
-[🚀 Demo](https://developerz-ai.github.io/ai-army/demo) •
-[💬 Discussions](https://github.com/developerz-ai/ai-army/discussions)
+[📖 Docs](https://developerz-ai.github.io/ai-army)
 ```
 
 ### Phase 2: Demo Site

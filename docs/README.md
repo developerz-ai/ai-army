@@ -8,7 +8,7 @@ Deploy specialized AI bots across distributed workers, each running in isolated 
 
 ```bash
 npm install
-npx ai-army validate
+node bin/cli.js validate
 docker-compose up -d
 ```
 
@@ -114,5 +114,4 @@ Features designed but not yet implemented:
 ## Links
 
 - [GitHub Repository](https://github.com/developerz-ai/ai-army)
-- [npm Package](https://www.npmjs.com/package/ai-army)
 - [Issue Tracker](https://github.com/developerz-ai/ai-army/issues)

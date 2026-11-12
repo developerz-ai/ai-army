@@ -382,8 +382,7 @@ docs/
 ```markdown
 # AI Assistants Army
 
-[📖 **Documentation**](https://developerz-ai.github.io/ai-army/) •
-[🚀 **Demo**](https://developerz-ai.github.io/ai-army/demo) •
+[📖 **Documentation**](https://developerz-ai.github.io/ai-army/)
 [💻 **GitHub**](https://github.com/developerz-ai/ai-army)
 
 ## Documentation

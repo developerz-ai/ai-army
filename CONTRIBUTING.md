@@ -45,7 +45,7 @@ cp .env.example .env
 
 4. Run validation:
 ```bash
-npx ai-army validate
+node bin/cli.js validate
 ```
 
 5. Run tests:
@@ -72,8 +72,11 @@ Always run these commands before committing:
 # Lint your code
 npm run lint
 
-# Run unit tests
+# Run unit tests (also checks every local doc link offline)
 npm run test:unit
+
+# Full markdown link check, external URLs included
+npm run check:links
 
 # Run all tests (if changes affect integration)
 npm test
@@ -83,7 +86,7 @@ npm test
 
 After changes to `bots/` or `config.json`:
 ```bash
-npx ai-army validate
+node bin/cli.js validate
 ```
 
 ## Code Style
@@ -376,7 +379,7 @@ Co-Authored-By: John Smith <john@example.com>
 
 2. **Validate bot configs:**
    ```bash
-   npx ai-army validate
+   node bin/cli.js validate
    ```
 
 3. **Update documentation** if you've changed APIs or configuration
@@ -489,13 +492,12 @@ bots/my-bot/
 - [Project Instructions](./CLAUDE.md) - AI-specific development guidelines
 - [README](./README.md) - Project overview and quick start
 - [GitHub Issues](https://github.com/developerz-ai/ai-army/issues) - Bug reports and feature requests
-- [Discussions](https://github.com/developerz-ai/ai-army/discussions) - Questions and community
 
 ## Questions?
 
 If you have questions:
 1. Check existing [issues](https://github.com/developerz-ai/ai-army/issues)
-2. Start a [discussion](https://github.com/developerz-ai/ai-army/discussions)
+2. [Open an issue](https://github.com/developerz-ai/ai-army/issues) with your question
 3. Reach out to maintainers
 
 Thank you for contributing to AI Army! 🎉

@@ -70,7 +70,6 @@ program.parse();
 **Sources**:
 - [commander vs yargs vs oclif - npm-compare](https://npm-compare.com/commander,oclif,vorpal,yargs)
 - [Building CLI Applications Made Easy - Medium](https://ibrahim-haouari.medium.com/building-cli-applications-made-easy-with-these-nodejs-frameworks-2c06d1ff7a51)
-- [In-Depth Comparison of CLI Frameworks - Oreate AI](https://www.oreateai.com/blog/indepth-comparison-of-cli-frameworks-technical-features-and-application-scenarios-of-yargs-commander-and-oclif/24440ae03bfbae6c4916c403a728f6da)
 
 **Alternatives**:
 - **yargs** (138M downloads) - More declarative, but more complex
