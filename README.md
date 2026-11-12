@@ -101,20 +101,17 @@ graph TB
 # Install dependencies
 npm install
 
-# Configure your bots
-cp config.example.json config.json
-
 # Set up database
-npx ai-army migrate
+node bin/cli.js migrate
 
 # Validate configuration
-npx ai-army validate
+node bin/cli.js validate
 
 # Start with Docker Compose (recommended)
 docker-compose up -d
 
 # Or start directly
-npx ai-army start
+npm start
 ```
 
 **First bot in 30 seconds:**
@@ -138,11 +135,11 @@ cat > bots/my-bot/soul.md << 'EOF'
 You are a helpful AI assistant that helps developers with code.
 EOF
 
-# Register in config.json
-npx ai-army validate
+# Validate the configuration
+node bin/cli.js validate
 
 # Reload
-npx ai-army reload my-bot
+node bin/cli.js reload my-bot
 ```
 
 ---

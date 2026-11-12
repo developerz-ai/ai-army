@@ -8,7 +8,7 @@ Deploy specialized AI bots across distributed workers, each running in isolated 
 
 ```bash
 npm install
-npx ai-army validate
+node bin/cli.js validate
 docker-compose up -d
 ```
 

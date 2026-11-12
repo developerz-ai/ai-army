@@ -23,8 +23,8 @@
     "test:integration": "node --experimental-test-module-mocks --test --test-force-exit --test-timeout=300000 'test/integration/**/*.test.js'",
     "test:e2e": "node --experimental-test-module-mocks --test --test-force-exit --test-timeout=300000 'test/e2e/**/*.test.js'",
     "test:watch": "node --experimental-test-module-mocks --test --watch 'src/**/*.test.js' 'test/**/*.test.js'",
-    "lint": "eslint src/ bin/ test/",
-    "lint:fix": "eslint src/ bin/ test/ --fix",
+    "lint": "eslint src/ bin/ test/ scripts/",
+    "lint:fix": "eslint src/ bin/ test/ scripts/ --fix",
     "check:links": "node scripts/check-links.js",
     "validate": "node bin/cli.js validate",
     "migrate": "node bin/cli.js migrate"

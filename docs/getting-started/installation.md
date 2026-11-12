@@ -112,7 +112,7 @@ DATABASE_URL=postgresql://ai_army:your_password@localhost:5432/ai_army
 Initialize the database schema:
 
 ```bash
-npx ai-army migrate
+node bin/cli.js migrate
 ```
 
 This will create all necessary tables for bot state, sessions, audit logs, and message queues.
@@ -145,13 +145,13 @@ Check that everything is working:
 
 ```bash
 # Verify the CLI is available
-npx ai-army --version
+node bin/cli.js --version
 
 # Validate your configuration
-npx ai-army validate
+node bin/cli.js validate
 
 # Check system status
-npx ai-army status
+node bin/cli.js status
 ```
 
 You should see output confirming:

@@ -5,7 +5,7 @@ This tutorial walks you through creating your first AI bot from scratch. By the 
 ## Prerequisites
 
 - [AI Army installed](installation.md)
-- Database migrations completed (`npx ai-army migrate`)
+- Database migrations completed (`node bin/cli.js migrate`)
 - API keys configured in `.env`
 
 ## Project Structure
@@ -23,26 +23,19 @@ my-project/
 └── data/                 # Bot workspaces (auto-created)
 ```
 
-## Step 1: Initialize Project
+## Step 1: Get the Source
 
-If you haven't already, create a new project directory:
+The `ai-army` package is not published on npm yet, so start from a clone of the repository (see [Installation](installation.md)):
 
 ```bash
-mkdir my-ai-army
+git clone https://github.com/developerz-ai/ai-army.git my-ai-army
 cd my-ai-army
-npm init -y
-npm install ai-army
+npm install
 ```
 
-Initialize the AI Army structure:
-
-```bash
-npx ai-army init
-```
-
-This creates:
+This gives you:
 - `config.json` with default settings
-- `bots/` directory
+- the `bots/` directory
 - `.env.example` file
 - `.gitignore` with sensitive files
 
@@ -168,7 +161,7 @@ The `soul.md` file defines your bot's personality and behavior:
 Validate your bot configuration:
 
 ```bash
-npx ai-army validate
+node bin/cli.js validate
 ```
 
 You should see:
@@ -190,7 +183,7 @@ If you see errors, check:
 Start the system:
 
 ```bash
-npx ai-army start
+node bin/cli.js start
 ```
 
 You should see:
@@ -225,7 +218,7 @@ curl -X POST http://localhost:3000/api/bots/helper/message \
 Alternatively, use the CLI interface:
 
 ```bash
-npx ai-army dev
+node bin/cli.js dev
 ```
 
 This starts an interactive session where you can chat directly with your bot.
@@ -267,7 +260,7 @@ The bot will:
 Check your bot's status:
 
 ```bash
-npx ai-army status
+node bin/cli.js status
 ```
 
 Or via API:
@@ -382,7 +375,7 @@ Register in your bot config:
 **Solution:**
 - Verify tool is listed in `tools` array
 - Check tool permissions in sandbox
-- Review bot logs: `npx ai-army logs helper`
+- Check system state: `node bin/cli.js status`
 
 ### Session Not Persisting
 
@@ -390,8 +383,8 @@ Register in your bot config:
 
 **Solution:**
 - Ensure you're using the same `sessionId` across requests
-- Check database connection: `npx ai-army status`
-- Verify sessions table exists: `npx ai-army migrate`
+- Check database connection: `node bin/cli.js status`
+- Verify sessions table exists: `node bin/cli.js migrate`
 
 ## Example Bots
 
@@ -402,17 +395,13 @@ Check out example bots in the repository:
 - **Support Bot** - Answers product questions
 - **Data Analyst** - Processes and analyzes data
 
+📦 Example bots live in the [bots/](https://github.com/developerz-ai/ai-army/tree/main/bots) directory of this repository.
+
 ## Further Reading
 
 - [Configuration Reference](configuration.md) - Complete config options
 - [API Documentation](../api/rest-api.md) - Full REST API reference
 - [Bot Manager API](../api/bot-manager.md) - Programmatic bot control
 - [Deployment Guide](../deployment.md) - Production deployment
-
-## Community Examples
-
-Share your bot configurations:
-
-- 📦 Example bots live in the [bots/](https://github.com/developerz-ai/ai-army/tree/main/bots) directory of this repository.
 
 Happy bot building! 🤖

@@ -45,7 +45,7 @@ cp .env.example .env
 
 4. Run validation:
 ```bash
-npx ai-army validate
+node bin/cli.js validate
 ```
 
 5. Run tests:
@@ -83,7 +83,7 @@ npm test
 
 After changes to `bots/` or `config.json`:
 ```bash
-npx ai-army validate
+node bin/cli.js validate
 ```
 
 ## Code Style
@@ -376,7 +376,7 @@ Co-Authored-By: John Smith <john@example.com>
 
 2. **Validate bot configs:**
    ```bash
-   npx ai-army validate
+   node bin/cli.js validate
    ```
 
 3. **Update documentation** if you've changed APIs or configuration
