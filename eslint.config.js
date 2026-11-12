@@ -56,6 +56,16 @@ export default [
     },
   },
   {
+    // scripts/check-links.js uses Node's global fetch; keep it scoped so the
+    // test suites that declare their own `fetch` stub stay lint-clean.
+    files: ['scripts/**/*.js'],
+    languageOptions: {
+      globals: {
+        fetch: 'readonly',
+      },
+    },
+  },
+  {
     ignores: ['node_modules/', 'dist/', 'coverage/', 'data/'],
   },
 ];

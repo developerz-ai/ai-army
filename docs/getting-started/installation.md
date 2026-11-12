@@ -262,6 +262,5 @@ Any leftover bot sandboxes are Incus containers — find and remove them with `i
 If you encounter issues:
 
 - 📖 [Read the docs](../)
-- 💬 [GitHub Discussions](https://github.com/developerz-ai/ai-army/discussions)
 - 🐛 [Report a bug](https://github.com/developerz-ai/ai-army/issues)
 - 📧 Contact support

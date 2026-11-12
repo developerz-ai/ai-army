@@ -530,10 +530,9 @@ sudo journalctl -u postgresql -f
 - 📖 [Architecture Guide](./architecture.md)
 - ⚙️ [Configuration Guide](./configuration.md)
 - 🚀 [Deployment Guide](./deployment.md)
-- 🌐 [API Reference](./api.md)
+- 🌐 [API Reference](./api/rest-api.md)
 
 ## Getting Help
 
 - 🐛 [Report bugs](https://github.com/developerz-ai/ai-army/issues)
-- 💬 [Discussions](https://github.com/developerz-ai/ai-army/discussions)
 - 📧 Email: dev@developerz.ai

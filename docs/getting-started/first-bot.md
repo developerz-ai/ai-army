@@ -379,6 +379,7 @@ Register in your bot config:
 - Verify tool is listed in `tools` array
 - Check tool permissions in sandbox
 - Review bot logs: run the stack in dev mode (`node bin/cli.js dev`) and watch the console output
+- Check system state: `node bin/cli.js status`
 
 ### Session Not Persisting
 
@@ -398,18 +399,13 @@ Check out example bots in the repository:
 - **Support Bot** - Answers product questions
 - **Data Analyst** - Processes and analyzes data
 
+📦 Example bots live in the [bots/](https://github.com/developerz-ai/ai-army/tree/main/bots) directory of this repository.
+
 ## Further Reading
 
 - [Configuration Reference](configuration.md) - Complete config options
 - [API Documentation](../api/rest-api.md) - Full REST API reference
 - [Bot Manager API](../api/bot-manager.md) - Programmatic bot control
 - [Deployment Guide](../deployment.md) - Production deployment
-
-## Community Examples
-
-Share your bot configurations:
-
-- 💬 [GitHub Discussions](https://github.com/developerz-ai/ai-army/discussions)
-- 📦 [Example Bots Repository](https://github.com/developerz-ai/ai-army-examples)
 
 Happy bot building! 🤖
