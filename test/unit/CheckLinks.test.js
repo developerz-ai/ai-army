@@ -423,4 +423,54 @@ describe('main', () => {
       }
     );
   });
+
+  test('external: false never fetches external links', async () => {
+    await withFixture(
+      async root => {
+        await fs.mkdir(path.join(root, 'docs'), { recursive: true });
+        await fs.writeFile(
+          path.join(root, 'docs', 'README.md'),
+          '[dead](https://ai-army-link-check.invalid/missing)\n'
+        );
+      },
+      async root => {
+        const realFetch = globalThis.fetch;
+        let fetched = 0;
+        globalThis.fetch = async () => {
+          fetched += 1;
+          return new globalThis.Response(null, { status: 404 });
+        };
+        try {
+          await main({ root, external: false });
+        } finally {
+          globalThis.fetch = realFetch;
+        }
+        assert.equal(fetched, 0);
+        assert.equal(process.exitCode, undefined);
+      }
+    );
+  });
+});
+
+describe('repository documentation (CI gate)', () => {
+  // This is how `npm run check:links` runs in CI: the unit-tests job in
+  // .github/workflows/ci.yml runs `npm run test:unit`, so every local and
+  // reference link in the real tree is checked on every push and PR.
+  // External links are not fetched here (CI runners may lack outbound
+  // access); run `npm run check:links` for the full check.
+  test('every local and reference link in the repository resolves', async () => {
+    const errors = [];
+    const realError = console.error;
+    const realLog = console.log;
+    console.error = (...args) => errors.push(args.join(' '));
+    console.log = () => {};
+    try {
+      await main({ external: false });
+      assert.equal(process.exitCode, undefined, `broken links:\n${errors.join('\n')}`);
+    } finally {
+      console.error = realError;
+      console.log = realLog;
+      process.exitCode = undefined;
+    }
+  });
 });

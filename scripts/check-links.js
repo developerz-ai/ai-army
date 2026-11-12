@@ -486,12 +486,15 @@ function listMarkdownFiles(dir) {
  * broken local target, missing reference usage, broken external link and
  * non-public-host refusal is printed with the file and line it came from;
  * network failures are reported separately and do not fail the run.
- * @param {{root?: string}} [options] `root` overrides the repository root
- *   (used by tests to scan a fixture tree).
+ * @param {{root?: string, external?: boolean}} [options] `root` overrides the
+ *   repository root (used by tests to scan a fixture tree); `external: false`
+ *   skips fetching external links (the offline check the unit-test CI job
+ *   runs on the real tree via `test/unit/CheckLinks.test.js`).
  * @returns {Promise<void>} Sets `process.exitCode` to 1 when anything is broken.
  */
 export async function main(options = {}) {
   const root = options.root ?? ROOT;
+  const checkExternal = options.external ?? true;
   const files = ROOT_FILES.map(name => path.join(root, name)).filter(file => {
     if (existsSync(file)) return true;
     process.stderr.write(`note: ${path.relative(root, file) || file} not found, skipped\n`);
@@ -555,7 +558,8 @@ export async function main(options = {}) {
 
   const brokenExternal = [];
   const networkErrors = [];
-  await mapWithLimit([...externals.keys()], FETCH_CONCURRENCY, async url => {
+  const toFetch = checkExternal ? [...externals.keys()] : [];
+  await mapWithLimit(toFetch, FETCH_CONCURRENCY, async url => {
     try {
       const status = await fetchStatus(url);
       if (isBrokenStatus(status)) {
@@ -608,7 +612,7 @@ export async function main(options = {}) {
   let summary =
     `checked ${files.length} markdown files: ` +
     `${localCount} local links (${rootResolved.length} via repository-root fallback), ` +
-    `${externals.size} external links, ${broken} broken`;
+    `${externals.size} external links${checkExternal ? '' : ' (not fetched)'}, ${broken} broken`;
   if (networkErrors.length > 0) {
     summary += `, ${networkErrors.length} network error(s) not counted as broken`;
   }

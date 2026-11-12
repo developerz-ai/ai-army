@@ -72,8 +72,11 @@ Always run these commands before committing:
 # Lint your code
 npm run lint
 
-# Run unit tests
+# Run unit tests (also checks every local doc link offline)
 npm run test:unit
+
+# Full markdown link check, external URLs included
+npm run check:links
 
 # Run all tests (if changes affect integration)
 npm test
