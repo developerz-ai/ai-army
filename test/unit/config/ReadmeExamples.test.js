@@ -16,9 +16,10 @@
  * `images:` remote — the image has to be pre-pulled into the local daemon (`local:`).
  *
  * README.md, docs/README.md and docs/getting-started/installation.md must all
- * document the source install — git clone + `node bin/cli.js` — and none of them
- * may mention `npx ai-army`, the npm package or an npm version badge: AI Army is
- * installed from source, there is no npm package.
+ * document the source install — git clone + `node bin/cli.js`. None of those, nor
+ * CONTRIBUTING.md, the config guides or templates/project/README.md, may mention
+ * `npx ai-army`, the npm package or an npm version badge: AI Army is installed
+ * from source, there is no npm package.
  *
  * @module test/unit/config/ReadmeExamples
  */
@@ -53,6 +54,7 @@ const CONFIG_DOCS = [
     label: 'docs/getting-started/configuration.md',
     path: fileURLToPath(new URL('../../../docs/getting-started/configuration.md', import.meta.url)),
   },
+  { label: 'docs/getting-started/installation.md', path: INSTALLATION_DOC_PATH },
   {
     label: 'docs/getting-started/first-bot.md',
     path: fileURLToPath(new URL('../../../docs/getting-started/first-bot.md', import.meta.url)),
@@ -72,6 +74,23 @@ const SOURCE_INSTALL_DOCS = [
   { label: 'README.md', path: README_PATH },
   { label: 'docs/README.md', path: DOCS_README_PATH },
   { label: 'docs/getting-started/installation.md', path: INSTALLATION_DOC_PATH },
+];
+
+/**
+ * Every doc that tells readers how to run the CLI. None may mention `npx ai-army`,
+ * the npm package or an npm version badge — there is no npm package.
+ */
+const NO_NPM_PACKAGE_DOCS = [
+  ...SOURCE_INSTALL_DOCS,
+  {
+    label: 'CONTRIBUTING.md',
+    path: fileURLToPath(new URL('../../../CONTRIBUTING.md', import.meta.url)),
+  },
+  ...CONFIG_DOCS.filter(doc => !SOURCE_INSTALL_DOCS.some(sourceDoc => sourceDoc.path === doc.path)),
+  {
+    label: 'templates/project/README.md',
+    path: fileURLToPath(new URL('../../../templates/project/README.md', import.meta.url)),
+  },
 ];
 
 /**
@@ -200,6 +219,12 @@ describe('source install documented, not the npm package (README.md + docs)', ()
         source.includes('node bin/cli.js'),
         `${doc.label} must invoke the CLI via node bin/cli.js`
       );
+    });
+  }
+
+  for (const doc of NO_NPM_PACKAGE_DOCS) {
+    test(`${doc.label} never mentions npx ai-army or the npm package`, () => {
+      const source = readFileSync(doc.path, 'utf8');
       assert.ok(
         !source.includes('npx ai-army'),
         `${doc.label} must not tell users to run npx ai-army`

@@ -24,6 +24,9 @@ Before installing AI Army, ensure you have the following:
   - Check version: `incus --version`
   - See [Incus bots](incus-bots.md) for images, profiles, and resource limits
 
+- **Git** (to clone this repository — AI Army is installed from source)
+  - Check version: `git --version`
+
 ### API Keys
 
 Set only the keys your setup needs, in `.env` or your environment:
@@ -33,10 +36,6 @@ Set only the keys your setup needs, in `.env` or your environment:
 - `OPENAI_API_KEY` — OpenAI models
 - `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_SIGNING_SECRET` — when a Slack channel is configured
 - `DISCORD_BOT_TOKEN` — when a Discord channel is configured
-
-### Optional
-
-- **Git** (to clone this repository)
 
 ## Installation
 
