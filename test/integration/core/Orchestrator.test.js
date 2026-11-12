@@ -954,6 +954,54 @@ describe('Orchestrator Integration - Filesystem', () => {
       await orchestrator.stop();
     });
 
+    test('explicit adapter registration still wins on restart', async () => {
+      // Regression test: a restart (stop() then start()) reuses the same
+      // ChannelManager, whose registry already holds a 'slack' adapter type
+      // registered on the first start(). A later registerChannelAdapter()
+      // call made before the second start() must still override it, not be
+      // skipped because the type is already registered.
+      const config = createValidConfig({
+        channels: {
+          'slack-main': { type: 'slack', botToken: 'xoxb-test' },
+        },
+      });
+
+      const projectDir = await createTempProject(config);
+      const MockSlackV1 = createMockChannelAdapterClass();
+      const MockSlackV2 = createMockChannelAdapterClass();
+
+      const orchestrator = new Orchestrator({
+        configPath: path.join(projectDir, 'config.json'),
+        botsPath: path.join(projectDir, 'bots'),
+        logger: null,
+        botManager: createMockBotManager(),
+      });
+
+      orchestrator.registerChannelAdapter('slack', MockSlackV1);
+      await orchestrator.start();
+      assert.ok(
+        orchestrator.channelManager.getChannel('slack-main').adapter instanceof MockSlackV1,
+        'first start should use the registered v1 mock adapter'
+      );
+      await orchestrator.stop();
+
+      // Re-register with a different class before the second start, as a
+      // caller doing a real restart would (e.g. the CLI re-running its
+      // startup sequence). The ChannelManager instance is reused, so its
+      // registry already has 'slack' registered from the first start.
+      orchestrator.registerChannelAdapter('slack', MockSlackV2);
+      await orchestrator.start();
+
+      const channel = orchestrator.channelManager.getChannel('slack-main');
+      assert.ok(
+        channel.adapter instanceof MockSlackV2,
+        'a later explicit registration must still win on restart, even though ' +
+          'the reused ChannelManager already has the type registered'
+      );
+
+      await orchestrator.stop();
+    });
+
     test('throws when all channels fail due to missing adapters', async () => {
       const config = createValidConfig({
         channels: {

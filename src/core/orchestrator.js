@@ -1267,11 +1267,12 @@ export class Orchestrator {
     }
 
     // Register all adapter types with ChannelManager: explicitly registered
-    // adapters first, then built-ins (slack, discord) for any type still missing.
+    // adapters are applied unconditionally so they always win, including on a
+    // restart that reuses a ChannelManager which already has a built-in
+    // adapter type registered from a previous start(). Built-ins only fill
+    // in types still missing.
     for (const [type, AdapterClass] of this.channelAdapters) {
-      if (!this.channelManager.adapterTypes.has(type)) {
-        this.channelManager.registerAdapter(type, AdapterClass);
-      }
+      this.channelManager.registerAdapter(type, AdapterClass);
     }
     for (const [type, AdapterClass] of Object.entries(BUILT_IN_CHANNEL_ADAPTERS)) {
       if (!this.channelManager.adapterTypes.has(type)) {

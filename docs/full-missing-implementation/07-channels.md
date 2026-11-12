@@ -30,7 +30,7 @@
 
 **Built-in adapter registration.**
 - A new `ChannelManager` starts with an empty registry. The built-in adapters are exported as `BUILT_IN_CHANNEL_ADAPTERS` (`slack` → `SlackAdapter`, `discord` → `DiscordAdapter`) from `src/core/channel-manager.js:30-33`; the header comment (lines 9-17) documents this.
-- `Orchestrator.start()` registers them during channel initialization (`src/core/orchestrator.js:1276-1280`) for any type not already registered. Adapters passed to `Orchestrator.registerChannelAdapter` are registered first (`src/core/orchestrator.js:1271-1275`), so an explicit registration always wins.
+- `Orchestrator.start()` registers them during channel initialization (`src/core/orchestrator.js:1277-1281`) for any type not already registered. Adapters passed to `Orchestrator.registerChannelAdapter` are applied unconditionally first (`src/core/orchestrator.js:1274-1276`), so an explicit registration always wins — including on a restart that reuses a `ChannelManager` from a previous `start()`, where a built-in type would otherwise already be registered.
 - Any entry point that builds an `Orchestrator` therefore gets `slack` and `discord` without registering them. `rest` and custom adapter types are not built-ins and must still be registered explicitly (the CLI does this in `src/cli/StartCommand.js` and `src/cli/DevCommand.js`).
 - A bare `ChannelManager` used without an `Orchestrator` still has no adapters until `registerAdapter()` is called.
 

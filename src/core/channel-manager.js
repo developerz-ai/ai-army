@@ -12,8 +12,11 @@
  * - 'discord' -> DiscordAdapter
  *
  * Orchestrator registers them automatically during start() for any of those
- * types not already registered, so an explicit registration (via
- * registerAdapter() or Orchestrator.registerChannelAdapter()) always wins.
+ * types not already registered. An explicit registration (via
+ * registerAdapter() or Orchestrator.registerChannelAdapter()) is applied
+ * unconditionally on every start(), so it always wins over a built-in —
+ * including on a restart that reuses a ChannelManager which already holds
+ * a built-in adapter type from a previous start().
  * Custom adapter types (and 'rest') must be registered explicitly.
  *
  * @module core/channel-manager
