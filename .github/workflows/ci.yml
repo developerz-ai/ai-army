@@ -163,6 +163,8 @@ jobs:
 
       - name: Validate demo config
         run: cd demo && npx ai-army validate
+        env:
+          ANTHROPIC_API_KEY: placeholder
 
   all-checks:
     name: "\u2705 All Checks Passed"

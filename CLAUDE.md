@@ -50,24 +50,24 @@ second copy. Refine it in place — do not create a parallel brain file.
 
 | Command | Purpose |
 |---------|---------|
-| `bin/setup` | Install deps (`npm ci`), start Postgres 18, create the `ai_army_test` database |
+| `bin/setup` | Install deps (`npm ci` in the root and in `demo/`), start Postgres 18, create the `ai_army_test` database |
 | `bin/dev` | Run the stack in development mode (`node bin/cli.js dev`, hot reload) |
-| `bin/check` | **The gate** — lint + full test suite against the test database |
+| `bin/check` | **The gate** — lint, unit, integration, e2e and demo-config validation, one step per ci.yml job, against the test database |
 | `bin/stop` | Stop the docker-compose services |
 | `npm start` | Run the app in production mode (`node src/index.js`) |
 | `npm run dev` | Run the app under `node --watch` |
 | `npm test` | Run unit, then integration, then e2e — in that order |
-| `npm run test:unit` | `test/unit/**`, `test/helpers/**`, `src/**/*.test.js` — fast, no database |
+| `npm run test:unit` | `test/unit/**`, `test/helpers/**`, `src/**/*.test.js`, `bin/**/*.test.js` — fast, no database |
 | `npm run test:integration` | `test/integration/**` — needs `DATABASE_URL` |
 | `npm run test:e2e` | `test/e2e/**` — needs `DATABASE_URL` and a live stack |
 | `npm run test:watch` | Watch mode across `src/**/*.test.js` and `test/**/*.test.js` |
-| `npm run lint` | `eslint src/ bin/ test/` — also runs Prettier as an ESLint rule |
+| `npm run lint` | `eslint src/ bin/ test/ scripts/` — also runs Prettier as an ESLint rule |
 | `npm run lint:fix` | Same, with `--fix` |
 | `npm run validate` | Validate `config.json` and every `bots/*/config.json` (Zod schemas) |
 | `npm run migrate` | Apply pending SQL migrations (`node bin/cli.js migrate`) |
 | `node bin/cli.js <subcommand>` | The CLI proper: `init`, `validate`, `migrate`, `start`, `dev`, `status`, `reload`, `instance` (create/list/scale/stop/rm), `server` (add/list/test), `worker` (list/status/stop/start/update), `deploy`, `generate worker` |
 
-`bin/check` runs exactly this: `DATABASE_URL=… TEST_MODE=true npm run lint && DATABASE_URL=… TEST_MODE=true npm test`.
+`bin/check` guards its preconditions first (root or `demo/` `node_modules` missing → exit 75: environment, not the change), then runs the same five steps ci.yml runs (integration and e2e use the local bin/setup stack credentials; ci.yml's service containers use test:test): `npm run lint`; `npm run test:unit`; `DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test npm run test:integration`; the same `DATABASE_URL` plus `TEST_MODE=true npm run test:e2e`; and `(cd demo && ANTHROPIC_API_KEY=placeholder npm run validate)` — the placeholder mirrors ci.yml's validate-demo env and only unblocks `${…}` interpolation.
 
 ## Project Structure
 
