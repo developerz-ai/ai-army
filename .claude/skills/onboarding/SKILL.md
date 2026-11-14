@@ -15,4 +15,4 @@ applies: [typescript, javascript, node]
    fail -> the message names the offending file and field; fix the config, do not loosen `src/config/ConfigValidator.js`.
 7. Start the army in dev mode and watch it load: `node bin/cli.js dev` — confirm the startup log lists the new bot under "Loaded bot".
 8. Prove nothing broke: `npm run lint && npm test`.
-9. In a running dev session the config watcher picks the change up; outside one, `node bin/cli.js reload <bot-id>` validates and reloads it.
+9. In a running dev session the config watcher picks the change up; outside one, `node bin/cli.js reload` validates the configuration (validate-only — there is no orchestrator to reload). To reload one bot on a live instance, call the admin API: `POST /api/admin/bots/<bot-id>/reload`.

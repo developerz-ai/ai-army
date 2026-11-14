@@ -35,7 +35,7 @@ import { BotEventEmitter } from './event-emitter.js';
 import { WebhookManager } from '../webhooks/webhook-manager.js';
 import { WebhookWorker } from '../webhooks/webhook-worker.js';
 import { DeliveryManager } from '../webhooks/delivery-manager.js';
-import { ChannelManager } from './channel-manager.js';
+import { ChannelManager, BUILT_IN_CHANNEL_ADAPTERS } from './channel-manager.js';
 import { WorkerRegistry, WORKER_TYPES } from './worker-registry.js';
 import { WorkerAssigner } from './worker-assigner.js';
 import { SSHTunnelManager } from '../worker/ssh-tunnel.js';
@@ -1266,8 +1266,15 @@ export class Orchestrator {
       }
     }
 
-    // Register all adapter types with ChannelManager
+    // Register all adapter types with ChannelManager: explicitly registered
+    // adapters are applied unconditionally so they always win, including on a
+    // restart that reuses a ChannelManager which already has a built-in
+    // adapter type registered from a previous start(). Built-ins only fill
+    // in types still missing.
     for (const [type, AdapterClass] of this.channelAdapters) {
+      this.channelManager.registerAdapter(type, AdapterClass);
+    }
+    for (const [type, AdapterClass] of Object.entries(BUILT_IN_CHANNEL_ADAPTERS)) {
       if (!this.channelManager.adapterTypes.has(type)) {
         this.channelManager.registerAdapter(type, AdapterClass);
       }

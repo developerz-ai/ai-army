@@ -8,8 +8,11 @@
 version: 1
 
 # Services this repo's own verify gate needs running before it can grade a diff.
-# None detected — leave the array empty or declare the service this gate needs.
-services: []
+# bin/check runs lint + the full test suite against a live PostgreSQL, so the gate needs postgres.
+# Connection target (bin/check): postgresql://ai_army:ai_army_dev@localhost:5432/ai_army_test
+# It is the postgres:18-alpine service in docker-compose.yml, started by bin/setup, which also
+# creates the ai_army_test database. The schema takes only the service name; this comment records the target.
+services: [postgres]
 
 # handoff: coding dispatches to the developerz fleet (BYOVM). `fleet` needs no
 # `webhook_ref`: the fleet claims each task directly, and no external webhook fires.

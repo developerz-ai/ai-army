@@ -166,6 +166,8 @@ You are a helpful AI assistant that helps developers with code.
 ```bash
 # Validate, then reload the running stack
 node bin/cli.js validate
+
+# Reload (validate-only outside "npm run dev"; per-bot reload: POST /api/admin/bots/<bot-id>/reload)
 node bin/cli.js reload
 ```
 
