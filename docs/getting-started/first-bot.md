@@ -7,13 +7,14 @@ This tutorial walks you through creating your first AI bot from scratch. By the 
 - [AI Army installed](installation.md)
 - Database migrations completed (`node bin/cli.js migrate`)
 - API keys configured in `.env`
+- [Incus](incus-bots.md) available for bot sandboxes — the tutorial's config uses `"type": "incus"`; use `"type": "just-bash"` if Incus is not installed
 
 ## Project Structure
 
 First, understand the basic structure:
 
 ```
-my-project/
+ai-army/
 ├── config.json           # Main configuration
 ├── bots/                 # Bot definitions
 │   └── my-bot/
@@ -23,21 +24,22 @@ my-project/
 └── data/                 # Bot workspaces (auto-created)
 ```
 
-## Step 1: Get the Source
+## Step 1: Set Up Your Project
 
-The `ai-army` package is not published on npm yet, so start from a clone of the repository (see [Installation](installation.md)):
+If you haven't already, clone and install AI Army (full details in [installation.md](installation.md)):
 
 ```bash
-git clone https://github.com/developerz-ai/ai-army.git my-ai-army
-cd my-ai-army
+git clone https://github.com/developerz-ai/ai-army.git
+cd ai-army
 npm install
+cp config.example.json config.json   # skip if you already have a config.json
 ```
 
-This gives you:
-- `config.json` with default settings
-- the `bots/` directory
-- `.env.example` file
+The repository checkout is your project — no separate scaffold is needed. It provides:
+- `config.json` with default settings (copied from `config.example.json`)
+- `bots/` directory
 - `.gitignore` with sensitive files
+- `.env.example` — copy it to `.env` (`cp .env.example .env`) for your API keys — see the [Configuration Guide](configuration.md)
 
 ## Step 2: Configure Providers
 
@@ -51,8 +53,7 @@ Edit `config.json` to add your AI provider:
       "model": "claude-sonnet-4-5"
     },
     "sandbox": {
-      "type": "docker",
-      "image": "node:22-slim"
+      "type": "incus"
     }
   },
   "providers": {
@@ -141,7 +142,7 @@ You are a helpful coding assistant specialized in JavaScript and Node.js.
 
 ## Limitations
 
-- You work in a sandboxed Docker container
+- You work in a sandboxed Incus container
 - File access is limited to your workspace
 - Network access depends on container configuration
 ```
@@ -364,9 +365,11 @@ Register in your bot config:
 **Problem:** Bot fails to start with "Container creation failed"
 
 **Solution:**
-- Verify Docker is running: `docker ps`
-- Check if image exists: `docker images | grep node`
-- Pull image manually: `docker pull node:22-slim`
+- Verify Incus is running: `incus info`
+- Check whether the image is already on the local daemon: `incus image list`
+- Pre-pull the image into the local daemon — the `images:` remote is read-only, so it can only be the copy source:
+  `incus image copy images:ubuntu/24.04/cloud local: --alias ubuntu/24.04/cloud`
+- Point the bot at the pre-pulled image with `"incusImage": "ubuntu/24.04/cloud"` in `bots/<id>/config.json` — a running dev session (`node bin/cli.js dev`) picks the change up and replaces the container
 
 ### Tool Execution Fails
 
@@ -375,6 +378,7 @@ Register in your bot config:
 **Solution:**
 - Verify tool is listed in `tools` array
 - Check tool permissions in sandbox
+- Review bot logs: run the stack in dev mode (`node bin/cli.js dev`) and watch the console output
 - Check system state: `node bin/cli.js status`
 
 ### Session Not Persisting

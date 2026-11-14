@@ -21,8 +21,8 @@ AI Army uses a two-level configuration system:
       "model": "claude-sonnet-4-5"
     },
     "sandbox": {
-      "type": "docker",
-      "image": "node:22-slim",
+      "type": "incus",
+      "incusImage": "images:ubuntu/24.04/cloud",
       "memory": "512m",
       "cpus": "1.0"
     },
@@ -155,8 +155,8 @@ Default sandbox/container configuration:
 {
   "defaults": {
     "sandbox": {
-      "type": "docker",
-      "image": "node:22-slim",
+      "type": "incus",
+      "incusImage": "images:ubuntu/24.04/cloud",
       "memory": "512m",
       "cpus": "1.0",
       "network": "bridge",
@@ -167,8 +167,7 @@ Default sandbox/container configuration:
 ```
 
 **Options:**
-- `type` (string) - Sandbox type: `"docker"` (default), `"incus"`, or `"just-bash"`
-- `image` (string) - Docker image name (used when `type` is "docker")
+- `type` (string) - Sandbox type: `"incus"` (default) or `"just-bash"`
 - `incusImage` (string, optional) - Incus image alias (used when `type` is "incus")
 - `memory` (string) - Memory limit (e.g., "512m", "1g")
 - `cpus` (string) - CPU limit (e.g., "0.5", "2.0")
@@ -560,7 +559,7 @@ Override default sandbox settings:
 ```json
 {
   "sandbox": {
-    "image": "python:3.11-slim",
+    "incusImage": "images:ubuntu/24.04/cloud",
     "memory": "2g",
     "cpus": "4.0",
     "volumes": ["/data:/workspace/data:ro"]
@@ -568,24 +567,9 @@ Override default sandbox settings:
 }
 ```
 
-#### Docker Configuration (Default)
+#### Incus Configuration (Default)
 
-Use Docker containers (most common):
-
-```json
-{
-  "sandbox": {
-    "type": "docker",
-    "image": "node:22-slim",
-    "memory": "2g",
-    "cpus": 2
-  }
-}
-```
-
-#### Incus Configuration
-
-Use Incus (LXC) containers for stronger isolation and system-level access:
+Use Incus (LXC) containers — the default sandbox:
 
 ```json
 {
@@ -708,7 +692,7 @@ NODE_ENV=production
 Validate your configuration:
 
 ```bash
-npx ai-army validate
+node bin/cli.js validate
 ```
 
 This checks:
@@ -725,7 +709,7 @@ This checks:
 AI Army supports hot reloading configuration without restart:
 
 ```bash
-npx ai-army reload
+node bin/cli.js reload
 ```
 
 Or via API:
@@ -771,10 +755,10 @@ curl -X POST http://localhost:3000/api/admin/reload \
 
 ### Configuration Validation Fails
 
-Run with verbose output:
+Run the validator and read the report — it lists every error with the file it came from:
 
 ```bash
-npx ai-army validate --verbose
+node bin/cli.js validate
 ```
 
 ### Environment Variable Not Found
@@ -792,7 +776,7 @@ Or add to `.env` file.
 1. Check bot ID matches directory name
 2. Verify soul.md file exists
 3. Ensure JSON syntax is valid
-4. Run `npx ai-army validate`
+4. Run `node bin/cli.js validate`
 
 ## Examples
 

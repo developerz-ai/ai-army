@@ -4,7 +4,7 @@
 [![CI Status](https://img.shields.io/github/actions/workflow/status/developerz-ai/ai-army/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/developerz-ai/ai-army/actions)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
 
-**A framework for building multi-bot AI systems with master/worker architecture and Docker isolation.**
+**A framework for building multi-bot AI systems with master/worker architecture and Incus sandboxing.**
 
 Deploy specialized AI bots across distributed workers, each running in isolated containers with persistent memory and custom tools.
 
@@ -15,7 +15,7 @@ Deploy specialized AI bots across distributed workers, each running in isolated 
 | Feature | Description |
 |---------|-------------|
 | 🤖 **Multi-Bot Architecture** | Run multiple specialized AI bots with unique personalities and tools |
-| 🔧 **Docker Isolation** | Each bot runs in sandboxed containers with resource limits |
+| 🔒 **Incus Sandboxing** | Each bot runs in an Incus container with resource limits |
 | 📡 **Multi-Channel Support** | Deploy bots to Slack, Discord, REST API, and custom channels |
 | 🔌 **MCP Tool Integration** | Built-in support for Model Context Protocol tools |
 | 💾 **Persistent Memory** | Conversation history with automatic summarization |
@@ -95,52 +95,83 @@ graph TB
 
 ---
 
+## 📋 Requirements
+
+- **Node.js** >= 22 ([nodejs.org](https://nodejs.org/))
+- **PostgreSQL** 18 — the bundled `docker-compose.yml` runs `postgres:18-alpine`
+- **Docker Compose** — for the PostgreSQL service only (bots are not Docker-sandboxed)
+- **Incus** — bot sandboxing ([Incus bots](docs/getting-started/incus-bots.md))
+- **Provider API keys** for the providers you use — `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` — plus `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` / `SLACK_SIGNING_SECRET` and `DISCORD_BOT_TOKEN` when those channels are configured
+
 ## 🚀 Quick Start
 
+AI Army is installed **from source** — there is no npm package.
+
 ```bash
+# Get the source
+git clone https://github.com/developerz-ai/ai-army.git
+cd ai-army
+
 # Install dependencies
 npm install
 
-# Set up database
+# Create your config
+cp config.example.json config.json
+
+# Start PostgreSQL 18
+docker compose up -d --wait postgres
+
+# Hand the CLI its database connection — migrate reads DATABASE_URL from the
+# environment (a repo-root .env would also work, but this flow creates none)
+export DATABASE_URL=postgresql://ai_army:ai_army_dev@localhost:5432/ai_army
+
+# Create the database schema
 node bin/cli.js migrate
 
 # Validate configuration
 node bin/cli.js validate
 
-# Start with Docker Compose (recommended)
-docker-compose up -d
-
-# Or start directly
-npm start
+# Start the stack in development mode
+node bin/cli.js dev
 ```
 
 **First bot in 30 seconds:**
 
 ```bash
-# Create bot directory
+# Create the bot directory
 mkdir -p bots/my-bot
+```
 
-# Create bot config
-cat > bots/my-bot/config.json << 'EOF'
+**`bots/my-bot/config.json`:**
+
+```json
 {
-  "name": "My Bot",
-  "model": "claude-sonnet-4-5",
-  "channels": ["slack"],
-  "tools": ["bash", "read_file"]
+  "id": "my-bot",
+  "soul": "./soul.md",
+  "provider": "openrouter",
+  "model": "openrouter/anthropic/claude-sonnet-4.5",
+  "tools": ["bash", "readFile", "writeFile"],
+  "sandbox": {
+    "type": "incus"
+  }
 }
-EOF
+```
 
-# Create personality
-cat > bots/my-bot/soul.md << 'EOF'
+**`bots/my-bot/soul.md`:**
+
+```markdown
 You are a helpful AI assistant that helps developers with code.
-EOF
+```
 
-# Validate the configuration
+```bash
+# Validate, then reload the running stack
 node bin/cli.js validate
 
 # Reload (validate-only outside "npm run dev"; per-bot reload: POST /api/admin/bots/<bot-id>/reload)
 node bin/cli.js reload
 ```
+
+Bots are discovered by their directory (`bots/<id>/config.json`) — no root-config registration needed.
 
 ---
 
@@ -148,7 +179,8 @@ node bin/cli.js reload
 
 - **[Architecture Guide](docs/architecture.md)** - Master/worker design, data flow, scaling patterns
 - **[Configuration Guide](docs/configuration.md)** - Bot configs, channels, workers, secrets
-- **[Deployment Guide](docs/deployment.md)** - Docker, VPS, cloud deployment strategies
+- **[Incus Bots](docs/getting-started/incus-bots.md)** - Bot sandboxing: images, profiles, resource limits
+- **[Deployment Guide](docs/deployment.md)** - Docker Compose stack, VPS, and cloud deployment
 - **[Development Guide](docs/development.md)** - Contributing, testing, debugging
 
 **Full documentation site:** [https://developerz-ai.github.io/ai-army](https://developerz-ai.github.io/ai-army)
@@ -161,42 +193,38 @@ node bin/cli.js reload
 - **`work-bot`** - Productivity assistant with calendar and task management
 - **`code-bot`** - Code review and debugging assistant
 
-See [bots/](bots/) for example bot definitions.
+Bot definitions live in [`bots/`](bots/) — one directory per bot with `config.json` and `soul.md`; [`templates/`](templates/) holds reusable instance and worker templates.
 
 ---
 
 ## 🔧 Configuration
 
+Configuration lives in `config.json` at the repo root (defaults, providers, database, channels, MCP servers); each bot is configured by its own `bots/<id>/config.json`. Copy the ready-to-use example: `cp config.example.json config.json`. Secrets are `${ENV_VAR}` references — written as `${VAR:-default}` when a fallback makes sense — never inlined values.
+
 Minimal `config.json`:
 
 ```json
 {
-  "bots": [
-    {
-      "id": "assistant",
-      "name": "Assistant",
-      "personality": "bots/assistant/soul.md",
-      "model": "claude-sonnet-4-5",
-      "channels": ["slack"],
-      "tools": ["bash", "read_file", "write_file"]
+  "defaults": {
+    "model": {
+      "provider": "openrouter",
+      "model": "openrouter/anthropic/claude-sonnet-4.5"
+    },
+    "sandbox": {
+      "type": "incus"
     }
-  ],
-  "channels": {
-    "slack": {
-      "token": "${SLACK_BOT_TOKEN}",
-      "signingSecret": "${SLACK_SIGNING_SECRET}"
+  },
+  "providers": {
+    "openrouter": {
+      "type": "openrouter",
+      "apiKey": "${OPENROUTER_API_KEY:-}"
     }
   },
   "database": {
-    "url": "${DATABASE_URL}"
+    "url": "${DATABASE_URL:-postgresql://ai_army:ai_army_dev@localhost:5432/ai_army}"
   },
-  "workers": [
-    {
-      "id": "local",
-      "type": "local",
-      "maxContainers": 5
-    }
-  ]
+  "channels": {},
+  "mcpServers": {}
 }
 ```
 

@@ -14,7 +14,7 @@ An AI worker deployment project powered by [AI Army](https://github.com/develope
 ### 1. Install AI Army
 
 ```bash
-npm install -g ai-army
+npm install -g github:developerz-ai/ai-army
 ```
 
 ### 2. Configure Environment
