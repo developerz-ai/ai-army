@@ -138,8 +138,8 @@ EOF
 # Validate the configuration
 node bin/cli.js validate
 
-# Reload
-node bin/cli.js reload my-bot
+# Reload (validate-only outside "npm run dev"; per-bot reload: POST /api/admin/bots/<bot-id>/reload)
+node bin/cli.js reload
 ```
 
 ---
